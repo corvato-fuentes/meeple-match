@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 @theme inline {
@@ -12,15 +12,19 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Native date/time pickers default to a dark icon on dark backgrounds, making them invisible */
+input[type="date"],
+input[type="time"] {
+  color-scheme: dark;
+}
+
+/* The clock icon is a separate focusable target that steals Tab focus before the next field */
+input[type="time"]::-webkit-calendar-picker-indicator {
+  display: none;
 }

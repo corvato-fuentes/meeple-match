@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// MVP model: no login, security relies on the 32-char adminToken URL being secret.
+// The token itself is never exposed through the public event doc — it lives in
+// events/{code}/private/config, which nothing in the public read flow ever fetches.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /events/{code} {
+      allow read: if true;
+      allow create: if !('adminToken' in request.resource.data);
+      allow update: if !('adminToken' in request.resource.data);
+      allow delete: if false;
+
+      match /private/config {
+        allow read: if true;
+        allow create: if !exists(/databases/$(database)/documents/events/$(code)/private/config);
+        allow update, delete: if false;
+      }
+
+      match /games/{gameId} {
+        allow read: if true;
+        allow create, update: if true;
+        allow delete: if true;
+      }
+
+      match /players/{playerId} {
+        allow read: if true;
+        allow create, update: if true;
+        allow delete: if true;
+      }
+
+      match /tables/{tableId} {
+        allow read: if true;
+        allow create, update: if true;
+        allow delete: if true;
+      }
+    }
+  }
+}
