@@ -351,7 +351,7 @@ export default function AdminPage() {
         <Link href={`/admin/${code}/${adminToken}/players`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
           Ver jugadores →
         </Link>
-        <Link href={`/event/${code}/board`} target='_blank' className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
+        <Link href={`/event/${code}/board`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
           Tablero 📺
         </Link>
         <button onClick={() => setShowQr((v) => !v)}

@@ -462,10 +462,10 @@ export default function EventPage() {
         {isEmpty
           ? <p className="text-sm text-gray-400 mb-6">
               {playerCount === 0
-                ? 'Sos el primero en inscribirte 🎉'
-                : `Todavía nadie cargó juegos — vas a ser el primero 🎉 Ya hay ${playerCount} persona${playerCount !== 1 ? 's' : ''} anotada${playerCount !== 1 ? 's' : ''}.`}
+                ? 'Sos el primero en inscribirte 🎉 Todavía no hay personas registradas.'
+                : `Todavía nadie cargó juegos 🎉 Hasta ahora se registraron ${playerCount} persona${playerCount !== 1 ? 's' : ''}.`}
             </p>
-          : <p className="text-sm text-gray-400 mb-5">Hay {playerCount} persona{playerCount !== 1 ? 's' : ''} inscripta{playerCount !== 1 ? 's' : ''}.</p>
+          : <p className="text-sm text-gray-400 mb-5">Hasta ahora se registraron {playerCount} persona{playerCount !== 1 ? 's' : ''}.</p>
         }
         {myGames.length > 0 && (
           <div className="space-y-2 mb-6">
