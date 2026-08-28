@@ -25,6 +25,8 @@ export default function AdminPage() {
   const [adminCopied, setAdminCopied] = useState(false);
   const [boardUrl, setBoardUrl] = useState('');
   const [showQr, setShowQr] = useState(false);
+  const [seedPromptOpen, setSeedPromptOpen] = useState(false);
+  const [seedCountInput, setSeedCountInput] = useState('');
 
   const [settingsDraft, setSettingsDraft] = useState<MeepleEvent['settings'] | null>(null);
   const [mapUrlDraft, setMapUrlDraft] = useState('');
@@ -79,13 +81,26 @@ export default function AdminPage() {
       : 'No se generaron mesas nuevas — no hay más combinaciones válidas de jugadores, juegos y horarios disponibles ahora mismo.');
   }
 
+  function openSeedPrompt() {
+    if (!event) return;
+    const cap = event.settings.maxPlayers;
+    const remaining = cap != null ? Math.max(0, cap - players.length) : null;
+    if (remaining === 0) { alert('El evento ya alcanzó la capacidad máxima configurada — no se pueden agregar más jugadores de prueba.'); return; }
+    setSeedCountInput(String(remaining ?? 40));
+    setSeedPromptOpen(true);
+  }
+
   async function handleSeedFakeData() {
     if (!event) return;
     const cap = event.settings.maxPlayers;
-    // Fills all the way up to the configured cap (or a default of 40 if uncapped)
-    const count = cap != null ? Math.max(0, cap - players.length) : 40;
-    if (count === 0) { alert('El evento ya alcanzó la capacidad máxima configurada — no se pueden agregar más jugadores de prueba.'); return; }
-    if (!confirm(`Esto va a crear ${count} jugador${count === 1 ? '' : 'es'} de prueba con juegos y votos aleatorios, y proponer mesas. ¿Continuar?`)) return;
+    const remaining = cap != null ? Math.max(0, cap - players.length) : null;
+    const count = parseInt(seedCountInput, 10);
+    if (!Number.isFinite(count) || count <= 0) { alert('Ingresá un número válido mayor a 0.'); return; }
+    if (remaining != null && count > remaining) {
+      alert(`Solo quedan ${remaining} lugares libres — no se pueden crear ${count} jugadores de prueba.`);
+      return;
+    }
+    setSeedPromptOpen(false);
     setSeeding(true);
     setGenerateMsg(null);
     const drafts = generateFakePlayers(count, event);
@@ -369,12 +384,37 @@ export default function AdminPage() {
       {/* Debug / demo */}
       <section className='border border-dashed border-amber-700 rounded-xl p-4'>
         <h2 className='font-semibold text-amber-400 text-sm mb-1'>🧪 Modo demo</h2>
-        <p className='text-xs text-gray-500 mb-3'>Genera jugadores de prueba con juegos y votos al azar hasta completar la capacidad máxima configurada (40 si no hay límite), y propone mesas.</p>
+        <p className='text-xs text-gray-500 mb-3'>Te pregunta cuántos jugadores de prueba crear (sin superar la capacidad máxima configurada), genera sus juegos y votos al azar, y propone mesas.</p>
+        {seedPromptOpen && (
+          <div className='flex items-end gap-3 mb-3 flex-wrap'>
+            <div>
+              <label className='text-xs text-gray-400 block mb-1'>
+                ¿Cuántos jugadores de prueba?
+                {event.settings.maxPlayers != null && (
+                  <> (quedan {Math.max(0, event.settings.maxPlayers - players.length)} de {event.settings.maxPlayers} lugares)</>
+                )}
+              </label>
+              <input type='number' min={1} value={seedCountInput} onFocus={(e) => e.target.select()}
+                onChange={(e) => setSeedCountInput(e.target.value)}
+                className='w-32 border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm' />
+            </div>
+            <button onClick={handleSeedFakeData} disabled={seeding}
+              className='bg-amber-700 text-white rounded-lg px-4 py-1.5 text-sm font-semibold hover:bg-amber-600 disabled:opacity-50'>
+              {seeding ? 'Generando...' : 'Crear'}
+            </button>
+            <button onClick={() => setSeedPromptOpen(false)} disabled={seeding}
+              className='border border-gray-700 rounded-lg px-4 py-1.5 text-sm hover:bg-gray-800'>
+              Cancelar
+            </button>
+          </div>
+        )}
         <div className='flex gap-3 flex-wrap'>
-          <button onClick={handleSeedFakeData} disabled={seeding || resetting}
-            className='bg-amber-700 text-white rounded-xl px-5 py-2 font-semibold hover:bg-amber-600 disabled:opacity-50'>
-            {seeding ? 'Generando datos...' : '🧪 Generar jugadores de prueba'}
-          </button>
+          {!seedPromptOpen && (
+            <button onClick={openSeedPrompt} disabled={seeding || resetting}
+              className='bg-amber-700 text-white rounded-xl px-5 py-2 font-semibold hover:bg-amber-600 disabled:opacity-50'>
+              🧪 Generar jugadores de prueba
+            </button>
+          )}
           <button onClick={handleResetAndSeed} disabled={seeding || resetting}
             className='border border-red-700 text-red-400 rounded-xl px-5 py-2 font-semibold hover:bg-red-950 disabled:opacity-50'>
             {resetting ? 'Reseteando...' : '🔄 Resetear y regenerar'}

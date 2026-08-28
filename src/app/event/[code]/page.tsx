@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getEvent, getGames, addPlayer, addGame, getPlayers, getPlayerByTicketCode, findPlayerByContact,
+  getEvent, getGames, addPlayer, addGame, setGameOwner, getPlayers, getPlayerByTicketCode, findPlayerByContact,
 } from '@/lib/firestore';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
@@ -217,7 +217,9 @@ export default function EventPage() {
       name: displayName, firstName: firstName.trim(), lastName: lastName.trim(), alias: alias.trim() || null,
       email: email.trim() || null, phone: phone.trim() || null, arrivalTime, departureTime, ticketCode,
       bringGameIds: savedGameIds, interests: finalInterests, canExplain: [...canExplainGameIds, ...canExplainOtherIds],
-    } as Parameters<typeof addPlayer>[1]);
+    } as Parameters<typeof addPlayer>[1]).then((playerId) =>
+      Promise.all(savedGameIds.map((gameId) => setGameOwner(code, gameId, playerId)))
+    );
     sessionStorage.setItem(STORAGE_KEY(code), ticketCode);
     router.push('/event/' + code + '/me?ticket=' + ticketCode);
   }

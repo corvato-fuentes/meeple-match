@@ -73,6 +73,11 @@ export async function addGame(eventCode: string, game: Omit<Game, 'id'>): Promis
   return ref.id;
 }
 
+/** Patches in the real player id once it exists — games are created before the owning player during registration */
+export async function setGameOwner(eventCode: string, gameId: string, ownerPlayerId: string): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'games', gameId), { ownerPlayerId });
+}
+
 export function subscribeGames(eventCode: string, cb: (games: Game[]) => void) {
   return onSnapshot(collection(db, 'events', eventCode, 'games'), (snap) =>
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Game)))
