@@ -133,7 +133,7 @@ export default function MyTicketPage() {
               ))}
             </div>
           )}
-          <Link href={`/event/${code}/board`} target="_blank"
+          <Link href={`/event/${code}/board`}
             className="block text-center mt-3 text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
             📺 Ver grilla completa
           </Link>
