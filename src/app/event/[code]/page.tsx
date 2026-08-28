@@ -436,10 +436,15 @@ export default function EventPage() {
             {'Alcanzaste el límite de ' + limit + ' juego' + (limit !== 1 ? 's' : '') + ' para este evento.'}
           </p>
         )}
+        {myGames.length === 0 && (
+          <p className="text-xs text-gray-500 mb-5">
+            🎲 ¿No traés ningún juego? No hay problema — vas a poder elegir entre los que traigan otros jugadores.
+          </p>
+        )}
         <div className="flex gap-3">
           <button onClick={() => setStep(1)} className="flex-1 border border-gray-700 rounded-xl py-2 text-sm">← Atrás</button>
           <button onClick={goToStep3} className="flex-1 bg-indigo-600 text-white rounded-xl py-2 font-semibold hover:bg-indigo-700">
-            Siguiente →
+            {myGames.length === 0 ? 'No traigo juegos →' : 'Siguiente →'}
           </button>
         </div>
       </main>

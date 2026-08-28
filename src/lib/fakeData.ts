@@ -8,6 +8,19 @@ const FIRST_NAMES = [
   'Ana', 'Bruno', 'Clara', 'Darío', 'Elena', 'Fran', 'Gaby', 'Hugo', 'Inés', 'Javi',
 ];
 
+const LAST_NAMES = [
+  'González', 'Rodríguez', 'Fernández', 'López', 'Martínez', 'Pérez', 'García', 'Sánchez',
+  'Romero', 'Suárez', 'Torres', 'Álvarez', 'Ruiz', 'Ramírez', 'Flores', 'Acosta',
+  'Benítez', 'Medina', 'Herrera', 'Aguirre', 'Molina', 'Silva', 'Ortiz', 'Núñez',
+  'Rojas', 'Castro', 'Ibáñez', 'Vega', 'Gómez', 'Díaz',
+];
+
+// Only some players get an alias (nickname) — most just go by their real name, like real registrations
+const ALIASES = [
+  'El Tanque', 'La Bestia', 'Manos de Tijera', 'El Mago', 'Doble Seis', 'La Sombra',
+  'El Estratega', 'Piedra Libre', 'El Rápido', 'La Suerte',
+];
+
 const GAME_POOL: Array<{
   name: string; minPlayers: number; maxPlayers: number; durationMinutes: number; complexity: GameComplexity;
 }> = [
@@ -60,7 +73,10 @@ export interface FakeGameDraft {
 }
 
 export interface FakePlayerDraft {
-  name: string;
+  name: string; // display name: alias if assigned, else "firstName lastName"
+  firstName: string;
+  lastName: string;
+  alias: string | null;
   arrivalTime: string;
   departureTime: string;
   games: FakeGameDraft[];
@@ -72,20 +88,29 @@ export function generateFakePlayers(count: number, event: MeepleEvent): FakePlay
   const startMin = toMinutes(event.startTime);
   const endMin = toMinutes(event.endTime);
   const duration = Math.max(endMin - startMin, 120);
-  const names = shuffle(FIRST_NAMES);
+  const firstNames = shuffle(FIRST_NAMES);
+  const lastNames = shuffle(LAST_NAMES);
+  const aliases = shuffle(ALIASES);
 
   return Array.from({ length: count }, (_, i) => {
-    const name = i < names.length ? names[i] : `${names[i % names.length]} ${Math.floor(i / names.length) + 1}`;
+    const firstName = i < firstNames.length ? firstNames[i] : `${firstNames[i % firstNames.length]}${Math.floor(i / firstNames.length) + 1}`;
+    const lastName = lastNames[i % lastNames.length];
+    // Roughly 1 in 4 players goes by an alias instead of their real name, like real registrations
+    const alias = Math.random() < 0.25 ? aliases[i % aliases.length] : null;
+    const name = alias ?? `${firstName} ${lastName}`;
     const arrivalMin = startMin + randInt(0, Math.floor(duration * 0.3));
     const minDeparture = Math.min(arrivalMin + 120, endMin);
     const departureMin = Math.max(minDeparture, endMin - randInt(0, Math.floor(duration * 0.3)));
-    const numGames = randInt(1, 3);
+    const numGames = Math.random() < 0.15 ? 0 : randInt(1, 3);
     const games: FakeGameDraft[] = Array.from({ length: numGames }, () => ({
       ...pick(GAME_POOL),
       canExplain: Math.random() < 0.85,
     }));
     return {
       name,
+      firstName,
+      lastName,
+      alias,
       arrivalTime: toTimeString(arrivalMin),
       departureTime: toTimeString(departureMin),
       games,

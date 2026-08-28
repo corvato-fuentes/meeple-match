@@ -256,9 +256,9 @@ export async function seedFakePlayers(eventCode: string, drafts: FakePlayerDraft
 
     batch.set(playerRefs[i], {
       name: draft.name,
-      firstName: draft.name,
-      lastName: '',
-      alias: null,
+      firstName: draft.firstName,
+      lastName: draft.lastName,
+      alias: draft.alias,
       email: null,
       phone: null,
       arrivalTime: draft.arrivalTime,
