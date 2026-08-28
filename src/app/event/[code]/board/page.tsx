@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getEvent, subscribeTables, getPlayers } from '@/lib/firestore';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
+import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import type { MeepleEvent, Table, Player, ScheduledBreak } from '@/lib/types';
 
 const STATUS_LABEL: Record<Table['status'], string> = {
@@ -62,8 +63,9 @@ export default function BoardPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [view, setView] = useState<'grid' | 'cards'>('grid');
-  // Defaults to the public event page; upgraded to the admin dashboard below if opened from there,
-  // read from document.referrer (never put into this page's own URL) so a projected screen never shows the admin token.
+  // Defaults to the public event page; upgraded below (via sessionStorage) if opened from the
+  // admin dashboard or a player's ticket page, so "← Volver" returns to where you actually came from.
+  // Client-side <Link> navigation never updates document.referrer, so that can't be used here.
   const [backHref, setBackHref] = useState(`/event/${code}`);
 
   useEffect(() => {
@@ -76,13 +78,8 @@ export default function BoardPage() {
   }, [code]);
 
   useEffect(() => {
-    if (!document.referrer) return;
-    try {
-      const match = new URL(document.referrer).pathname.match(/^\/admin\/([^/]+)\/([^/]+)\/?$/);
-      if (match && match[1] === code) setBackHref(`/admin/${match[1]}/${match[2]}`);
-    } catch {
-      // ignore malformed referrer
-    }
+    const stored = sessionStorage.getItem(BOARD_RETURN_KEY(code));
+    if (stored) setBackHref(stored);
   }, [code]);
 
   // Live clock — also drives the now/soon/later grouping below

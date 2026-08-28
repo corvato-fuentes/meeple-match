@@ -6,6 +6,7 @@ import {
   getEvent, getPlayerByTicketCode, getGames,
   updatePlayerWishlist, subscribeTables, getPlayerTables,
 } from '@/lib/firestore';
+import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { bggSearchUrl } from '@/lib/bgg';
 import type { MeepleEvent, Player, Game, Table, GameComplexity } from '@/lib/types';
 
@@ -134,6 +135,7 @@ export default function MyTicketPage() {
             </div>
           )}
           <Link href={`/event/${code}/board`}
+            onClick={() => sessionStorage.setItem(BOARD_RETURN_KEY(code), `/event/${code}/me?ticket=${player.ticketCode}`)}
             className="block text-center mt-3 text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
             📺 Ver grilla completa
           </Link>

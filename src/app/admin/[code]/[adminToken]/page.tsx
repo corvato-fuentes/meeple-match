@@ -6,6 +6,7 @@ import { getEvent, verifyAdminToken, updateEventStatus, updateEventSettings, upd
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
 import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
+import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
 export default function AdminPage() {
@@ -351,7 +352,9 @@ export default function AdminPage() {
         <Link href={`/admin/${code}/${adminToken}/players`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
           Ver jugadores →
         </Link>
-        <Link href={`/event/${code}/board`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
+        <Link href={`/event/${code}/board`}
+          onClick={() => sessionStorage.setItem(BOARD_RETURN_KEY(code), adminUrl)}
+          className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
           Tablero 📺
         </Link>
         <button onClick={() => setShowQr((v) => !v)}
