@@ -460,7 +460,11 @@ export default function EventPage() {
         <p className="text-xs text-gray-500 mb-1">Paso 3 de 3</p>
         <h2 className="text-xl font-bold mb-2">¿Qué querés jugar?</h2>
         {isEmpty
-          ? <p className="text-sm text-gray-400 mb-6">Sos el primero en inscribirte 🎉 Ya hay {playerCount} persona{playerCount !== 1 ? 's' : ''} anotada{playerCount !== 1 ? 's' : ''}.</p>
+          ? <p className="text-sm text-gray-400 mb-6">
+              {playerCount === 0
+                ? 'Sos el primero en inscribirte 🎉'
+                : `Todavía nadie cargó juegos — vas a ser el primero 🎉 Ya hay ${playerCount} persona${playerCount !== 1 ? 's' : ''} anotada${playerCount !== 1 ? 's' : ''}.`}
+            </p>
           : <p className="text-sm text-gray-400 mb-5">Hay {playerCount} persona{playerCount !== 1 ? 's' : ''} inscripta{playerCount !== 1 ? 's' : ''}.</p>
         }
         {myGames.length > 0 && (
