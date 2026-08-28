@@ -6,7 +6,7 @@ import {
 import { db } from './firebase';
 import type { MeepleEvent, EventAdminConfig, Game, Player, Table } from './types';
 import type { FakePlayerDraft } from './fakeData';
-import { randomInterest } from './fakeData';
+import { randomInterest, randomOwnGameInterest } from './fakeData';
 import { generateTicketCodeCandidate } from './ticketCode';
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -187,6 +187,11 @@ export function subscribeTables(eventCode: string, cb: (tables: Table[]) => void
   );
 }
 
+/** Adds newly-interested players into an existing table's remaining seats (auto-fill, not a manual edit) */
+export async function fillTableSeats(eventCode: string, tableId: string, playerIds: string[]): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), { playerIds });
+}
+
 // ── Debug / demo seeding ──────────────────────────────────────────────────────
 
 /** Deletes every player, game and table in the event — used to reset before reseeding demo data */
@@ -239,7 +244,7 @@ export async function seedFakePlayers(eventCode: string, drafts: FakePlayerDraft
     const canExplainIds = ownGameIds.filter((_, gi) => draft.games[gi].canExplain);
     const interests: Record<string, string> = {};
     allGameIds.forEach((gid) => {
-      interests[gid] = ownGameIds.includes(gid) ? 'must' : randomInterest();
+      interests[gid] = ownGameIds.includes(gid) ? randomOwnGameInterest() : randomInterest();
     });
 
     batch.set(playerRefs[i], {

@@ -98,3 +98,9 @@ export function randomInterest(): InterestLevel {
   const r = Math.random();
   return r < 0.4 ? 'must' : r < 0.75 ? 'casual' : 'no';
 }
+
+/** Bringing a game doesn't guarantee wanting to play it — some players just share it */
+export function randomOwnGameInterest(): InterestLevel {
+  const r = Math.random();
+  return r < 0.7 ? 'must' : r < 0.9 ? 'casual' : 'no';
+}

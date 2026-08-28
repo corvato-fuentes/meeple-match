@@ -55,6 +55,7 @@ export default function EventPage() {
   const [canExplainOtherIds, setCanExplainOtherIds] = useState<string[]>([]);
   const [editingGameIndex, setEditingGameIndex] = useState<number | null>(null);
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
+  const [ownGameVotes, setOwnGameVotes] = useState<Record<number, InterestLevel>>({});
 
   useEffect(() => {
     if (skipBggSearchRef.current) { skipBggSearchRef.current = false; return; }
@@ -177,6 +178,7 @@ export default function EventPage() {
 
   function goToStep3() {
     setInterests({});
+    setOwnGameVotes({});
     setStep(3);
   }
 
@@ -192,15 +194,18 @@ export default function EventPage() {
     const ticketCode = await generateUniqueTicketCode(code);
     const savedGameIds: string[] = [];
     const canExplainGameIds: string[] = [];
+    const finalInterests = { ...interests };
     for (let i = 0; i < myGames.length; i++) {
       const g = myGames[i];
       const gameId = await addGame(code, { ...g, ownerPlayerId: '__pending__', ownerName: name });
       savedGameIds.push(gameId);
       if (canExplainIds.includes(i)) canExplainGameIds.push(gameId);
+      // Bringing a game doesn't imply wanting to play it — only counts if the player explicitly voted
+      if (ownGameVotes[i]) finalInterests[gameId] = ownGameVotes[i];
     }
     await addPlayer(code, {
       name, email: email.trim() || null, phone: phone.trim() || null, arrivalTime, departureTime, ticketCode,
-      bringGameIds: savedGameIds, interests, canExplain: [...canExplainGameIds, ...canExplainOtherIds],
+      bringGameIds: savedGameIds, interests: finalInterests, canExplain: [...canExplainGameIds, ...canExplainOtherIds],
     } as Parameters<typeof addPlayer>[1]);
     sessionStorage.setItem(STORAGE_KEY(code), ticketCode);
     router.push('/event/' + code + '/me?ticket=' + ticketCode);
@@ -421,6 +426,36 @@ export default function EventPage() {
           ? <p className="text-sm text-gray-400 mb-6">Sos el primero en inscribirte 🎉 Ya hay {playerCount} persona{playerCount !== 1 ? 's' : ''} anotada{playerCount !== 1 ? 's' : ''}.</p>
           : <p className="text-sm text-gray-400 mb-5">Hay {playerCount} persona{playerCount !== 1 ? 's' : ''} inscripta{playerCount !== 1 ? 's' : ''}.</p>
         }
+        {myGames.length > 0 && (
+          <div className="space-y-2 mb-6">
+            <p className="text-xs text-gray-500 -mb-1">Tus juegos — ¿los querés jugar vos también?</p>
+            {myGames.map((g, i) => (
+              <div key={'own-' + i} className="border border-gray-700 rounded-xl px-4 py-3 bg-gray-800">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="font-medium">{g.name}</span>
+                  <span className="text-xs text-gray-500">{g.minPlayers}–{g.maxPlayers}p · {COMPLEXITY_LABEL[g.complexity]}</span>
+                </div>
+                <div className="flex gap-1">
+                  {(['must', 'casual', 'no'] as InterestLevel[]).map((level) => {
+                    const active = ownGameVotes[i] === level;
+                    const cls = active
+                      ? level === 'must' ? 'bg-red-900 border-red-600 text-red-300'
+                        : level === 'casual' ? 'bg-blue-900 border-blue-600 text-blue-300'
+                        : 'bg-gray-700 border-gray-500 text-gray-300'
+                      : 'border-gray-700 text-gray-500 hover:bg-gray-800';
+                    return (
+                      <button key={level}
+                        onClick={() => setOwnGameVotes({ ...ownGameVotes, [i]: level })}
+                        className={'flex-1 py-1 text-xs rounded-lg border transition-colors ' + cls}>
+                        {level === 'must' ? '❤️ Quiero' : level === 'casual' ? '👍 Me sumo' : '👎 Solo lo comparto'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="space-y-2 mb-6">
           {games.map((g) => (
             <div key={g.id} className="border border-gray-700 rounded-xl px-4 py-3 bg-gray-800">

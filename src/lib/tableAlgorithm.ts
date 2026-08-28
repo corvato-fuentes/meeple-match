@@ -172,3 +172,52 @@ export function generateTables(
 
   return proposals;
 }
+
+export interface TableFill {
+  tableId: string;
+  playerIds: string[]; // full updated roster (existing + newly added)
+}
+
+/**
+ * Late joiners never get a seat by re-running generateTables alone, since it only ever proposes
+ * brand-new sessions — it never revisits an already-proposed/confirmed table that still has open
+ * seats. This fills those gaps first with any new must/casual voters who are free at that time.
+ */
+export function fillExistingTables(players: Player[], games: Game[], existingTables: Table[]): TableFill[] {
+  const gameMap = new Map(games.map((g) => [g.id, g]));
+  const busyMap = new Map<string, { start: string; end: string }[]>();
+  players.forEach((p) => busyMap.set(p.id, getBusyWindows(p.id, existingTables)));
+
+  const fills: TableFill[] = [];
+  const fillable = existingTables
+    .filter((t) => t.status === 'proposed' || t.status === 'confirmed')
+    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+
+  for (const table of fillable) {
+    const game = gameMap.get(table.gameId);
+    if (!game) continue;
+    const seatsLeft = game.maxPlayers - table.playerIds.length;
+    if (seatsLeft <= 0) continue;
+
+    const candidates = players
+      .filter((p) =>
+        !table.playerIds.includes(p.id) &&
+        (p.interests[table.gameId] === 'must' || p.interests[table.gameId] === 'casual') &&
+        isAvailable(p, table.startTime, table.endTime, busyMap.get(p.id) ?? [])
+      )
+      // 'must' voters get priority over 'casual' ones for the remaining seats
+      .sort((a, b) => (a.interests[table.gameId] === 'must' ? 0 : 1) - (b.interests[table.gameId] === 'must' ? 0 : 1));
+
+    const added = candidates.slice(0, seatsLeft);
+    if (added.length === 0) continue;
+
+    fills.push({ tableId: table.id, playerIds: [...table.playerIds, ...added.map((p) => p.id)] });
+    added.forEach((p) => {
+      const bw = busyMap.get(p.id) ?? [];
+      bw.push({ start: table.startTime, end: table.endTime });
+      busyMap.set(p.id, bw);
+    });
+  }
+
+  return fills;
+}
