@@ -131,6 +131,10 @@ export default function EventPage() {
   async function handleStep1Next() {
     setContactError('');
     setExistingTicket(null);
+    if (event?.settings.maxPlayers != null && playerCount >= event.settings.maxPlayers) {
+      setContactError('El evento ya alcanzó su capacidad máxima. No se pueden agregar más inscriptos.');
+      return;
+    }
     setCheckingDuplicate(true);
     const existing = await findPlayerByContact(code, email.trim() || null, phone.trim() || null);
     setCheckingDuplicate(false);
@@ -219,6 +223,9 @@ export default function EventPage() {
   }
 
   if (step === 'loading') return <div className="p-8 text-center">Cargando...</div>;
+
+  const isFull = event?.settings.maxPlayers != null && playerCount >= event.settings.maxPlayers;
+
   if (step === 'closed') return (
     <div className="p-8 text-center text-gray-400 space-y-4">
       <p>Este evento no está disponible.</p>
@@ -238,9 +245,15 @@ export default function EventPage() {
       )}
       {!event?.mapUrl && <div className="mb-8" />}
       <div className="space-y-3">
-        <button onClick={() => setStep(1)} className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700">
-          Registrarme
-        </button>
+        {isFull ? (
+          <div className="border border-amber-800 bg-amber-950/30 rounded-xl px-4 py-3 text-sm text-amber-300">
+            🚫 Este evento ya alcanzó su capacidad máxima ({playerCount}/{event?.settings.maxPlayers}). No se pueden agregar más inscriptos.
+          </div>
+        ) : (
+          <button onClick={() => setStep(1)} className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700">
+            Registrarme
+          </button>
+        )}
         <form onSubmit={handleReaccess} className="space-y-2">
           <input className="w-full border border-gray-700 bg-gray-900 rounded-xl px-3 py-2 text-center tracking-widest uppercase font-mono"
             placeholder="MI CÓDIGO" value={ticketInput}
