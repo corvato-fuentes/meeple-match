@@ -77,7 +77,6 @@ export default function AdminPage() {
     setGenerateMsg(parts.length > 0
       ? `✓ ${parts.join(' y ')}.`
       : 'No se generaron mesas nuevas — no hay más combinaciones válidas de jugadores, juegos y horarios disponibles ahora mismo.');
-    setTimeout(() => setGenerateMsg(null), 6000);
   }
 
   async function handleSeedFakeData() {
@@ -106,7 +105,6 @@ export default function AdminPage() {
     setGenerateMsg(proposals.length > 0
       ? `✓ Se agregaron ${count} jugadores de prueba y se generaron ${proposals.length} mesa${proposals.length === 1 ? '' : 's'} nueva${proposals.length === 1 ? '' : 's'}.`
       : `✓ Se agregaron ${count} jugadores de prueba, pero no se generaron mesas nuevas.`);
-    setTimeout(() => setGenerateMsg(null), 6000);
   }
 
 
@@ -124,7 +122,7 @@ export default function AdminPage() {
     await saveProposedTables(code, proposals as any);
     setResetting(false);
     setGenerateMsg(`✓ Se reseteó el evento y se crearon ${count} jugadores de prueba nuevos con ${proposals.length} mesa${proposals.length === 1 ? '' : 's'}.`);
-    setTimeout(() => setGenerateMsg(null), 6000);
+
   }
 
   async function handleStatusChange(status: MeepleEvent['status']) {
@@ -354,8 +352,18 @@ export default function AdminPage() {
           <p className='text-xs text-gray-500'>Escaneá para ver la grilla en vivo</p>
         </div>
       )}
+      {generating && (
+        <div className='flex items-center gap-2 rounded-xl border border-indigo-700 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-300'>
+          <span className='inline-block h-3.5 w-3.5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin' />
+          Generando mesas... esto puede tardar unos segundos con muchos jugadores.
+        </div>
+      )}
       {generateMsg && (
-        <p className={'text-sm ' + (generateMsg.startsWith('✓') ? 'text-green-400' : 'text-amber-400')}>{generateMsg}</p>
+        <div className={'flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ' +
+          (generateMsg.startsWith('✓') ? 'border-green-700 bg-green-950/40 text-green-300' : 'border-amber-700 bg-amber-950/40 text-amber-300')}>
+          <span>{generateMsg}</span>
+          <button onClick={() => setGenerateMsg(null)} className='shrink-0 opacity-60 hover:opacity-100'>✕</button>
+        </div>
       )}
 
       {/* Debug / demo */}
