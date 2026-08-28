@@ -85,13 +85,13 @@ export function generateTables(
   bufferMinutes: number,
   physicalTables: number | null,
   batchNumber: number,
-  lunchBreak: { start: string; end: string } | null = null
+  breaks: { start: string; end: string }[] = []
 ): TableProposal[] {
   const busyMap = new Map<string, { start: string; end: string }[]>();
   players.forEach((p) => {
     const busy = getBusyWindows(p.id, existingTables);
-    // Blocks every player during lunch so no table can be scheduled across it
-    if (lunchBreak) busy.push(lunchBreak);
+    // Blocks every player during scheduled breaks so no table can be scheduled across them
+    busy.push(...breaks);
     busyMap.set(p.id, busy);
   });
   const occupiedTables: { startTime: string; endTime: string }[] = existingTables

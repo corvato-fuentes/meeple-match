@@ -23,6 +23,8 @@ export default function AdminPage() {
   const [copied, setCopied] = useState(false);
   const [adminUrl, setAdminUrl] = useState('');
   const [adminCopied, setAdminCopied] = useState(false);
+  const [boardUrl, setBoardUrl] = useState('');
+  const [showQr, setShowQr] = useState(false);
 
   const [settingsDraft, setSettingsDraft] = useState<MeepleEvent['settings'] | null>(null);
   const [mapUrlDraft, setMapUrlDraft] = useState('');
@@ -49,6 +51,7 @@ export default function AdminPage() {
   useEffect(() => {
     setShareUrl(`${window.location.origin}/event/${code}`);
     setAdminUrl(`${window.location.origin}/admin/${code}/${adminToken}`);
+    setBoardUrl(`${window.location.origin}/event/${code}/board`);
   }, [code, adminToken]);
 
   async function handleGenerate() {
@@ -64,7 +67,7 @@ export default function AdminPage() {
     const batchNumber = currentTables.length > 0
       ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
       : 1;
-    const proposals = generateTables(allPlayers, allGames, currentTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.lunchBreak);
+    const proposals = generateTables(allPlayers, allGames, currentTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks);
     await saveProposedTables(code, proposals as any);
     setGenerating(false);
     const filledSeats = fills.reduce((n, f) => n + (f.playerIds.length - (allTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0)), 0);
@@ -97,7 +100,7 @@ export default function AdminPage() {
     const batchNumber = currentTables.length > 0
       ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
       : 1;
-    const proposals = generateTables(allPlayers, allGames, currentTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.lunchBreak);
+    const proposals = generateTables(allPlayers, allGames, currentTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks);
     await saveProposedTables(code, proposals as any);
     setSeeding(false);
     setGenerateMsg(proposals.length > 0
@@ -117,7 +120,7 @@ export default function AdminPage() {
     const drafts = generateFakePlayers(count, event);
     await seedFakePlayers(code, drafts);
     const [allPlayers, allGames] = await Promise.all([getPlayers(code), getGames(code)]);
-    const proposals = generateTables(allPlayers, allGames, [], event.settings.bufferMinutes, event.settings.physicalTables, 1, event.settings.lunchBreak);
+    const proposals = generateTables(allPlayers, allGames, [], event.settings.bufferMinutes, event.settings.physicalTables, 1, event.settings.breaks);
     await saveProposedTables(code, proposals as any);
     setResetting(false);
     setGenerateMsg(`✓ Se reseteó el evento y se crearon ${count} jugadores de prueba nuevos con ${proposals.length} mesa${proposals.length === 1 ? '' : 's'}.`);
@@ -278,30 +281,40 @@ export default function AdminPage() {
         </div>
 
         <div className='border-t border-gray-800 pt-3 space-y-2'>
-          <div className='flex items-center gap-2'>
-            <input type='checkbox' id='lunchBreak'
-              checked={settingsDraft.lunchBreak != null}
-              onChange={(e) => handleDraftChange('lunchBreak', e.target.checked ? { start: '13:00', end: '14:00' } : null)} />
-            <label htmlFor='lunchBreak' className='text-sm'>Agregar descanso para almuerzo</label>
+          <div className='flex items-center justify-between'>
+            <p className='text-sm font-medium'>Descansos programados</p>
+            <button onClick={() => handleDraftChange('breaks', [...settingsDraft.breaks, { label: 'Almuerzo', start: '13:00', end: '14:00' }])}
+              className='text-xs border border-gray-700 rounded-lg px-2 py-1 hover:bg-gray-800'>
+              + Agregar descanso
+            </button>
           </div>
-          {settingsDraft.lunchBreak && (
-            <div className='grid grid-cols-2 gap-3 pl-6'>
+          <p className='text-xs text-gray-500'>Ningún juego se agenda durante estos horarios (almuerzo, cena, cierre, etc.). Se muestran en la grilla.</p>
+          {settingsDraft.breaks.map((b, i) => (
+            <div key={i} className='grid grid-cols-[1fr_auto_auto_auto] gap-2 items-end'>
+              <div>
+                <label className='text-xs text-gray-400 block mb-1'>Nombre</label>
+                <input type='text' value={b.label}
+                  className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+                  onChange={(e) => handleDraftChange('breaks', settingsDraft.breaks.map((x, xi) => xi === i ? { ...x, label: e.target.value } : x))} />
+              </div>
               <div>
                 <label className='text-xs text-gray-400 block mb-1'>Desde</label>
-                <input type='time'
-                  className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
-                  value={settingsDraft.lunchBreak.start}
-                  onChange={(e) => handleDraftChange('lunchBreak', { ...settingsDraft.lunchBreak!, start: e.target.value })} />
+                <input type='time' value={b.start}
+                  className='border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+                  onChange={(e) => handleDraftChange('breaks', settingsDraft.breaks.map((x, xi) => xi === i ? { ...x, start: e.target.value } : x))} />
               </div>
               <div>
                 <label className='text-xs text-gray-400 block mb-1'>Hasta</label>
-                <input type='time'
-                  className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
-                  value={settingsDraft.lunchBreak.end}
-                  onChange={(e) => handleDraftChange('lunchBreak', { ...settingsDraft.lunchBreak!, end: e.target.value })} />
+                <input type='time' value={b.end}
+                  className='border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+                  onChange={(e) => handleDraftChange('breaks', settingsDraft.breaks.map((x, xi) => xi === i ? { ...x, end: e.target.value } : x))} />
               </div>
+              <button onClick={() => handleDraftChange('breaks', settingsDraft.breaks.filter((_, xi) => xi !== i))}
+                className='text-red-400 hover:text-red-300 text-xs border border-gray-700 rounded-lg px-2 py-1.5'>
+                ✕
+              </button>
             </div>
-          )}
+          ))}
         </div>
 
         <div className='flex items-center gap-3 pt-1'>
@@ -328,7 +341,19 @@ export default function AdminPage() {
         <Link href={`/event/${code}/board`} target='_blank' className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
           Tablero 📺
         </Link>
+        <button onClick={() => setShowQr((v) => !v)}
+          className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
+          📱 QR de la grilla
+        </button>
       </div>
+      {showQr && boardUrl && (
+        <div className='flex flex-col items-center gap-2 border border-gray-700 rounded-xl p-4 w-fit'>
+          <img
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(boardUrl)}`}
+            alt='QR hacia la grilla del evento' width={220} height={220} className='rounded-lg bg-white p-2' />
+          <p className='text-xs text-gray-500'>Escaneá para ver la grilla en vivo</p>
+        </div>
+      )}
       {generateMsg && (
         <p className={'text-sm ' + (generateMsg.startsWith('✓') ? 'text-green-400' : 'text-amber-400')}>{generateMsg}</p>
       )}

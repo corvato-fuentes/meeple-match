@@ -43,12 +43,17 @@ export default function PlayersPage() {
         <div className='space-y-3'>
           {players.map((p) => {
             const myTables = getPlayerTables(p.id, tables);
+            const votedCount = Object.values(p.interests).filter((v) => v === 'must' || v === 'casual' || v === 'no').length;
+            const likedCount = Object.values(p.interests).filter((v) => v === 'must' || v === 'casual').length;
             return (
               <div key={p.id} className='border border-gray-700 rounded-xl p-4 bg-gray-800'>
                 <div className='flex justify-between items-start'>
                   <div>
                     <p className='font-semibold'>{p.name}</p>
                     <p className='text-sm text-gray-400'>{p.arrivalTime}–{p.departureTime} · ticket: <span className='font-mono'>{p.ticketCode}</span></p>
+                    <p className={'text-xs mt-0.5 ' + (votedCount === 0 ? 'text-amber-400' : 'text-gray-500')}>
+                      {votedCount === 0 ? '⚠️ No votó ningún juego' : `Votó ${votedCount} juego${votedCount !== 1 ? 's' : ''} · le gustaron ${likedCount}`}
+                    </p>
                   </div>
                   <span className='text-xs text-gray-500'>{myTables.length} mesa{myTables.length !== 1 ? 's' : ''}</span>
                 </div>

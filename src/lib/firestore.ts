@@ -13,7 +13,14 @@ import { generateTicketCodeCandidate } from './ticketCode';
 
 export async function getEvent(code: string): Promise<MeepleEvent | null> {
   const snap = await getDoc(doc(db, 'events', code));
-  return snap.exists() ? (snap.data() as MeepleEvent) : null;
+  if (!snap.exists()) return null;
+  const data = snap.data() as MeepleEvent;
+  // Migrates events created before "breaks" existed (or its old single-lunchBreak shape)
+  if (!Array.isArray(data.settings?.breaks)) {
+    const legacyLunch = (data.settings as unknown as { lunchBreak?: { start: string; end: string } })?.lunchBreak;
+    data.settings = { ...data.settings, breaks: legacyLunch ? [{ label: 'Almuerzo', ...legacyLunch }] : [] };
+  }
+  return data;
 }
 
 export async function createEvent(
@@ -249,6 +256,9 @@ export async function seedFakePlayers(eventCode: string, drafts: FakePlayerDraft
 
     batch.set(playerRefs[i], {
       name: draft.name,
+      firstName: draft.name,
+      lastName: '',
+      alias: null,
       email: null,
       phone: null,
       arrivalTime: draft.arrivalTime,

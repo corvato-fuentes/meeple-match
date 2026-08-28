@@ -31,7 +31,9 @@ export default function EventPage() {
   const [ticketInput, setTicketInput] = useState('');
   const [ticketError, setTicketError] = useState('');
 
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [alias, setAlias] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [arrivalTime, setArrivalTime] = useState('');
@@ -189,6 +191,7 @@ export default function EventPage() {
   async function handleSubmit() {
     if (!event || submitting) return;
     setSubmitting(true);
+    const displayName = alias.trim() || `${firstName.trim()} ${lastName.trim()}`.trim();
     const maxPlayers = event.settings.maxPlayers;
     if (maxPlayers != null && playerCount >= maxPlayers) { alert('El evento está completo.'); setSubmitting(false); return; }
     const ticketCode = await generateUniqueTicketCode(code);
@@ -197,14 +200,15 @@ export default function EventPage() {
     const finalInterests = { ...interests };
     for (let i = 0; i < myGames.length; i++) {
       const g = myGames[i];
-      const gameId = await addGame(code, { ...g, ownerPlayerId: '__pending__', ownerName: name });
+      const gameId = await addGame(code, { ...g, ownerPlayerId: '__pending__', ownerName: displayName });
       savedGameIds.push(gameId);
       if (canExplainIds.includes(i)) canExplainGameIds.push(gameId);
       // Bringing a game doesn't imply wanting to play it — only counts if the player explicitly voted
       if (ownGameVotes[i]) finalInterests[gameId] = ownGameVotes[i];
     }
     await addPlayer(code, {
-      name, email: email.trim() || null, phone: phone.trim() || null, arrivalTime, departureTime, ticketCode,
+      name: displayName, firstName: firstName.trim(), lastName: lastName.trim(), alias: alias.trim() || null,
+      email: email.trim() || null, phone: phone.trim() || null, arrivalTime, departureTime, ticketCode,
       bringGameIds: savedGameIds, interests: finalInterests, canExplain: [...canExplainGameIds, ...canExplainOtherIds],
     } as Parameters<typeof addPlayer>[1]);
     sessionStorage.setItem(STORAGE_KEY(code), ticketCode);
@@ -252,10 +256,22 @@ export default function EventPage() {
       <p className="text-xs text-gray-500 mb-1">Paso 1 de 3</p>
       <h2 className="text-xl font-bold mb-6">¿Quién sos?</h2>
       <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Nombre</label>
+            <input className="w-full border border-gray-700 bg-gray-900 rounded-xl px-3 py-2" value={firstName}
+              onChange={(e) => setFirstName(e.target.value)} placeholder="Nombre" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Apellido</label>
+            <input className="w-full border border-gray-700 bg-gray-900 rounded-xl px-3 py-2" value={lastName}
+              onChange={(e) => setLastName(e.target.value)} placeholder="Apellido" />
+          </div>
+        </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Nombre o apodo</label>
-          <input className="w-full border border-gray-700 bg-gray-900 rounded-xl px-3 py-2" value={name}
-            onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" />
+          <label className="block text-sm font-medium mb-1">Alias (opcional)</label>
+          <input className="w-full border border-gray-700 bg-gray-900 rounded-xl px-3 py-2" value={alias}
+            onChange={(e) => setAlias(e.target.value)} placeholder="Cómo te dicen — se muestra en vez del nombre" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -296,7 +312,7 @@ export default function EventPage() {
             )}
           </div>
         )}
-        <button disabled={!name || !arrivalTime || !departureTime || (event?.settings.phoneRequired ? !phone.trim() : (!email.trim() && !phone.trim())) || checkingDuplicate}
+        <button disabled={!firstName.trim() || !lastName.trim() || !arrivalTime || !departureTime || (event?.settings.phoneRequired ? !phone.trim() : (!email.trim() && !phone.trim())) || checkingDuplicate}
           onClick={handleStep1Next}
           className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700 disabled:opacity-40">
           {checkingDuplicate ? 'Verificando...' : 'Siguiente →'}

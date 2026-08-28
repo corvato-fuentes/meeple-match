@@ -52,7 +52,7 @@ export default function LandingPage() {
           maxGamesPerPlayer: null,
           phoneRequired: false,
           physicalTables: null,
-          lunchBreak: null,
+          breaks: [],
         },
       });
       saveMyEvent({ code, adminToken, name: form.name, date: form.date });

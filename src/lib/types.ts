@@ -5,6 +5,12 @@ export type GameComplexity = "light" | "medium" | "heavy";
 export type InterestLevel = "must" | "casual" | "no";
 export type TableStatus = "proposed" | "confirmed" | "in-progress" | "completed" | "cancelled";
 
+export interface ScheduledBreak {
+  label: string;
+  start: string;
+  end: string;
+}
+
 export interface EventSettings {
   bufferMinutes: number;
   autoGenerate: boolean;
@@ -12,7 +18,7 @@ export interface EventSettings {
   maxGamesPerPlayer: number | null;
   phoneRequired: boolean;
   physicalTables: number | null;
-  lunchBreak: { start: string; end: string } | null;
+  breaks: ScheduledBreak[];
 }
 
 export interface MeepleEvent {
@@ -45,7 +51,10 @@ export interface Game {
 
 export interface Player {
   id: string;
-  name: string;
+  name: string; // display name: alias if provided, else "firstName lastName"
+  firstName: string;
+  lastName: string;
+  alias: string | null;
   email: string | null;
   phone: string | null;
   arrivalTime: string;

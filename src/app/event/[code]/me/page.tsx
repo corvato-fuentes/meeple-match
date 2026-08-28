@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames,
   updatePlayerWishlist, subscribeTables, getPlayerTables,
@@ -33,6 +34,7 @@ export default function MyTicketPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [showDismissed, setShowDismissed] = useState(false);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? sessionStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -80,10 +82,10 @@ export default function MyTicketPage() {
 
   const otherGames = games.filter((g) => g.ownerPlayerId !== player.id);
   const wishlistGames = otherGames.filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual');
-  // Unvoted games stay on top; games voted "no" sink to the bottom. Voted must/casual moved out entirely (they live in the wishlist column).
+  // Unvoted games stay on top; "no"-voted games are collapsed into a separate section below.
   const availableGames = otherGames
-    .filter((g) => interests[g.id] !== 'must' && interests[g.id] !== 'casual')
-    .sort((a, b) => (interests[a.id] === 'no' ? 1 : 0) - (interests[b.id] === 'no' ? 1 : 0));
+    .filter((g) => interests[g.id] !== 'must' && interests[g.id] !== 'casual' && interests[g.id] !== 'no');
+  const dismissedGames = otherGames.filter((g) => interests[g.id] === 'no');
   const confirmedTables = myTables.filter((t) =>
     ['confirmed', 'in-progress', 'proposed'].includes(t.status)
   );
@@ -131,6 +133,10 @@ export default function MyTicketPage() {
               ))}
             </div>
           )}
+          <Link href={`/event/${code}/board`} target="_blank"
+            className="block text-center mt-3 text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
+            📺 Ver grilla completa
+          </Link>
         </section>
       </div>
 
@@ -146,6 +152,23 @@ export default function MyTicketPage() {
                   canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
               ))}
             </div>
+            {dismissedGames.length > 0 && (
+              <div className="mt-3">
+                <button onClick={() => setShowDismissed((v) => !v)}
+                  className="text-xs text-gray-500 hover:text-gray-300">
+                  {showDismissed ? '▾' : '▸'} Ocultados ({dismissedGames.length})
+                </button>
+                {showDismissed && (
+                  <div className="space-y-2 mt-2">
+                    {dismissedGames.map((g) => (
+                      <GameVoteCard key={g.id} game={g} interest={interests[g.id]}
+                        onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
+                        canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div>

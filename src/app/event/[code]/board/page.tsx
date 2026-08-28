@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { getEvent, subscribeTables, getPlayers } from '@/lib/firestore';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
-import type { MeepleEvent, Table, Player } from '@/lib/types';
+import type { MeepleEvent, Table, Player, ScheduledBreak } from '@/lib/types';
 
 const STATUS_LABEL: Record<Table['status'], string> = {
   proposed: 'Propuesta',
@@ -198,9 +198,11 @@ export default function BoardPage() {
               tables={tables} nowMinutes={eventIsToday ? nowMinutes : null}
               physicalTables={event?.settings.physicalTables ?? null}
               eventStartTime={event?.startTime ?? null} eventEndTime={event?.endTime ?? null}
+              breaks={event?.settings.breaks ?? []}
             />
           ) : (
             <div className='space-y-10'>
+              <BreaksBanner breaks={event?.settings.breaks ?? []} />
               <TableSection
                 title='🟢 En curso ahora' tables={active} playerMap={playerMap} slotMap={physicalSlotByTableId}
                 cardClass='border-green-600 bg-gray-800'
@@ -248,30 +250,39 @@ function buildBuckets(tables: Table[], eventStartTime: string | null, eventEndTi
 interface GridCell {
   span: number;
   table: Table | null;
+  breakLabel?: string;
 }
 
-function buildRowCells(rowTables: Table[], buckets: number[]): GridCell[] {
+function buildRowCells(rowTables: Table[], buckets: number[], breaks: ScheduledBreak[]): GridCell[] {
   const findAt = (b: number) => rowTables.find((t) => toMinutes(t.startTime) <= b && toMinutes(t.endTime) > b) ?? null;
+  const findBreakAt = (b: number) => breaks.find((br) => toMinutes(br.start) <= b && toMinutes(br.end) > b) ?? null;
   const cells: GridCell[] = [];
   let i = 0;
   while (i < buckets.length) {
     const t = findAt(buckets[i]);
+    const br = t ? null : findBreakAt(buckets[i]);
     let span = 1;
-    while (i + span < buckets.length && findAt(buckets[i + span]) === t) span++;
-    cells.push({ span, table: t });
+    while (i + span < buckets.length) {
+      const nextT = findAt(buckets[i + span]);
+      const nextBr = nextT ? null : findBreakAt(buckets[i + span]);
+      if (nextT !== t || (br?.label ?? null) !== (nextBr?.label ?? null)) break;
+      span++;
+    }
+    cells.push({ span, table: t, breakLabel: br?.label });
     i += span;
   }
   return cells;
 }
 
 function ScheduleGrid({
-  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime,
+  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks,
 }: {
   tables: Table[];
   nowMinutes: number | null;
   physicalTables: number | null;
   eventStartTime: string | null;
   eventEndTime: string | null;
+  breaks: ScheduledBreak[];
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
   const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables), [activeTables]);
@@ -301,7 +312,7 @@ function ScheduleGrid({
           <tbody>
             {Array.from({ length: rowCount }, (_, slotIdx) => {
               const rowTables = assignments.filter((a) => a.slot === slotIdx).map((a) => a.table);
-              const cells = buildRowCells(rowTables, buckets);
+              const cells = buildRowCells(rowTables, buckets, breaks);
               return (
                 <tr key={slotIdx} className='border-t border-gray-800'>
                   <td className='p-2 font-semibold text-yellow-400 whitespace-nowrap sticky left-0 bg-gray-900'>
@@ -310,10 +321,14 @@ function ScheduleGrid({
                   {cells.map((cell, ci) => (
                     <td key={ci} colSpan={cell.span}
                       className={'p-1.5 text-center align-middle border-l border-gray-800'}>
-                      {cell.table && (
+                      {cell.table ? (
                         <div className={'rounded-lg border px-2 py-1.5 ' + colorForGame(cell.table.gameName)}>
                           <div className='font-medium text-xs'>{cell.table.gameName}</div>
                           <div className='text-[11px] opacity-75'>{cell.table.startTime}–{cell.table.endTime}</div>
+                        </div>
+                      ) : cell.breakLabel && (
+                        <div className='rounded-lg border border-dashed border-gray-600 bg-gray-800/60 text-gray-400 px-2 py-1.5'>
+                          <div className='text-xs'>🍽️ {cell.breakLabel}</div>
                         </div>
                       )}
                     </td>
@@ -325,6 +340,19 @@ function ScheduleGrid({
         </table>
       </div>
     </section>
+  );
+}
+
+function BreaksBanner({ breaks }: { breaks: ScheduledBreak[] }) {
+  if (breaks.length === 0) return null;
+  return (
+    <div className='flex flex-wrap gap-2'>
+      {breaks.map((b, i) => (
+        <span key={i} className='text-sm border border-dashed border-gray-600 text-gray-400 rounded-full px-3 py-1'>
+          🍽️ {b.label}: {b.start}–{b.end}
+        </span>
+      ))}
+    </div>
   );
 }
 
