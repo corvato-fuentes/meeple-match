@@ -2,11 +2,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, updateEventStatus, updateEventSettings, updateEventDetails, subscribePlayers, subscribeTables, saveProposedTables, getTables, getPlayers, getGames, seedFakePlayers, resetEventData, fillTableSeats } from '@/lib/firestore';
-import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
+import { getEvent, verifyAdminToken, updateEventStatus, updateEventSettings, updateEventDetails, subscribePlayers, subscribeTables, getPlayers, getGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
 import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
+import { runTableGeneration } from '@/lib/tableGeneration';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
 export default function AdminPage() {
@@ -61,22 +61,11 @@ export default function AdminPage() {
     if (!event) return;
     setGenerating(true);
     setGenerateMsg(null);
-    const [allPlayers, allGames, allTables] = await Promise.all([
-      getPlayers(code), getGames(code), getTables(code),
-    ]);
-    const fills = fillExistingTables(allPlayers, allGames, allTables);
-    for (const fill of fills) await fillTableSeats(code, fill.tableId, fill.playerIds);
-    const currentTables = fills.length > 0 ? await getTables(code) : allTables;
-    const batchNumber = currentTables.length > 0
-      ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
-      : 1;
-    const proposals = generateTables(allPlayers, allGames, currentTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks);
-    await saveProposedTables(code, proposals as any);
+    const { filledSeats, newTables } = await runTableGeneration(code, event);
     setGenerating(false);
-    const filledSeats = fills.reduce((n, f) => n + (f.playerIds.length - (allTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0)), 0);
     const parts = [];
     if (filledSeats > 0) parts.push(`se sumaron ${filledSeats} jugador${filledSeats === 1 ? '' : 'es'} a mesas existentes`);
-    if (proposals.length > 0) parts.push(`se generaron ${proposals.length} mesa${proposals.length === 1 ? '' : 's'} nueva${proposals.length === 1 ? '' : 's'}`);
+    if (newTables > 0) parts.push(`se generaron ${newTables} mesa${newTables === 1 ? '' : 's'} nueva${newTables === 1 ? '' : 's'}`);
     setGenerateMsg(parts.length > 0
       ? `✓ ${parts.join(' y ')}.`
       : 'No se generaron mesas nuevas — no hay más combinaciones válidas de jugadores, juegos y horarios disponibles ahora mismo.');
@@ -106,20 +95,10 @@ export default function AdminPage() {
     setGenerateMsg(null);
     const drafts = generateFakePlayers(count, event);
     await seedFakePlayers(code, drafts);
-    const [allPlayers, allGames, allTables] = await Promise.all([
-      getPlayers(code), getGames(code), getTables(code),
-    ]);
-    const fills = fillExistingTables(allPlayers, allGames, allTables);
-    for (const fill of fills) await fillTableSeats(code, fill.tableId, fill.playerIds);
-    const currentTables = fills.length > 0 ? await getTables(code) : allTables;
-    const batchNumber = currentTables.length > 0
-      ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
-      : 1;
-    const proposals = generateTables(allPlayers, allGames, currentTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks);
-    await saveProposedTables(code, proposals as any);
+    const { newTables } = await runTableGeneration(code, event);
     setSeeding(false);
-    setGenerateMsg(proposals.length > 0
-      ? `✓ Se agregaron ${count} jugadores de prueba y se generaron ${proposals.length} mesa${proposals.length === 1 ? '' : 's'} nueva${proposals.length === 1 ? '' : 's'}.`
+    setGenerateMsg(newTables > 0
+      ? `✓ Se agregaron ${count} jugadores de prueba y se generaron ${newTables} mesa${newTables === 1 ? '' : 's'} nueva${newTables === 1 ? '' : 's'}.`
       : `✓ Se agregaron ${count} jugadores de prueba, pero no se generaron mesas nuevas.`);
   }
 
@@ -133,12 +112,9 @@ export default function AdminPage() {
     const count = event.settings.maxPlayers ?? 40;
     const drafts = generateFakePlayers(count, event);
     await seedFakePlayers(code, drafts);
-    const [allPlayers, allGames] = await Promise.all([getPlayers(code), getGames(code)]);
-    const proposals = generateTables(allPlayers, allGames, [], event.settings.bufferMinutes, event.settings.physicalTables, 1, event.settings.breaks);
-    await saveProposedTables(code, proposals as any);
+    const { newTables } = await runTableGeneration(code, event);
     setResetting(false);
-    setGenerateMsg(`✓ Se reseteó el evento y se crearon ${count} jugadores de prueba nuevos con ${proposals.length} mesa${proposals.length === 1 ? '' : 's'}.`);
-
+    setGenerateMsg(`✓ Se reseteó el evento y se crearon ${count} jugadores de prueba nuevos con ${newTables} mesa${newTables === 1 ? '' : 's'}.`);
   }
 
   async function handleStatusChange(status: MeepleEvent['status']) {

@@ -6,6 +6,7 @@ import {
   getEvent, getPlayerByTicketCode, getGames,
   updatePlayerWishlist, subscribeTables, getPlayerTables,
 } from '@/lib/firestore';
+import { runTableGeneration } from '@/lib/tableGeneration';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { bggSearchUrl } from '@/lib/bgg';
 import type { MeepleEvent, Player, Game, Table, GameComplexity } from '@/lib/types';
@@ -64,6 +65,8 @@ export default function MyTicketPage() {
     if (!player) return;
     setSaving(true);
     await updatePlayerWishlist(code, player.id, { interests, canExplain });
+    // Fire-and-forget: don't make the player wait on the scheduling algorithm.
+    if (event?.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
     setSaving(false);
   }
 

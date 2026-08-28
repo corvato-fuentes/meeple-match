@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   getEvent, getGames, addPlayer, addGame, setGameOwner, getPlayers, getPlayerByTicketCode, findPlayerByContact,
 } from '@/lib/firestore';
+import { runTableGeneration } from '@/lib/tableGeneration';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
@@ -220,6 +221,8 @@ export default function EventPage() {
     } as Parameters<typeof addPlayer>[1]).then((playerId) =>
       Promise.all(savedGameIds.map((gameId) => setGameOwner(code, gameId, playerId)))
     );
+    // Fire-and-forget: don't make the player wait on the scheduling algorithm to see their ticket.
+    if (event.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
     sessionStorage.setItem(STORAGE_KEY(code), ticketCode);
     router.push('/event/' + code + '/me?ticket=' + ticketCode);
   }
