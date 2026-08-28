@@ -125,17 +125,31 @@ export function generateTables(
     if (explainers.length === 0) continue;
     if (mustPlayers.length < game.minPlayers) continue;
 
-    const coreGroup = mustPlayers.slice(0, game.maxPlayers);
+    // Prioritizes players who are less booked up / have wider windows, so the same early
+    // registrants aren't blindly re-picked for every game once they're already busy elsewhere
+    const byFlexibility = [...mustPlayers].sort((a, b) => {
+      const busyA = (busyMap.get(a.id) ?? []).length;
+      const busyB = (busyMap.get(b.id) ?? []).length;
+      if (busyA !== busyB) return busyA - busyB;
+      return windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime);
+    });
 
-    const hasExplainer = coreGroup.some((p) => p.canExplain.includes(game.id));
-    if (!hasExplainer) {
-      const extra = explainers.find((e) => coreGroup.every((p) => p.id !== e.id));
-      if (!extra || coreGroup.length >= game.maxPlayers) continue;
-      coreGroup.push(extra);
+    // Falls back to smaller (but still valid) groups if the fullest group can't find a shared window
+    let coreGroup: Player[] | null = null;
+    let sharedWindow: { start: string; end: string } | null = null;
+    for (let size = game.maxPlayers; size >= game.minPlayers && !sharedWindow; size--) {
+      const candidate = byFlexibility.slice(0, size);
+      const hasExplainer = candidate.some((p) => p.canExplain.includes(game.id));
+      if (!hasExplainer) {
+        const extra = explainers.find((e) => candidate.every((p) => p.id !== e.id));
+        if (!extra || candidate.length >= game.maxPlayers) continue;
+        candidate.push(extra);
+      }
+      const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables);
+      if (found) { coreGroup = candidate; sharedWindow = found; }
     }
-
-    const window = findEarliestWindow(coreGroup, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables);
-    if (!window) continue;
+    if (!coreGroup || !sharedWindow) continue;
+    const window = sharedWindow;
 
     const group = [...coreGroup];
     for (const casual of casualPlayers) {

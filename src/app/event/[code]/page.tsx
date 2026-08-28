@@ -7,6 +7,7 @@ import {
 } from '@/lib/firestore';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
+import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import type { MeepleEvent, Game, GameComplexity, InterestLevel } from '@/lib/types';
 
 type Step = 'loading' | 'closed' | 'reaccess' | 1 | 2 | 3;
@@ -111,6 +112,8 @@ export default function EventPage() {
       setEvent(ev);
       setGames(gs);
       setPlayerCount(players.length);
+      setArrivalTime(ev.startTime);
+      setDepartureTime(ev.endTime);
       setStep('reaccess');
     }
     init();
@@ -291,13 +294,11 @@ export default function EventPage() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Llegás</label>
-            <input type="time" className="w-full border border-gray-700 bg-gray-900 rounded-xl px-3 py-2"
-              value={arrivalTime} onChange={(e) => setArrivalTime(e.target.value)} />
+            <TimeWheelPicker value={arrivalTime} onChange={setArrivalTime} />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Te vas</label>
-            <input type="time" className="w-full border border-gray-700 bg-gray-900 rounded-xl px-3 py-2"
-              value={departureTime} onChange={(e) => setDepartureTime(e.target.value)} />
+            <TimeWheelPicker value={departureTime} onChange={setDepartureTime} />
           </div>
         </div>
         {contactError && (
