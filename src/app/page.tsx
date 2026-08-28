@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { createEvent } from '@/lib/firestore';
 import { generateUniqueShortCode } from '@/lib/shortCode';
 import { getMyEvents, saveMyEvent, removeMyEvent, type SavedEvent } from '@/lib/myEvents';
+import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 
 export default function LandingPage() {
   const router = useRouter();
@@ -15,8 +16,8 @@ export default function LandingPage() {
   const [form, setForm] = useState({
     name: '',
     date: '',
-    startTime: '',
-    endTime: '',
+    startTime: '10:00',
+    endTime: '18:00',
     location: '',
     mapUrl: '',
   });
@@ -170,23 +171,11 @@ export default function LandingPage() {
               <div className='grid grid-cols-2 gap-3'>
                 <div>
                   <label className='block text-sm font-medium mb-1'>Desde</label>
-                  <input
-                    type='time'
-                    required
-                    className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-2'
-                    value={form.startTime}
-                    onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-                  />
+                  <TimeWheelPicker value={form.startTime} onChange={(v) => setForm({ ...form, startTime: v })} />
                 </div>
                 <div>
                   <label className='block text-sm font-medium mb-1'>Hasta</label>
-                  <input
-                    type='time'
-                    required
-                    className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-2'
-                    value={form.endTime}
-                    onChange={(e) => setForm({ ...form, endTime: e.target.value })}
-                  />
+                  <TimeWheelPicker value={form.endTime} onChange={(v) => setForm({ ...form, endTime: v })} />
                 </div>
               </div>
 
