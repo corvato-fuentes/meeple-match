@@ -145,7 +145,7 @@ export default function BoardPage() {
             className='text-gray-400 hover:text-gray-200 text-sm inline-block mb-2'>
             ← Volver
           </Link>
-          <h1 className='text-3xl font-bold'>{event?.name ?? 'MeepleMatch'}</h1>
+          <h1 className='text-3xl font-bold'>{event?.name ?? 'Meeple Loop'}</h1>
           <p className='text-gray-400'>
             {event?.date} · {event?.location} · Código: <span className='font-mono text-yellow-400'>{code}</span>
             {event?.mapUrl && (

@@ -36,5 +36,36 @@ service cloud.firestore {
         allow delete: if true;
       }
     }
+
+    match /mathtrades/{code} {
+      allow read: if true;
+      allow create: if !('adminToken' in request.resource.data);
+      allow update: if !('adminToken' in request.resource.data);
+      allow delete: if false;
+
+      match /private/config {
+        allow read: if true;
+        allow create: if !exists(/databases/$(database)/documents/mathtrades/$(code)/private/config);
+        allow update, delete: if false;
+      }
+
+      match /players/{playerId} {
+        allow read: if true;
+        allow create, update: if true;
+        allow delete: if false;
+      }
+
+      match /items/{itemId} {
+        allow read: if true;
+        allow create, update: if true;
+        allow delete: if false;
+      }
+
+      match /results/{resultId} {
+        allow read: if true;
+        allow create, update: if true;
+        allow delete: if false;
+      }
+    }
   }
 }

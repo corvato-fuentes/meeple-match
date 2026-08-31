@@ -1,4 +1,4 @@
-# MeepleMatch — Especificación Técnica Completa
+# Meeple Loop — Especificación Técnica Completa
 
 ## Visión del Producto
 

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'MeepleMatch',
+  title: 'Meeple Loop',
   description: 'Organizá tu evento de juegos de mesa',
 };
 
