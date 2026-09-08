@@ -60,6 +60,8 @@ export default function LandingPage() {
           phoneRequired: false,
           physicalTables: null,
           breaks: [],
+          paymentRequired: false,
+          paymentInfo: null,
         },
       });
       saveMyEvent({ code, adminToken, name: form.name, date: form.date });

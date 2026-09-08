@@ -7,6 +7,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
+import { uploadPaymentProof } from '@/lib/paymentProof';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import type { MeepleEvent, Game, GameComplexity, InterestLevel } from '@/lib/types';
@@ -44,6 +45,8 @@ export default function EventPage() {
   const [existingTicket, setExistingTicket] = useState<string | null>(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
 
   const [myGames, setMyGames] = useState<DraftGame[]>([]);
   const [newGame, setNewGame] = useState<DraftGame>({
@@ -196,6 +199,15 @@ export default function EventPage() {
     setCanExplainOtherIds((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
   }
 
+  function handlePaymentProofChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    setPaymentProofFile(file);
+    setPaymentProofPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  }
+
   async function handleSubmit() {
     if (!event || submitting) return;
     setSubmitting(true);
@@ -203,6 +215,7 @@ export default function EventPage() {
     const maxPlayers = event.settings.maxPlayers;
     if (maxPlayers != null && playerCount >= maxPlayers) { alert('El evento está completo.'); setSubmitting(false); return; }
     const ticketCode = await generateUniqueTicketCode(code);
+    const paymentProofUrl = paymentProofFile ? await uploadPaymentProof(code, ticketCode, paymentProofFile) : null;
     const savedGameIds: string[] = [];
     const canExplainGameIds: string[] = [];
     const finalInterests = { ...interests };
@@ -218,6 +231,7 @@ export default function EventPage() {
       name: displayName, firstName: firstName.trim(), lastName: lastName.trim(), alias: alias.trim() || null,
       email: email.trim() || null, phone: phone.trim() || null, arrivalTime, departureTime, ticketCode,
       bringGameIds: savedGameIds, interests: finalInterests, canExplain: [...canExplainGameIds, ...canExplainOtherIds],
+      paymentProofUrl,
     } as Parameters<typeof addPlayer>[1]).then((playerId) =>
       Promise.all(savedGameIds.map((gameId) => setGameOwner(code, gameId, playerId)))
     );
@@ -319,6 +333,22 @@ export default function EventPage() {
             <TimeWheelPicker value={departureTime} onChange={setDepartureTime} />
           </div>
         </div>
+        {event?.settings.paymentRequired && (
+          <div className="border border-indigo-800 bg-indigo-950/30 rounded-xl p-3 space-y-2">
+            <p className="text-sm font-medium">💸 Comprobante de pago</p>
+            {event.settings.paymentInfo && (
+              <p className="text-xs text-gray-300 whitespace-pre-wrap">{event.settings.paymentInfo}</p>
+            )}
+            <p className="text-xs text-gray-500">Subí una foto del comprobante de la transferencia para confirmar tu lugar.</p>
+            <input type="file" accept="image/*" capture="environment"
+              onChange={handlePaymentProofChange}
+              className="w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700" />
+            {paymentProofPreview && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={paymentProofPreview} alt="Comprobante subido" className="max-h-40 rounded-lg border border-gray-700" />
+            )}
+          </div>
+        )}
         {contactError && (
           <div className="text-sm text-red-400 space-y-1">
             <p>{contactError}</p>
@@ -331,7 +361,7 @@ export default function EventPage() {
             )}
           </div>
         )}
-        <button disabled={!firstName.trim() || !lastName.trim() || !arrivalTime || !departureTime || (event?.settings.phoneRequired ? !phone.trim() : (!email.trim() && !phone.trim())) || checkingDuplicate}
+        <button disabled={!firstName.trim() || !lastName.trim() || !arrivalTime || !departureTime || (event?.settings.phoneRequired ? !phone.trim() : (!email.trim() && !phone.trim())) || (event?.settings.paymentRequired ? !paymentProofFile : false) || checkingDuplicate}
           onClick={handleStep1Next}
           className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700 disabled:opacity-40">
           {checkingDuplicate ? 'Verificando...' : 'Siguiente →'}

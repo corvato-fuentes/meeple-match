@@ -20,6 +20,10 @@ export async function getEvent(code: string): Promise<MeepleEvent | null> {
     const legacyLunch = (data.settings as unknown as { lunchBreak?: { start: string; end: string } })?.lunchBreak;
     data.settings = { ...data.settings, breaks: legacyLunch ? [{ label: 'Almuerzo', ...legacyLunch }] : [] };
   }
+  // Migrates events created before the payment-proof feature existed
+  if (data.settings?.paymentRequired == null) {
+    data.settings = { ...data.settings, paymentRequired: false, paymentInfo: data.settings?.paymentInfo ?? null };
+  }
   return data;
 }
 
@@ -273,6 +277,7 @@ export async function seedFakePlayers(eventCode: string, drafts: FakePlayerDraft
       bringGameIds: ownGameIds,
       interests,
       canExplain: canExplainIds,
+      paymentProofUrl: null,
     });
   });
 

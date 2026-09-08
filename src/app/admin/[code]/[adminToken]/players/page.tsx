@@ -12,6 +12,7 @@ export default function PlayersPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const [viewingProof, setViewingProof] = useState<string | null>(null);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -57,6 +58,12 @@ export default function PlayersPage() {
                   </div>
                   <span className='text-xs text-gray-500'>{myTables.length} mesa{myTables.length !== 1 ? 's' : ''}</span>
                 </div>
+                {p.paymentProofUrl && (
+                  <button onClick={() => setViewingProof(p.paymentProofUrl)}
+                    className='mt-2 inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline'>
+                    🧾 Ver comprobante
+                  </button>
+                )}
                 {p.bringGameIds.length > 0 && (
                   <div className='mt-2 flex flex-wrap gap-1'>
                     {p.bringGameIds.map((gid) => (
@@ -69,6 +76,16 @@ export default function PlayersPage() {
               </div>
             );
           })}
+        </div>
+      )}
+      {viewingProof && (
+        <div className='fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50' onClick={() => setViewingProof(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={viewingProof} alt='Comprobante de pago' className='max-h-full max-w-full rounded-lg' />
+          <button onClick={() => setViewingProof(null)}
+            className='absolute top-4 right-4 text-white text-2xl leading-none'>
+            ✕
+          </button>
         </div>
       )}
     </main>

@@ -19,6 +19,8 @@ export interface EventSettings {
   phoneRequired: boolean;
   physicalTables: number | null;
   breaks: ScheduledBreak[];
+  paymentRequired: boolean;
+  paymentInfo: string | null; // account/transfer info shown to players when paymentRequired is true
 }
 
 export interface MeepleEvent {
@@ -64,6 +66,7 @@ export interface Player {
   bringGameIds: string[];
   interests: Record<string, InterestLevel>;
   canExplain: string[];
+  paymentProofUrl: string | null; // uploaded ticket-transfer receipt image, when the event requires one
 }
 
 export interface Table {

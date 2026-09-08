@@ -268,7 +268,23 @@ export default function AdminPage() {
               onChange={(e) => handleDraftChange('phoneRequired', e.target.checked)} />
             <label htmlFor='phoneReq' className='text-sm'>Teléfono obligatorio</label>
           </div>
+          <div className='flex items-center gap-2 pt-4'>
+            <input type='checkbox' id='paymentReq' checked={settingsDraft.paymentRequired}
+              onChange={(e) => handleDraftChange('paymentRequired', e.target.checked)} />
+            <label htmlFor='paymentReq' className='text-sm'>Requerir comprobante de pago</label>
+          </div>
         </div>
+
+        {settingsDraft.paymentRequired && (
+          <div className='border-t border-gray-800 pt-3'>
+            <label className='text-xs text-gray-400 block mb-1'>Datos para la transferencia</label>
+            <textarea rows={3} placeholder='Alias / CBU / titular, para que el jugador transfiera antes de subir el comprobante'
+              className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+              value={settingsDraft.paymentInfo ?? ''}
+              onChange={(e) => handleDraftChange('paymentInfo', e.target.value || null)} />
+            <p className='text-xs text-gray-500 mt-1'>Se muestra al jugador junto con el campo para subir la foto del comprobante.</p>
+          </div>
+        )}
 
         <div className='border-t border-gray-800 pt-3 space-y-2'>
           <div className='flex items-center justify-between'>
