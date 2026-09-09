@@ -28,6 +28,10 @@ export async function getEvent(code: string): Promise<MeepleEvent | null> {
   if (data.settings?.autoGenerateFreezeHours == null) {
     data.settings = { ...data.settings, autoGenerateFreezeHours: 0 };
   }
+  // Migrates events created before the registration banner existed
+  if (data.settings?.registrationBannerUrl === undefined) {
+    data.settings = { ...data.settings, registrationBannerUrl: null };
+  }
   return data;
 }
 

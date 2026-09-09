@@ -22,6 +22,7 @@ export interface EventSettings {
   paymentRequired: boolean;
   paymentInfo: string | null; // account/transfer info shown to players when paymentRequired is true
   autoGenerateFreezeHours: number; // hours before midnight of the event day that auto-triggers stop regenerating; 0 = freeze at midnight
+  registrationBannerUrl: string | null; // custom banner image shown to players on the registration screen
 }
 
 export interface MeepleEvent {

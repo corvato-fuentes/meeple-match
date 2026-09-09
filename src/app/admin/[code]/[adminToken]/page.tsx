@@ -7,6 +7,7 @@ import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { runTableGeneration } from '@/lib/tableGeneration';
+import { uploadRegistrationBanner } from '@/lib/paymentProof';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
 export default function AdminPage() {
@@ -35,6 +36,7 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [deletingProofs, setDeletingProofs] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
   const [emailConfigured, setEmailConfigured] = useState(false);
   const [gmailUserSaved, setGmailUserSaved] = useState<string | null>(null);
   const [gmailUserDraft, setGmailUserDraft] = useState('');
@@ -184,6 +186,21 @@ export default function AdminPage() {
     }
   }
 
+  async function handleBannerUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingBanner(true);
+    try {
+      const url = await uploadRegistrationBanner(code, file);
+      handleDraftChange('registrationBannerUrl', url);
+    } catch {
+      alert('No se pudo subir la imagen. Intentá de nuevo.');
+    } finally {
+      setUploadingBanner(false);
+      e.target.value = '';
+    }
+  }
+
   async function handleSaveEmailConfig() {
     if (!gmailUserDraft.trim() || !gmailAppPasswordDraft.trim()) return;
     setSavingEmail(true);
@@ -287,6 +304,23 @@ export default function AdminPage() {
           <input type='url' placeholder='https://maps.app.goo.gl/...'
             className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
             value={mapUrlDraft} onChange={(e) => setMapUrlDraft(e.target.value)} />
+        </div>
+        <div>
+          <label className='text-xs text-gray-400 block mb-1'>Banner de registro (opcional)</label>
+          <p className='text-xs text-gray-500 mb-1.5'>Imagen que ven los jugadores al entrar a inscribirse.</p>
+          <input type='file' accept='image/*' onChange={handleBannerUpload} disabled={uploadingBanner}
+            className='w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700 disabled:opacity-50' />
+          {uploadingBanner && <p className='text-xs text-gray-500 mt-1'>Subiendo...</p>}
+          {settingsDraft.registrationBannerUrl && (
+            <div className='mt-2 flex items-center gap-2'>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={settingsDraft.registrationBannerUrl} alt='Banner de registro' className='max-h-24 rounded-lg border border-gray-700' />
+              <button onClick={() => handleDraftChange('registrationBannerUrl', null)}
+                className='text-xs text-red-400 hover:underline'>
+                Quitar
+              </button>
+            </div>
+          )}
         </div>
         <div className='grid grid-cols-2 gap-3'>
           <div>

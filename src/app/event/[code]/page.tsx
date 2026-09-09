@@ -276,6 +276,10 @@ export default function EventPage() {
         </a>
       )}
       {!event?.mapUrl && <div className="mb-8" />}
+      {event?.settings.registrationBannerUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={event.settings.registrationBannerUrl} alt="" className="w-full rounded-xl mb-6" />
+      )}
       <div className="space-y-3">
         {isFull ? (
           <div className="border border-amber-800 bg-amber-950/30 rounded-xl px-4 py-3 text-sm text-amber-300">
