@@ -62,6 +62,7 @@ export default function LandingPage() {
           breaks: [],
           paymentRequired: false,
           paymentInfo: null,
+          autoGenerateFreezeHours: 0,
         },
       });
       saveMyEvent({ code, adminToken, name: form.name, date: form.date });

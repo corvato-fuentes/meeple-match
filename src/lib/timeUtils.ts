@@ -24,3 +24,14 @@ export function timeWindowOverlap(
 export function windowDuration(start: string, end: string): number {
   return toMinutes(end) - toMinutes(start);
 }
+
+/**
+ * Once inside this window, player registrations/votes stop auto-triggering full regenerations —
+ * the grid freezes so only the admin can still adjust it. By default the window starts at
+ * midnight of the event day; freezeHours shifts that point earlier (configurable per event).
+ */
+export function isAutoGenerationLocked(date: string, freezeHours: number): boolean {
+  const midnightEventDay = new Date(`${date}T00:00:00`);
+  const lockAt = new Date(midnightEventDay.getTime() - freezeHours * 60 * 60 * 1000);
+  return new Date() >= lockAt;
+}

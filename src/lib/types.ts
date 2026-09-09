@@ -21,6 +21,7 @@ export interface EventSettings {
   breaks: ScheduledBreak[];
   paymentRequired: boolean;
   paymentInfo: string | null; // account/transfer info shown to players when paymentRequired is true
+  autoGenerateFreezeHours: number; // hours before midnight of the event day that auto-triggers stop regenerating; 0 = freeze at midnight
 }
 
 export interface MeepleEvent {
@@ -68,6 +69,7 @@ export interface Player {
   bringGameIds: string[];
   interests: Record<string, InterestLevel>;
   canExplain: string[];
+  repeatGameIds: string[]; // gameIds the player is happy to play again in a second table
   paymentProofUrl: string | null; // Cloudinary secure_url; unguessable path, never linked on any public-facing page
 }
 

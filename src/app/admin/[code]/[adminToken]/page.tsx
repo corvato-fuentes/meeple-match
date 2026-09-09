@@ -64,7 +64,7 @@ export default function AdminPage() {
     if (!event) return;
     setGenerating(true);
     setGenerateMsg(null);
-    const { filledSeats, newTables } = await runTableGeneration(code, event);
+    const { filledSeats, newTables } = await runTableGeneration(code, event, { manual: true });
     setGenerating(false);
     const parts = [];
     if (filledSeats > 0) parts.push(`se sumaron ${filledSeats} jugador${filledSeats === 1 ? '' : 'es'} a mesas existentes`);
@@ -98,7 +98,7 @@ export default function AdminPage() {
     setGenerateMsg(null);
     const drafts = generateFakePlayers(count, event);
     await seedFakePlayers(code, drafts);
-    const { newTables } = await runTableGeneration(code, event);
+    const { newTables } = await runTableGeneration(code, event, { manual: true });
     setSeeding(false);
     setGenerateMsg(newTables > 0
       ? `✓ Se agregaron ${count} jugadores de prueba y se generaron ${newTables} mesa${newTables === 1 ? '' : 's'} nueva${newTables === 1 ? '' : 's'}.`
@@ -115,7 +115,7 @@ export default function AdminPage() {
     const count = event.settings.maxPlayers ?? 40;
     const drafts = generateFakePlayers(count, event);
     await seedFakePlayers(code, drafts);
-    const { newTables } = await runTableGeneration(code, event);
+    const { newTables } = await runTableGeneration(code, event, { manual: true });
     setResetting(false);
     setGenerateMsg(`✓ Se reseteó el evento y se crearon ${count} jugadores de prueba nuevos con ${newTables} mesa${newTables === 1 ? '' : 's'}.`);
   }
@@ -285,6 +285,13 @@ export default function AdminPage() {
               className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
               value={settingsDraft.physicalTables ?? ''} onFocus={(e) => e.target.select()}
               onChange={(e) => handleDraftChange('physicalTables', e.target.value ? +e.target.value : null)} />
+          </div>
+          <div>
+            <label className='text-xs text-gray-400 block mb-1'>Congelar auto-generación (hs antes de la medianoche del evento)</label>
+            <input type='number' min={0}
+              className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+              value={settingsDraft.autoGenerateFreezeHours} onFocus={(e) => e.target.select()}
+              onChange={(e) => handleDraftChange('autoGenerateFreezeHours', +e.target.value)} />
           </div>
           <div className='flex items-center gap-2 pt-4'>
             <input type='checkbox' id='autoGen' checked={settingsDraft.autoGenerate}

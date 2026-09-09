@@ -59,6 +59,7 @@ export default function EventPage() {
   const [bggLoading, setBggLoading] = useState(false);
   const skipBggSearchRef = useRef(false);
   const [canExplainOtherIds, setCanExplainOtherIds] = useState<string[]>([]);
+  const [repeatInterestIds, setRepeatInterestIds] = useState<string[]>([]);
   const [editingGameIndex, setEditingGameIndex] = useState<number | null>(null);
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
   const [ownGameVotes, setOwnGameVotes] = useState<Record<number, InterestLevel>>({});
@@ -191,11 +192,16 @@ export default function EventPage() {
   function goToStep3() {
     setInterests({});
     setOwnGameVotes({});
+    setRepeatInterestIds([]);
     setStep(3);
   }
 
   function toggleCanExplainOther(gameId: string) {
     setCanExplainOtherIds((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
+  }
+
+  function toggleRepeatInterest(gameId: string) {
+    setRepeatInterestIds((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
   }
 
   function handlePaymentProofChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -230,6 +236,7 @@ export default function EventPage() {
       name: displayName, firstName: firstName.trim(), lastName: lastName.trim(), alias: alias.trim() || null,
       email: email.trim() || null, phone: phone.trim() || null, arrivalTime, departureTime, ticketCode,
       bringGameIds: savedGameIds, interests: finalInterests, canExplain: [...canExplainGameIds, ...canExplainOtherIds],
+      repeatGameIds: repeatInterestIds,
       paymentProofUrl,
     } as Parameters<typeof addPlayer>[1]).then((playerId) =>
       Promise.all(savedGameIds.map((gameId) => setGameOwner(code, gameId, playerId)))
@@ -564,6 +571,13 @@ export default function EventPage() {
                   onChange={() => toggleCanExplainOther(g.id)} />
                 Sé explicarlo
               </label>
+              {(interests[g.id] === 'must' || interests[g.id] === 'casual') && (
+                <label className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                  <input type="checkbox" checked={repeatInterestIds.includes(g.id)}
+                    onChange={() => toggleRepeatInterest(g.id)} />
+                  🔁 Me sumaría a una segunda mesa de este juego
+                </label>
+              )}
             </div>
           ))}
         </div>

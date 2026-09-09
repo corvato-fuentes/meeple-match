@@ -24,6 +24,10 @@ export async function getEvent(code: string): Promise<MeepleEvent | null> {
   if (data.settings?.paymentRequired == null) {
     data.settings = { ...data.settings, paymentRequired: false, paymentInfo: data.settings?.paymentInfo ?? null };
   }
+  // Migrates events created before the auto-generation freeze window was configurable
+  if (data.settings?.autoGenerateFreezeHours == null) {
+    data.settings = { ...data.settings, autoGenerateFreezeHours: 0 };
+  }
   return data;
 }
 
@@ -219,7 +223,7 @@ export async function clearPaymentProofs(eventCode: string): Promise<void> {
 export async function updatePlayerWishlist(
   eventCode: string,
   playerId: string,
-  data: { interests: Player['interests']; canExplain: string[] }
+  data: { interests: Player['interests']; canExplain: string[]; repeatGameIds: string[] }
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), data);
 }
@@ -247,6 +251,14 @@ export async function saveProposedTables(
     const ref = doc(collection(db, 'events', eventCode, 'tables'));
     batch.set(ref, p);
   }
+  await batch.commit();
+}
+
+/** Deletes a batch of tables — used to clear out stale "proposed" tables before a full regeneration */
+export async function deleteTables(eventCode: string, tableIds: string[]): Promise<void> {
+  if (tableIds.length === 0) return;
+  const batch = writeBatch(db);
+  tableIds.forEach((id) => batch.delete(doc(db, 'events', eventCode, 'tables', id)));
   await batch.commit();
 }
 
@@ -353,6 +365,7 @@ export async function seedFakePlayers(eventCode: string, drafts: FakePlayerDraft
       bringGameIds: ownGameIds,
       interests,
       canExplain: canExplainIds,
+      repeatGameIds: [],
       paymentProofUrl: null,
     });
   });

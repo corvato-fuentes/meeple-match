@@ -37,6 +37,7 @@ export default function MyTicketPage() {
   const [myTables, setMyTables] = useState<Table[]>([]);
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
   const [canExplain, setCanExplain] = useState<string[]>([]);
+  const [repeatGameIds, setRepeatGameIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -62,6 +63,7 @@ export default function MyTicketPage() {
       setGames(gs);
       setInterests(p.interests as Record<string, InterestLevel>);
       setCanExplain(p.canExplain);
+      setRepeatGameIds(p.repeatGameIds ?? []);
       setLoading(false);
     }
     load();
@@ -125,7 +127,7 @@ export default function MyTicketPage() {
       setGames((gs) => [...gs, createdGame]);
       setPlayer((p) => p ? { ...p, bringGameIds: [...p.bringGameIds, gameId] } : p);
       setCanExplain(updatedCanExplain);
-      await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain });
+      await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain, repeatGameIds });
       setNewGame(EMPTY_DRAFT_GAME);
       setCanExplainNew(false);
       setShowAddGame(false);
@@ -137,7 +139,7 @@ export default function MyTicketPage() {
   async function saveWishlist() {
     if (!player) return;
     setSaving(true);
-    await updatePlayerWishlist(code, player.id, { interests, canExplain });
+    await updatePlayerWishlist(code, player.id, { interests, canExplain, repeatGameIds });
     // Fire-and-forget: don't make the player wait on the scheduling algorithm.
     if (event?.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
     setSaving(false);
@@ -145,6 +147,10 @@ export default function MyTicketPage() {
 
   function toggleCanExplain(gameId: string) {
     setCanExplain((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
+  }
+
+  function toggleRepeatInterest(gameId: string) {
+    setRepeatGameIds((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
   }
 
   function copyCode() {
@@ -326,7 +332,8 @@ export default function MyTicketPage() {
               {availableGames.map((g) => (
                 <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
                   onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
-                  canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
+                  canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)}
+                  repeatInterest={repeatGameIds.includes(g.id)} onToggleRepeatInterest={() => toggleRepeatInterest(g.id)} />
               ))}
             </div>
             {dismissedGames.length > 0 && (
@@ -340,7 +347,8 @@ export default function MyTicketPage() {
                     {dismissedGames.map((g) => (
                       <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
                         onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
-                        canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
+                        canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)}
+                        repeatInterest={repeatGameIds.includes(g.id)} onToggleRepeatInterest={() => toggleRepeatInterest(g.id)} />
                     ))}
                   </div>
                 )}
@@ -357,7 +365,8 @@ export default function MyTicketPage() {
                 {wishlistGames.map((g) => (
                   <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
                     onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
-                    canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
+                    canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)}
+                    repeatInterest={repeatGameIds.includes(g.id)} onToggleRepeatInterest={() => toggleRepeatInterest(g.id)} />
                 ))}
               </div>
             )}
@@ -376,7 +385,7 @@ export default function MyTicketPage() {
 }
 
 function GameVoteCard({
-  game, interest, isOwn, onSetInterest, canExplain, onToggleCanExplain,
+  game, interest, isOwn, onSetInterest, canExplain, onToggleCanExplain, repeatInterest, onToggleRepeatInterest,
 }: {
   game: Game;
   interest: InterestLevel | undefined;
@@ -384,6 +393,8 @@ function GameVoteCard({
   onSetInterest: (level: InterestLevel) => void;
   canExplain: boolean;
   onToggleCanExplain: () => void;
+  repeatInterest: boolean;
+  onToggleRepeatInterest: () => void;
 }) {
   return (
     <div className="border border-gray-700 rounded-xl px-3 py-2 bg-gray-800">
@@ -416,6 +427,12 @@ function GameVoteCard({
         <input type="checkbox" checked={canExplain} onChange={onToggleCanExplain} />
         Sé explicarlo
       </label>
+      {(interest === 'must' || interest === 'casual') && (
+        <label className="flex items-center gap-1.5 text-xs text-gray-400 mt-1">
+          <input type="checkbox" checked={repeatInterest} onChange={onToggleRepeatInterest} />
+          🔁 Me sumaría a una segunda mesa de este juego
+        </label>
+      )}
     </div>
   );
 }

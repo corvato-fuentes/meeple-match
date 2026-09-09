@@ -98,7 +98,29 @@ export function generateTables(
     .filter((t) => t.status !== 'cancelled')
     .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
 
+  const seatedByGame = new Map<string, Set<string>>();
+  existingTables.forEach((t) => {
+    if (t.status === 'cancelled') return;
+    const seated = seatedByGame.get(t.gameId) ?? new Set<string>();
+    t.playerIds.forEach((id) => seated.add(id));
+    seatedByGame.set(t.gameId, seated);
+  });
+
+  // A game that only has enough demand left through repeat-flagged voters (no fresh must-voters
+  // remain to justify it on its own) is treated as a last resort — every other viable game gets
+  // tried first, so a repeat only fills someone's second table once nothing else fits for them.
+  function isRepeatFallbackOnly(game: Game): boolean {
+    const seated = seatedByGame.get(game.id);
+    if (!seated || seated.size === 0) return false;
+    const mustVoters = players.filter((p) => p.interests[game.id] === 'must');
+    const freshMustVoters = mustVoters.filter((p) => !seated.has(p.id));
+    return freshMustVoters.length < game.minPlayers;
+  }
+
   const sorted = [...games].sort((a, b) => {
+    const fallbackA = isRepeatFallbackOnly(a);
+    const fallbackB = isRepeatFallbackOnly(b);
+    if (fallbackA !== fallbackB) return fallbackA ? 1 : -1;
     const mustA = players.filter((p) => p.interests[a.id] === 'must').length;
     const mustB = players.filter((p) => p.interests[b.id] === 'must').length;
     if (mustB !== mustA) return mustB - mustA;
@@ -116,72 +138,81 @@ export function generateTables(
     : 1;
 
   for (const game of sorted) {
-    const mustPlayers = players.filter((p) => p.interests[game.id] === 'must');
-    const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual');
-    const explainers = players.filter(
-      (p) => p.canExplain.includes(game.id) && p.interests[game.id] !== 'no'
-    );
+    // Players already seated at a table for this game only count again if they opted into a
+    // replay — otherwise further tables for the same game are built from fresh voters only.
+    // Loops so a single generation pass can seat all of them across as many tables as fit
+    // (e.g. max 5 but 10 different "must" voters → two tables, different players, different times).
+    const seated = new Set(seatedByGame.get(game.id) ?? []);
+    while (true) {
+      const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
+      const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
+      const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
+      const explainers = players.filter(
+        (p) => p.canExplain.includes(game.id) && p.interests[game.id] !== 'no' && eligibleForAnotherTable(p)
+      );
 
-    if (explainers.length === 0) continue;
-    if (mustPlayers.length < game.minPlayers) continue;
+      if (explainers.length === 0) break;
+      if (mustPlayers.length < game.minPlayers) break;
 
-    // Prioritizes players who are less booked up / have wider windows, so the same early
-    // registrants aren't blindly re-picked for every game once they're already busy elsewhere
-    const byFlexibility = [...mustPlayers].sort((a, b) => {
-      const busyA = (busyMap.get(a.id) ?? []).length;
-      const busyB = (busyMap.get(b.id) ?? []).length;
-      if (busyA !== busyB) return busyA - busyB;
-      return windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime);
-    });
+      // Prioritizes players who are less booked up / have wider windows, so the same early
+      // registrants aren't blindly re-picked for every game once they're already busy elsewhere
+      const byFlexibility = [...mustPlayers].sort((a, b) => {
+        const busyA = (busyMap.get(a.id) ?? []).length;
+        const busyB = (busyMap.get(b.id) ?? []).length;
+        if (busyA !== busyB) return busyA - busyB;
+        return windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime);
+      });
 
-    // Falls back to smaller (but still valid) groups if the fullest group can't find a shared window
-    let coreGroup: Player[] | null = null;
-    let sharedWindow: { start: string; end: string } | null = null;
-    for (let size = game.maxPlayers; size >= game.minPlayers && !sharedWindow; size--) {
-      const candidate = byFlexibility.slice(0, size);
-      const hasExplainer = candidate.some((p) => p.canExplain.includes(game.id));
-      if (!hasExplainer) {
-        const extra = explainers.find((e) => candidate.every((p) => p.id !== e.id));
-        if (!extra || candidate.length >= game.maxPlayers) continue;
-        candidate.push(extra);
+      // Falls back to smaller (but still valid) groups if the fullest group can't find a shared window
+      let coreGroup: Player[] | null = null;
+      let sharedWindow: { start: string; end: string } | null = null;
+      for (let size = game.maxPlayers; size >= game.minPlayers && !sharedWindow; size--) {
+        const candidate = byFlexibility.slice(0, size);
+        const hasExplainer = candidate.some((p) => p.canExplain.includes(game.id));
+        if (!hasExplainer) {
+          const extra = explainers.find((e) => candidate.every((p) => p.id !== e.id));
+          if (!extra || candidate.length >= game.maxPlayers) continue;
+          candidate.push(extra);
+        }
+        const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables);
+        if (found) { coreGroup = candidate; sharedWindow = found; }
       }
-      const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables);
-      if (found) { coreGroup = candidate; sharedWindow = found; }
+      if (!coreGroup || !sharedWindow) break;
+      const window = sharedWindow;
+
+      const group = [...coreGroup];
+      for (const casual of casualPlayers) {
+        if (group.length >= game.maxPlayers) break;
+        if (group.some((p) => p.id === casual.id)) continue;
+        if (isAvailable(casual, window.start, window.end, busyMap.get(casual.id) ?? []))
+          group.push(casual);
+      }
+
+      const explainer = group
+        .filter((p) => p.canExplain.includes(game.id))
+        .sort((a, b) => windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime))[0];
+
+      group.forEach((p) => {
+        const bw = busyMap.get(p.id) ?? [];
+        bw.push(window);
+        busyMap.set(p.id, bw);
+        seated.add(p.id);
+      });
+
+      proposals.push({
+        gameId: game.id,
+        gameName: game.name,
+        startTime: window.start,
+        endTime: window.end,
+        explainerId: explainer.id,
+        playerIds: group.map((p) => p.id),
+        status: 'proposed',
+        isManuallyEdited: false,
+        batchNumber,
+        tableNumber: tableNumber++,
+      });
+      occupiedTables.push({ startTime: window.start, endTime: window.end });
     }
-    if (!coreGroup || !sharedWindow) continue;
-    const window = sharedWindow;
-
-    const group = [...coreGroup];
-    for (const casual of casualPlayers) {
-      if (group.length >= game.maxPlayers) break;
-      if (group.some((p) => p.id === casual.id)) continue;
-      if (isAvailable(casual, window.start, window.end, busyMap.get(casual.id) ?? []))
-        group.push(casual);
-    }
-
-    const explainer = group
-      .filter((p) => p.canExplain.includes(game.id))
-      .sort((a, b) => windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime))[0];
-
-    group.forEach((p) => {
-      const bw = busyMap.get(p.id) ?? [];
-      bw.push(window);
-      busyMap.set(p.id, bw);
-    });
-
-    proposals.push({
-      gameId: game.id,
-      gameName: game.name,
-      startTime: window.start,
-      endTime: window.end,
-      explainerId: explainer.id,
-      playerIds: group.map((p) => p.id),
-      status: 'proposed',
-      isManuallyEdited: false,
-      batchNumber,
-      tableNumber: tableNumber++,
-    });
-    occupiedTables.push({ startTime: window.start, endTime: window.end });
   }
 
   return proposals;
