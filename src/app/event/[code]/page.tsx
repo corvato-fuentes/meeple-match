@@ -243,6 +243,12 @@ export default function EventPage() {
     );
     // Fire-and-forget: don't make the player wait on the scheduling algorithm to see their ticket.
     if (event.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
+    if (email.trim()) {
+      fetch('/api/email/send-ticket', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, ticketCode }),
+      }).catch(() => {});
+    }
     sessionStorage.setItem(STORAGE_KEY(code), ticketCode);
     router.push('/event/' + code + '/me?ticket=' + ticketCode);
   }

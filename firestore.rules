@@ -18,6 +18,12 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // Gmail sender credentials for this event's ticket emails — never touched by client SDK,
+      // only by server API routes using firebase-admin (which bypasses these rules entirely).
+      match /private/email {
+        allow read, write: if false;
+      }
+
       match /games/{gameId} {
         allow read: if true;
         allow create, update: if true;

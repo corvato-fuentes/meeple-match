@@ -35,6 +35,12 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [deletingProofs, setDeletingProofs] = useState(false);
+  const [emailConfigured, setEmailConfigured] = useState(false);
+  const [gmailUserSaved, setGmailUserSaved] = useState<string | null>(null);
+  const [gmailUserDraft, setGmailUserDraft] = useState('');
+  const [gmailAppPasswordDraft, setGmailAppPasswordDraft] = useState('');
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -49,6 +55,10 @@ export default function AdminPage() {
         saveMyEvent({ code, adminToken, name: ev.name, date: ev.date });
       }
     });
+    fetch(`/api/admin/email-config?code=${code}&adminToken=${adminToken}`)
+      .then((r) => r.json())
+      .then((data) => { setEmailConfigured(!!data.configured); setGmailUserSaved(data.gmailUser ?? null); })
+      .catch(() => {});
     const unsubP = subscribePlayers(code, setPlayers);
     const unsubT = subscribeTables(code, setTables);
     return () => { unsubP(); unsubT(); };
@@ -171,6 +181,27 @@ export default function AdminPage() {
       alert('No se pudieron borrar los comprobantes. Intentá de nuevo.');
     } finally {
       setDeletingProofs(false);
+    }
+  }
+
+  async function handleSaveEmailConfig() {
+    if (!gmailUserDraft.trim() || !gmailAppPasswordDraft.trim()) return;
+    setSavingEmail(true);
+    setEmailMsg(null);
+    try {
+      const res = await fetch('/api/admin/email-config', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, adminToken, gmailUser: gmailUserDraft.trim(), gmailAppPassword: gmailAppPasswordDraft.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      setEmailConfigured(true);
+      setGmailUserSaved(gmailUserDraft.trim());
+      setGmailAppPasswordDraft('');
+      setEmailMsg('✓ Guardado');
+    } catch {
+      setEmailMsg('No se pudo guardar. Intentá de nuevo.');
+    } finally {
+      setSavingEmail(false);
     }
   }
 
@@ -367,6 +398,41 @@ export default function AdminPage() {
             {savingSettings ? 'Guardando...' : '💾 Guardar configuración'}
           </button>
           {savedFlash && <span className='text-green-400 text-sm'>✓ Guardado</span>}
+        </div>
+      </section>
+
+      {/* Email config — stored server-side only, never round-tripped back to the client */}
+      <section className='border border-gray-700 rounded-xl p-4 space-y-3'>
+        <h2 className='font-semibold'>✉️ Email para el código de ticket</h2>
+        <p className='text-xs text-gray-500'>
+          Cuenta de Gmail que manda el mail con el código al inscribirse (necesita una{' '}
+          <a href='https://myaccount.google.com/apppasswords' target='_blank' rel='noopener noreferrer' className='text-indigo-400 hover:underline'>
+            contraseña de aplicación
+          </a>, no tu contraseña normal).
+        </p>
+        {emailConfigured && (
+          <p className='text-xs text-green-400'>✓ Configurado con {gmailUserSaved}</p>
+        )}
+        <div className='grid grid-cols-2 gap-3'>
+          <div>
+            <label className='text-xs text-gray-400 block mb-1'>Gmail remitente</label>
+            <input type='email' placeholder={gmailUserSaved ?? 'tucuenta@gmail.com'}
+              className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+              value={gmailUserDraft} onChange={(e) => setGmailUserDraft(e.target.value)} />
+          </div>
+          <div>
+            <label className='text-xs text-gray-400 block mb-1'>Contraseña de aplicación</label>
+            <input type='password' placeholder={emailConfigured ? '•••• configurada •••• ' : 'xxxx xxxx xxxx xxxx'}
+              className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+              value={gmailAppPasswordDraft} onChange={(e) => setGmailAppPasswordDraft(e.target.value)} />
+          </div>
+        </div>
+        <div className='flex items-center gap-3'>
+          <button onClick={handleSaveEmailConfig} disabled={savingEmail || !gmailUserDraft.trim() || !gmailAppPasswordDraft.trim()}
+            className='bg-indigo-600 text-white rounded-lg px-5 py-2 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50'>
+            {savingEmail ? 'Guardando...' : '💾 Guardar email'}
+          </button>
+          {emailMsg && <span className='text-sm text-gray-400'>{emailMsg}</span>}
         </div>
       </section>
 
