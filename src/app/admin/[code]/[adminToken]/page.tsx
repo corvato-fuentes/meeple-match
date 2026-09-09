@@ -33,6 +33,7 @@ export default function AdminPage() {
   const [mapUrlDraft, setMapUrlDraft] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [deletingProofs, setDeletingProofs] = useState(false);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -150,6 +151,24 @@ export default function AdminPage() {
     navigator.clipboard.writeText(adminUrl);
     setAdminCopied(true);
     setTimeout(() => setAdminCopied(false), 2000);
+  }
+
+  async function handleDeletePaymentProofs() {
+    if (!confirm('Esto BORRA PERMANENTEMENTE todos los comprobantes de pago subidos por los jugadores. No se puede deshacer. ¿Continuar?')) return;
+    setDeletingProofs(true);
+    try {
+      const res = await fetch('/api/admin/payment-proof', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, adminToken }),
+      });
+      if (!res.ok) throw new Error();
+      setGenerateMsg('✓ Se borraron todos los comprobantes de pago.');
+    } catch {
+      alert('No se pudieron borrar los comprobantes. Intentá de nuevo.');
+    } finally {
+      setDeletingProofs(false);
+    }
   }
 
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
@@ -283,9 +302,12 @@ export default function AdminPage() {
               value={settingsDraft.paymentInfo ?? ''}
               onChange={(e) => handleDraftChange('paymentInfo', e.target.value || null)} />
             <p className='text-xs text-gray-500 mt-1'>Se muestra al jugador junto con el campo para subir la foto del comprobante.</p>
+            <button onClick={handleDeletePaymentProofs} disabled={deletingProofs}
+              className='mt-2 text-xs border border-red-800 text-red-400 rounded-lg px-3 py-1.5 hover:bg-red-950 disabled:opacity-50'>
+              {deletingProofs ? 'Borrando...' : '🗑️ Borrar todos los comprobantes de pago'}
+            </button>
           </div>
         )}
-
         <div className='border-t border-gray-800 pt-3 space-y-2'>
           <div className='flex items-center justify-between'>
             <p className='text-sm font-medium'>Descansos programados</p>

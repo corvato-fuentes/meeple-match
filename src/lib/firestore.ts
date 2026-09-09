@@ -140,6 +140,14 @@ export async function updatePlayerInterests(
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { interests });
 }
 
+/** Clears the paymentProofUrl on every player — called after the Cloudinary receipts themselves are deleted */
+export async function clearPaymentProofs(eventCode: string): Promise<void> {
+  const snap = await getDocs(collection(db, 'events', eventCode, 'players'));
+  const batch = writeBatch(db);
+  snap.docs.forEach((d) => batch.update(d.ref, { paymentProofUrl: null }));
+  await batch.commit();
+}
+
 export async function updatePlayerWishlist(
   eventCode: string,
   playerId: string,

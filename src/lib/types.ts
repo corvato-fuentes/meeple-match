@@ -66,7 +66,7 @@ export interface Player {
   bringGameIds: string[];
   interests: Record<string, InterestLevel>;
   canExplain: string[];
-  paymentProofUrl: string | null; // uploaded ticket-transfer receipt image, when the event requires one
+  paymentProofUrl: string | null; // Cloudinary secure_url; unguessable path, never linked on any public-facing page
 }
 
 export interface Table {
