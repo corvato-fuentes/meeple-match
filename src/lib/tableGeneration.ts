@@ -10,10 +10,10 @@ export interface TableGenerationResult {
 
 /**
  * Shared by the admin's manual "Generar mesas" button and the auto-generate triggers (player
- * registration / wishlist save). Always does a full regeneration: any table still "proposed"
- * (not yet confirmed by the admin) is discarded and rebuilt from the latest votes, since a
- * player may have registered or changed their mind after it was first proposed. Confirmed /
- * in-progress / completed tables are never touched — only the admin can change those.
+ * registration / wishlist save). Always does a full regeneration: any table that isn't
+ * "confirmed" (proposed, cancelled, in-progress or completed) is discarded and rebuilt from the
+ * latest votes, since a player may have registered or changed their mind since it was created.
+ * Only confirmed tables are ever left untouched — that's the admin's explicit lock.
  *
  * Once inside the configured freeze window before the event (by default, midnight of the event
  * day), auto-triggers (manual=false) stop regenerating altogether so the grid freezes into
@@ -31,9 +31,9 @@ export async function runTableGeneration(
   const [allPlayers, allGames, allTables] = await Promise.all([
     getPlayers(eventCode), getGames(eventCode), getTables(eventCode),
   ]);
-  const staleProposed = allTables.filter((t) => t.status === 'proposed');
-  if (staleProposed.length > 0) await deleteTables(eventCode, staleProposed.map((t) => t.id));
-  const lockedTables = allTables.filter((t) => t.status !== 'proposed');
+  const stale = allTables.filter((t) => t.status !== 'confirmed');
+  if (stale.length > 0) await deleteTables(eventCode, stale.map((t) => t.id));
+  const lockedTables = allTables.filter((t) => t.status === 'confirmed');
 
   const fills = fillExistingTables(allPlayers, allGames, lockedTables);
   for (const fill of fills) await fillTableSeats(eventCode, fill.tableId, fill.playerIds);

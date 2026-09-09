@@ -58,7 +58,8 @@ function findEarliestWindow(
 ): { start: string; end: string } | null {
   const candidates = new Set<number>();
   players.forEach((p) => {
-    candidates.add(roundUpToGrid(toMinutes(p.arrivalTime)));
+    // Buffer applies after arrival too — nobody sits down and starts playing the instant they walk in
+    candidates.add(roundUpToGrid(toMinutes(p.arrivalTime) + bufferMinutes));
     (busyMap.get(p.id) ?? []).forEach((bw) =>
       candidates.add(roundUpToGrid(toMinutes(bw.end) + bufferMinutes))
     );
@@ -147,8 +148,12 @@ export function generateTables(
       const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
       const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
       const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
+      // Someone who can explain the game but doesn't actually want to play it (unvoted or "no")
+      // is just sharing their knowledge, not offering a seat — they don't fill in as a filler explainer.
       const explainers = players.filter(
-        (p) => p.canExplain.includes(game.id) && p.interests[game.id] !== 'no' && eligibleForAnotherTable(p)
+        (p) => p.canExplain.includes(game.id) &&
+          (p.interests[game.id] === 'must' || p.interests[game.id] === 'casual') &&
+          eligibleForAnotherTable(p)
       );
 
       if (explainers.length === 0) break;
