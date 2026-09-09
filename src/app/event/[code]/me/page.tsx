@@ -9,6 +9,7 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
+import VotingHelp from '@/components/ui/VotingHelp';
 import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
@@ -324,7 +325,7 @@ export default function MyTicketPage() {
       </div>
 
       <section>
-        <h2 className="font-semibold text-gray-200 mb-3">Votá los juegos</h2>
+        <h2 className="font-semibold text-gray-200 mb-3">Votá los juegos <VotingHelp /></h2>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <h3 className="text-sm font-semibold text-gray-400 mb-2">Juegos disponibles</h3>

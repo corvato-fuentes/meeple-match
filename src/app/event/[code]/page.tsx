@@ -10,6 +10,7 @@ import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
+import VotingHelp from '@/components/ui/VotingHelp';
 import type { MeepleEvent, Game, GameComplexity, InterestLevel, DraftGame } from '@/lib/types';
 
 type Step = 'loading' | 'closed' | 'reaccess' | 1 | 2 | 3;
@@ -505,7 +506,7 @@ export default function EventPage() {
     return (
       <main className="max-w-sm mx-auto px-4 py-12">
         <p className="text-xs text-gray-500 mb-1">Paso 3 de 3</p>
-        <h2 className="text-xl font-bold mb-2">¿Qué querés jugar?</h2>
+        <h2 className="text-xl font-bold mb-2">¿Qué querés jugar? <VotingHelp /></h2>
         {isEmpty
           ? <p className="text-sm text-gray-400 mb-6">
               {playerCount === 0
