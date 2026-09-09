@@ -403,6 +403,7 @@ function GameVoteCard({
         <span className="font-medium text-sm">{game.name}{isOwn && <span className="text-indigo-400 font-normal"> · lo traés vos</span>}</span>
         <span className="text-xs text-gray-500">{game.minPlayers}–{game.maxPlayers}p · {COMPLEXITY_LABEL[game.complexity]}</span>
       </div>
+      {!isOwn && <p className="text-[11px] text-gray-500 mb-1">Trae: {game.ownerName}</p>}
       <a href={game.bggUrl ?? bggSearchUrl(game.name)} target="_blank" rel="noopener noreferrer"
         className="text-[11px] text-indigo-400 hover:underline inline-block mb-2">
         {game.bggUrl ? '🎲 Ver en BGG' : '🎲 Buscar en BGG'}

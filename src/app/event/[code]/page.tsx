@@ -556,6 +556,7 @@ export default function EventPage() {
                 <span className="font-medium">{g.name}</span>
                 <span className="text-xs text-gray-500">{g.minPlayers}–{g.maxPlayers}p · {COMPLEXITY_LABEL[g.complexity]}</span>
               </div>
+              <p className="text-xs text-gray-500 mb-1">Trae: {g.ownerName}</p>
               <a href={g.bggUrl ?? bggSearchUrl(g.name)} target="_blank" rel="noopener noreferrer"
                 className="text-xs text-indigo-400 hover:underline inline-block mb-2">
                 {g.bggUrl ? '🎲 Ver en BGG' : '🎲 Buscar en BGG'}

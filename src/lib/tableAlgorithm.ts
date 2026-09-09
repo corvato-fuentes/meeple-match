@@ -107,15 +107,15 @@ export function generateTables(
     seatedByGame.set(t.gameId, seated);
   });
 
-  // A game that only has enough demand left through repeat-flagged voters (no fresh must-voters
+  // A game that only has enough demand left through repeat-flagged voters (no fresh voters
   // remain to justify it on its own) is treated as a last resort — every other viable game gets
   // tried first, so a repeat only fills someone's second table once nothing else fits for them.
   function isRepeatFallbackOnly(game: Game): boolean {
     const seated = seatedByGame.get(game.id);
     if (!seated || seated.size === 0) return false;
-    const mustVoters = players.filter((p) => p.interests[game.id] === 'must');
-    const freshMustVoters = mustVoters.filter((p) => !seated.has(p.id));
-    return freshMustVoters.length < game.minPlayers;
+    const voters = players.filter((p) => p.interests[game.id] === 'must' || p.interests[game.id] === 'casual');
+    const freshVoters = voters.filter((p) => !seated.has(p.id));
+    return freshVoters.length < game.minPlayers;
   }
 
   const sorted = [...games].sort((a, b) => {
@@ -157,11 +157,16 @@ export function generateTables(
       );
 
       if (explainers.length === 0) break;
-      if (mustPlayers.length < game.minPlayers) break;
+      // "Me sumo" (casual) voters can help reach the minimum too, not just top up an already-
+      // valid "Quiero" group — otherwise a game with e.g. 3 must + 1 casual (min 4) never gets a table.
+      if (mustPlayers.length + casualPlayers.length < game.minPlayers) break;
 
-      // Prioritizes players who are less booked up / have wider windows, so the same early
-      // registrants aren't blindly re-picked for every game once they're already busy elsewhere
-      const byFlexibility = [...mustPlayers].sort((a, b) => {
+      // Prioritizes "Quiero" voters for seats first, then within each tier the less-booked-up /
+      // wider-window players, so casuals only fill in when there aren't enough must-voters.
+      const byFlexibility = [...mustPlayers, ...casualPlayers].sort((a, b) => {
+        const mustA = a.interests[game.id] === 'must' ? 0 : 1;
+        const mustB = b.interests[game.id] === 'must' ? 0 : 1;
+        if (mustA !== mustB) return mustA - mustB;
         const busyA = (busyMap.get(a.id) ?? []).length;
         const busyB = (busyMap.get(b.id) ?? []).length;
         if (busyA !== busyB) return busyA - busyB;

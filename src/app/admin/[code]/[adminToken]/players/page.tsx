@@ -159,7 +159,7 @@ export default function PlayersPage() {
                       <div className='mt-1.5 space-y-1'>
                         {Object.entries(p.interests).map(([gid, level]) => (
                           <div key={gid} className='flex items-center justify-between text-xs text-gray-300 bg-gray-900 rounded-lg px-2 py-1'>
-                            <span>{gameMap.get(gid)?.name ?? gid}</span>
+                            <span>{gameMap.get(gid)?.name ?? gid} <span className='text-gray-500'>({gameMap.get(gid)?.ownerName ?? '?'})</span></span>
                             <span className='flex items-center gap-1.5 shrink-0'>
                               {VOTE_LABEL[level] ?? level}
                               {p.canExplain.includes(gid) && <span className='text-purple-300'>explica</span>}
