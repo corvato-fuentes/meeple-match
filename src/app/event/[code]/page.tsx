@@ -340,7 +340,7 @@ export default function EventPage() {
               <p className="text-xs text-gray-300 whitespace-pre-wrap">{event.settings.paymentInfo}</p>
             )}
             <p className="text-xs text-gray-500">Subí una foto del comprobante de la transferencia para confirmar tu lugar.</p>
-            <input type="file" accept="image/*" capture="environment"
+            <input type="file" accept="image/*"
               onChange={handlePaymentProofChange}
               className="w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700" />
             {paymentProofPreview && (
