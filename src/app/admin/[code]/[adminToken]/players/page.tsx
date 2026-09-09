@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, getPlayerTables } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, getPlayerTables, deletePlayer } from '@/lib/firestore';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
 export default function PlayersPage() {
@@ -13,6 +13,7 @@ export default function PlayersPage() {
   const [tables, setTables] = useState<Table[]>([]);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -24,6 +25,16 @@ export default function PlayersPage() {
     const unsubT = subscribeTables(code, setTables);
     return () => { unsubP(); unsubT(); };
   }, [code, adminToken]);
+
+  async function handleDeletePlayer(player: Player) {
+    if (!confirm(`¿Eliminar a ${player.name}? Se borrarán sus juegos y su lugar en las mesas.`)) return;
+    setDeletingId(player.id);
+    try {
+      await deletePlayer(code, player.id);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
   if (!event) return <div className='p-8 text-center'>Cargando...</div>;
@@ -58,12 +69,18 @@ export default function PlayersPage() {
                   </div>
                   <span className='text-xs text-gray-500'>{myTables.length} mesa{myTables.length !== 1 ? 's' : ''}</span>
                 </div>
-                {p.paymentProofUrl && (
-                  <button onClick={() => setViewingProof(p.paymentProofUrl)}
-                    className='mt-2 inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline'>
-                    🧾 Ver comprobante
+                <div className='flex items-center gap-3 mt-2'>
+                  {p.paymentProofUrl && (
+                    <button onClick={() => setViewingProof(p.paymentProofUrl)}
+                      className='inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline'>
+                      🧾 Ver comprobante
+                    </button>
+                  )}
+                  <button onClick={() => handleDeletePlayer(p)} disabled={deletingId === p.id}
+                    className='inline-flex items-center gap-1 text-xs text-red-400 hover:underline disabled:opacity-50'>
+                    {deletingId === p.id ? 'Eliminando...' : '🗑️ Eliminar jugador'}
                   </button>
-                )}
+                </div>
                 {p.bringGameIds.length > 0 && (
                   <div className='mt-2 flex flex-wrap gap-1'>
                     {p.bringGameIds.map((gid) => (

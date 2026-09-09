@@ -140,6 +140,74 @@ export async function updatePlayerInterests(
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { interests });
 }
 
+/**
+ * Adds a game brought by an already-registered player (post-registration) and links it to their bringGameIds.
+ * currentBringGameIds is passed in rather than re-read to avoid an extra round-trip.
+ */
+export async function addPlayerGame(
+  eventCode: string,
+  playerId: string,
+  ownerName: string,
+  currentBringGameIds: string[],
+  game: Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>
+): Promise<string> {
+  const gameId = await addGame(eventCode, { ...game, ownerPlayerId: playerId, ownerName });
+  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), {
+    bringGameIds: [...currentBringGameIds, gameId],
+  });
+  return gameId;
+}
+
+/**
+ * Removes a player, the games they brought, their seat/explainer slot on any table (cancelling
+ * tables left with no players), and any dangling votes other players had on the deleted games.
+ */
+export async function deletePlayer(eventCode: string, playerId: string): Promise<void> {
+  const playerSnap = await getDoc(doc(db, 'events', eventCode, 'players', playerId));
+  if (!playerSnap.exists()) return;
+  const player = playerSnap.data() as Player;
+  const ownedGameIds = new Set(player.bringGameIds);
+
+  const [tablesSnap, playersSnap] = await Promise.all([
+    getDocs(collection(db, 'events', eventCode, 'tables')),
+    ownedGameIds.size > 0 ? getDocs(collection(db, 'events', eventCode, 'players')) : Promise.resolve(null),
+  ]);
+
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'events', eventCode, 'players', playerId));
+  ownedGameIds.forEach((gameId) => batch.delete(doc(db, 'events', eventCode, 'games', gameId)));
+
+  tablesSnap.docs.forEach((tableDoc) => {
+    const table = tableDoc.data() as Table;
+    const wasSeated = table.playerIds.includes(playerId);
+    const wasExplainer = table.explainerId === playerId;
+    if (!wasSeated && !wasExplainer) return;
+    const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
+    const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId'>> = { playerIds: remainingPlayerIds };
+    if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
+    else if (wasExplainer) fields.explainerId = remainingPlayerIds[0];
+    batch.update(tableDoc.ref, fields);
+  });
+
+  if (playersSnap) {
+    playersSnap.docs.forEach((otherDoc) => {
+      if (otherDoc.id === playerId) return;
+      const other = otherDoc.data() as Player;
+      const interests = { ...other.interests };
+      let interestsChanged = false;
+      ownedGameIds.forEach((gid) => {
+        if (gid in interests) { delete interests[gid]; interestsChanged = true; }
+      });
+      const canExplain = other.canExplain.filter((gid) => !ownedGameIds.has(gid));
+      if (interestsChanged || canExplain.length !== other.canExplain.length) {
+        batch.update(otherDoc.ref, { interests, canExplain });
+      }
+    });
+  }
+
+  await batch.commit();
+}
+
 /** Clears the paymentProofUrl on every player — called after the Cloudinary receipts themselves are deleted */
 export async function clearPaymentProofs(eventCode: string): Promise<void> {
   const snap = await getDocs(collection(db, 'events', eventCode, 'players'));

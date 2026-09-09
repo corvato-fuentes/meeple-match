@@ -1,15 +1,15 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames,
-  updatePlayerWishlist, subscribeTables, getPlayerTables,
+  updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
-import { bggSearchUrl } from '@/lib/bgg';
-import type { MeepleEvent, Player, Game, Table, GameComplexity } from '@/lib/types';
+import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
+import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 
@@ -19,6 +19,10 @@ const COMPLEXITY_LABEL: Record<GameComplexity, string> = {
   light: 'Ligero',
   medium: 'Medio',
   heavy: 'Complejo',
+};
+
+const EMPTY_DRAFT_GAME: DraftGame = {
+  name: '', bggUrl: null, minPlayers: 2, maxPlayers: 4, durationMinutes: 60, complexity: 'medium',
 };
 
 export default function MyTicketPage() {
@@ -37,6 +41,14 @@ export default function MyTicketPage() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
+  const [showAddGame, setShowAddGame] = useState(false);
+  const [newGame, setNewGame] = useState<DraftGame>(EMPTY_DRAFT_GAME);
+  const [canExplainNew, setCanExplainNew] = useState(false);
+  const [addingGame, setAddingGame] = useState(false);
+  const [bggResults, setBggResults] = useState<BggSearchResult[]>([]);
+  const [bggOpen, setBggOpen] = useState(false);
+  const [bggLoading, setBggLoading] = useState(false);
+  const skipBggSearchRef = useRef(false);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? sessionStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -61,6 +73,67 @@ export default function MyTicketPage() {
     return unsub;
   }, [code, player]);
 
+  useEffect(() => {
+    if (skipBggSearchRef.current) { skipBggSearchRef.current = false; return; }
+    const query = newGame.name.trim();
+    if (query.length < 3) { setBggResults([]); setBggOpen(false); return; }
+    const handle = setTimeout(async () => {
+      setBggLoading(true);
+      try {
+        const results = await searchBgg(query);
+        setBggResults(results);
+        setBggOpen(results.length > 0);
+      } catch (err) {
+        console.error(err);
+        setBggResults([]);
+      } finally {
+        setBggLoading(false);
+      }
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [newGame.name]);
+
+  async function selectBggResult(result: BggSearchResult) {
+    skipBggSearchRef.current = true;
+    setBggOpen(false);
+    setBggResults([]);
+    try {
+      const details = await getBggGameDetails(result.id);
+      setNewGame((g) => ({
+        ...g,
+        name: result.name,
+        bggUrl: details.bggUrl,
+        minPlayers: details.minPlayers,
+        maxPlayers: details.maxPlayers,
+        durationMinutes: details.durationMinutes,
+        complexity: details.complexity,
+      }));
+    } catch (err) {
+      console.error(err);
+      skipBggSearchRef.current = true;
+      setNewGame((g) => ({ ...g, name: result.name }));
+    }
+  }
+
+  async function handleAddGame() {
+    if (!player || !newGame.name.trim() || addingGame) return;
+    setAddingGame(true);
+    try {
+      const gameId = await addPlayerGame(code, player.id, player.name, player.bringGameIds, newGame);
+      const createdGame: Game = { id: gameId, ...newGame, ownerPlayerId: player.id, ownerName: player.name };
+      const updatedCanExplain = canExplainNew ? [...canExplain, gameId] : canExplain;
+      setGames((gs) => [...gs, createdGame]);
+      setPlayer((p) => p ? { ...p, bringGameIds: [...p.bringGameIds, gameId] } : p);
+      setCanExplain(updatedCanExplain);
+      await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain });
+      setNewGame(EMPTY_DRAFT_GAME);
+      setCanExplainNew(false);
+      setShowAddGame(false);
+    } finally {
+      setAddingGame(false);
+    }
+  }
+
   async function saveWishlist() {
     if (!player) return;
     setSaving(true);
@@ -84,12 +157,15 @@ export default function MyTicketPage() {
   if (loading) return <div className="p-8 text-center">Cargando...</div>;
   if (!player || !event) return null;
 
-  const otherGames = games.filter((g) => g.ownerPlayerId !== player.id);
-  const wishlistGames = otherGames.filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual');
+  const myGames = games.filter((g) => g.ownerPlayerId === player.id);
+  const gameLimit = event.settings.maxGamesPerPlayer;
+  const atGameLimit = gameLimit != null && player.bringGameIds.length >= gameLimit;
+  // Own games are votable too — the scheduling algorithm only seats players who voted must/casual on a game.
+  const wishlistGames = games.filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual');
   // Unvoted games stay on top; "no"-voted games are collapsed into a separate section below.
-  const availableGames = otherGames
+  const availableGames = games
     .filter((g) => interests[g.id] !== 'must' && interests[g.id] !== 'casual' && interests[g.id] !== 'no');
-  const dismissedGames = otherGames.filter((g) => interests[g.id] === 'no');
+  const dismissedGames = games.filter((g) => interests[g.id] === 'no');
   const confirmedTables = myTables.filter((t) =>
     ['confirmed', 'in-progress', 'proposed'].includes(t.status)
   );
@@ -143,6 +219,93 @@ export default function MyTicketPage() {
             📺 Ver grilla completa
           </Link>
         </section>
+
+        <section>
+          <h2 className="font-semibold text-gray-200 mb-2">Tus juegos</h2>
+          {myGames.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {myGames.map((g) => (
+                <div key={g.id} className="border border-gray-700 rounded-xl px-3 py-2 bg-gray-800 text-sm">
+                  <span className="font-medium">{g.name}</span>
+                  <span className="text-xs text-gray-500 ml-2">{g.minPlayers}–{g.maxPlayers}p · {COMPLEXITY_LABEL[g.complexity]}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {atGameLimit ? (
+            <p className="text-xs text-amber-400">Llegaste al máximo de {event.settings.maxGamesPerPlayer} juegos para este evento.</p>
+          ) : !showAddGame ? (
+            <button onClick={() => setShowAddGame(true)}
+              className="w-full border border-gray-700 rounded-xl py-2 text-sm font-medium hover:bg-gray-800">
+              + Agregar otro juego
+            </button>
+          ) : (
+            <div className="space-y-3 border border-gray-700 rounded-xl p-4 bg-gray-800">
+              <div className="relative">
+                <input className="w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-2" placeholder="Nombre del juego"
+                  value={newGame.name} onChange={(e) => setNewGame({ ...newGame, name: e.target.value })}
+                  onFocus={() => { if (bggResults.length > 0) setBggOpen(true); }}
+                  onBlur={() => setTimeout(() => setBggOpen(false), 150)} />
+                {bggLoading && <p className="text-xs text-gray-500 mt-1">Buscando en BGG...</p>}
+                {bggOpen && bggResults.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                    {bggResults.map((r) => (
+                      <button key={r.id} type="button"
+                        onMouseDown={(e) => { e.preventDefault(); selectBggResult(r); }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-800 flex justify-between gap-2">
+                        <span className="truncate">{r.name}</span>
+                        {r.year && <span className="text-gray-500 text-xs shrink-0">{r.year}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-400">Mín. jugadores</label>
+                  <input type="number" min={1} max={20} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                    value={newGame.minPlayers} onFocus={(e) => e.target.select()}
+                    onChange={(e) => setNewGame({ ...newGame, minPlayers: +e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Máx. jugadores</label>
+                  <input type="number" min={1} max={20} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                    value={newGame.maxPlayers} onFocus={(e) => e.target.select()}
+                    onChange={(e) => setNewGame({ ...newGame, maxPlayers: +e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Duración (min)</label>
+                  <input type="number" min={10} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                    value={newGame.durationMinutes} onFocus={(e) => e.target.select()}
+                    onChange={(e) => setNewGame({ ...newGame, durationMinutes: +e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Complejidad</label>
+                  <select className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm" value={newGame.complexity}
+                    onChange={(e) => setNewGame({ ...newGame, complexity: e.target.value as GameComplexity })}>
+                    <option value="light">Light</option>
+                    <option value="medium">Medium</option>
+                    <option value="heavy">Heavy</option>
+                  </select>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={canExplainNew} onChange={(e) => setCanExplainNew(e.target.checked)} />
+                Sé explicarlo
+              </label>
+              <div className="flex gap-2">
+                <button onClick={() => { setShowAddGame(false); setNewGame(EMPTY_DRAFT_GAME); setCanExplainNew(false); }}
+                  className="flex-1 border border-gray-700 rounded-lg py-2 text-sm font-medium">
+                  Cancelar
+                </button>
+                <button onClick={handleAddGame} disabled={!newGame.name.trim() || addingGame}
+                  className="flex-1 bg-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-600 disabled:opacity-40">
+                  {addingGame ? 'Agregando...' : '+ Agregar juego'}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
 
       <section>
@@ -152,7 +315,7 @@ export default function MyTicketPage() {
             <h3 className="text-sm font-semibold text-gray-400 mb-2">Juegos disponibles</h3>
             <div className="space-y-2">
               {availableGames.map((g) => (
-                <GameVoteCard key={g.id} game={g} interest={interests[g.id]}
+                <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
                   onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
                   canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
               ))}
@@ -166,7 +329,7 @@ export default function MyTicketPage() {
                 {showDismissed && (
                   <div className="space-y-2 mt-2">
                     {dismissedGames.map((g) => (
-                      <GameVoteCard key={g.id} game={g} interest={interests[g.id]}
+                      <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
                         onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
                         canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
                     ))}
@@ -183,7 +346,7 @@ export default function MyTicketPage() {
             ) : (
               <div className="space-y-2">
                 {wishlistGames.map((g) => (
-                  <GameVoteCard key={g.id} game={g} interest={interests[g.id]}
+                  <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
                     onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
                     canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)} />
                 ))}
@@ -204,10 +367,11 @@ export default function MyTicketPage() {
 }
 
 function GameVoteCard({
-  game, interest, onSetInterest, canExplain, onToggleCanExplain,
+  game, interest, isOwn, onSetInterest, canExplain, onToggleCanExplain,
 }: {
   game: Game;
   interest: InterestLevel | undefined;
+  isOwn: boolean;
   onSetInterest: (level: InterestLevel) => void;
   canExplain: boolean;
   onToggleCanExplain: () => void;
@@ -215,7 +379,7 @@ function GameVoteCard({
   return (
     <div className="border border-gray-700 rounded-xl px-3 py-2 bg-gray-800">
       <div className="flex justify-between items-start mb-1">
-        <span className="font-medium text-sm">{game.name}</span>
+        <span className="font-medium text-sm">{game.name}{isOwn && <span className="text-indigo-400 font-normal"> · lo traés vos</span>}</span>
         <span className="text-xs text-gray-500">{game.minPlayers}–{game.maxPlayers}p · {COMPLEXITY_LABEL[game.complexity]}</span>
       </div>
       <a href={game.bggUrl ?? bggSearchUrl(game.name)} target="_blank" rel="noopener noreferrer"

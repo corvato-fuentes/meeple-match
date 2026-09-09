@@ -10,10 +10,9 @@ import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
-import type { MeepleEvent, Game, GameComplexity, InterestLevel } from '@/lib/types';
+import type { MeepleEvent, Game, GameComplexity, InterestLevel, DraftGame } from '@/lib/types';
 
 type Step = 'loading' | 'closed' | 'reaccess' | 1 | 2 | 3;
-type DraftGame = Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>;
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 

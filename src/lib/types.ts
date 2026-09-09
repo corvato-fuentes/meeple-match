@@ -51,6 +51,8 @@ export interface Game {
   ownerName: string;
 }
 
+export type DraftGame = Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>;
+
 export interface Player {
   id: string;
   name: string; // display name: alias if provided, else "firstName lastName"
