@@ -190,6 +190,15 @@ export default function MyTicketPage() {
           <p className="text-sm mt-2 text-gray-400">
             Hola, <strong>{player.name}</strong> · {player.arrivalTime}–{player.departureTime}
           </p>
+          {event.location && (
+            <p className="text-sm text-gray-400 mt-1">📍 {event.location}</p>
+          )}
+          {event.mapUrl && (
+            <a href={event.mapUrl} target="_blank" rel="noopener noreferrer"
+              className="text-indigo-400 text-sm hover:underline inline-block mt-1">
+              Ver ubicación en el mapa →
+            </a>
+          )}
         </div>
 
         <section>

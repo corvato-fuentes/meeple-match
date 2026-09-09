@@ -31,6 +31,7 @@ export default function AdminPage() {
 
   const [settingsDraft, setSettingsDraft] = useState<MeepleEvent['settings'] | null>(null);
   const [mapUrlDraft, setMapUrlDraft] = useState('');
+  const [locationDraft, setLocationDraft] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [deletingProofs, setDeletingProofs] = useState(false);
@@ -44,6 +45,7 @@ export default function AdminPage() {
       if (ev) {
         setSettingsDraft(ev.settings);
         setMapUrlDraft(ev.mapUrl ?? '');
+        setLocationDraft(ev.location ?? '');
         saveMyEvent({ code, adminToken, name: ev.name, date: ev.date });
       }
     });
@@ -131,11 +133,12 @@ export default function AdminPage() {
     if (!event || !settingsDraft) return;
     setSavingSettings(true);
     const mapUrl = mapUrlDraft.trim() || null;
+    const location = locationDraft.trim();
     await Promise.all([
       updateEventSettings(code, settingsDraft),
-      updateEventDetails(code, { mapUrl }),
+      updateEventDetails(code, { mapUrl, location }),
     ]);
-    setEvent((ev) => ev ? { ...ev, settings: settingsDraft, mapUrl } : ev);
+    setEvent((ev) => ev ? { ...ev, settings: settingsDraft, mapUrl, location } : ev);
     setSavingSettings(false);
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 2000);
@@ -242,6 +245,12 @@ export default function AdminPage() {
       {/* Settings */}
       <section className='border border-gray-700 rounded-xl p-4 space-y-3'>
         <h2 className='font-semibold'>Configuración</h2>
+        <div>
+          <label className='text-xs text-gray-400 block mb-1'>Lugar</label>
+          <input placeholder='Club, domicilio...'
+            className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+            value={locationDraft} onChange={(e) => setLocationDraft(e.target.value)} />
+        </div>
         <div>
           <label className='text-xs text-gray-400 block mb-1'>Link de Google Maps</label>
           <input type='url' placeholder='https://maps.app.goo.gl/...'

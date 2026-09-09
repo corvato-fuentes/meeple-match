@@ -325,11 +325,13 @@ export default function EventPage() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Llegás</label>
-            <TimeWheelPicker value={arrivalTime} onChange={setArrivalTime} />
+            <TimeWheelPicker value={arrivalTime} onChange={setArrivalTime}
+              minTime={event?.startTime} maxTime={event?.endTime} />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Te vas</label>
-            <TimeWheelPicker value={departureTime} onChange={setDepartureTime} />
+            <TimeWheelPicker value={departureTime} onChange={setDepartureTime}
+              minTime={event?.startTime} maxTime={event?.endTime} />
           </div>
         </div>
         {event?.settings.paymentRequired && (
