@@ -14,6 +14,7 @@ export default function PlayersPage() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedVotesId, setExpandedVotesId] = useState<string | null>(null);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -40,6 +41,8 @@ export default function PlayersPage() {
   if (!event) return <div className='p-8 text-center'>Cargando...</div>;
 
   const gameMap = new Map(games.map((g) => [g.id, g]));
+
+  const VOTE_LABEL: Record<string, string> = { must: '❤️ Quiero', casual: '👍 Me sumo', no: '👎 No' };
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10'>
@@ -88,6 +91,28 @@ export default function PlayersPage() {
                         {gameMap.get(gid)?.name ?? gid}
                       </span>
                     ))}
+                  </div>
+                )}
+                {votedCount > 0 && (
+                  <div className='mt-2'>
+                    <button onClick={() => setExpandedVotesId((cur) => cur === p.id ? null : p.id)}
+                      className='text-xs text-gray-500 hover:text-gray-300'>
+                      {expandedVotesId === p.id ? '▾' : '▸'} Ver votos ({votedCount})
+                    </button>
+                    {expandedVotesId === p.id && (
+                      <div className='mt-1.5 space-y-1'>
+                        {Object.entries(p.interests).map(([gid, level]) => (
+                          <div key={gid} className='flex items-center justify-between text-xs text-gray-300 bg-gray-900 rounded-lg px-2 py-1'>
+                            <span>{gameMap.get(gid)?.name ?? gid}</span>
+                            <span className='flex items-center gap-1.5 shrink-0'>
+                              {VOTE_LABEL[level] ?? level}
+                              {p.canExplain.includes(gid) && <span className='text-purple-300'>explica</span>}
+                              {(p.repeatGameIds ?? []).includes(gid) && <span className='text-indigo-300'>🔁</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
