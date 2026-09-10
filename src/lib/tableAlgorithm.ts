@@ -25,12 +25,15 @@ function isAvailable(
   player: Player,
   winStart: string,
   winEnd: string,
-  busy: { start: string; end: string }[]
+  busy: { start: string; end: string }[],
+  bufferMinutes: number
 ): boolean {
   const ws = toMinutes(winStart);
   const we = toMinutes(winEnd);
   if (ws < toMinutes(player.arrivalTime) || we > toMinutes(player.departureTime)) return false;
-  return busy.every((bw) => toMinutes(bw.end) <= ws || toMinutes(bw.start) >= we);
+  // A buffer gap is required on both sides — not just "no overlap" — so a player never goes
+  // straight from one table into the next with zero time to stand up and walk over.
+  return busy.every((bw) => toMinutes(bw.end) + bufferMinutes <= ws || we + bufferMinutes <= toMinutes(bw.start));
 }
 
 // A drop-in teacher (not seated, not playing) only ties up ~30 min explaining before they're free again
@@ -80,7 +83,7 @@ function findEarliestWindow(
   for (const startMin of Array.from(candidates).sort((a, b) => a - b)) {
     const start = toTimeString(startMin);
     const end = toTimeString(startMin + durationMinutes);
-    if (!players.every((p) => isAvailable(p, start, end, busyMap.get(p.id) ?? []))) continue;
+    if (!players.every((p) => isAvailable(p, start, end, busyMap.get(p.id) ?? [], bufferMinutes))) continue;
     if (physicalTables != null && concurrentTableCount(occupiedTables, start, end) >= physicalTables) continue;
     if (sameGameWindows.some((t) => overlaps(t.startTime, t.endTime, start, end))) continue;
     return { start, end };
@@ -228,7 +231,7 @@ export function generateTables(
           if (found) {
             const teachEnd = toTimeString(toMinutes(found.start) + TEACH_ONLY_MINUTES);
             const teacher = teachOnlyCandidates.find(
-              (p) => candidate.every((c) => c.id !== p.id) && isAvailable(p, found.start, teachEnd, busyMap.get(p.id) ?? [])
+              (p) => candidate.every((c) => c.id !== p.id) && isAvailable(p, found.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes)
             );
             if (teacher) {
               if (!best || toMinutes(found.start) < toMinutes(best.window.start)) {
@@ -265,7 +268,7 @@ export function generateTables(
         if (group.length >= game.maxPlayers) break;
         if (group.some((p) => p.id === casual.id)) continue;
         if (teachOnlyExplainer && casual.id === teachOnlyExplainer.id) continue;
-        if (isAvailable(casual, window.start, window.end, busyMap.get(casual.id) ?? []))
+        if (isAvailable(casual, window.start, window.end, busyMap.get(casual.id) ?? [], bufferMinutes))
           group.push(casual);
       }
 
@@ -329,7 +332,7 @@ export interface TableFill {
  * brand-new sessions — it never revisits an already-proposed/confirmed table that still has open
  * seats. This fills those gaps first with any new must/casual voters who are free at that time.
  */
-export function fillExistingTables(players: Player[], games: Game[], existingTables: Table[]): TableFill[] {
+export function fillExistingTables(players: Player[], games: Game[], existingTables: Table[], bufferMinutes: number): TableFill[] {
   const gameMap = new Map(games.map((g) => [g.id, g]));
   const busyMap = new Map<string, { start: string; end: string }[]>();
   players.forEach((p) => busyMap.set(p.id, getBusyWindows(p.id, existingTables)));
@@ -349,7 +352,7 @@ export function fillExistingTables(players: Player[], games: Game[], existingTab
       .filter((p) =>
         !table.playerIds.includes(p.id) &&
         (p.interests[table.gameId] === 'must' || p.interests[table.gameId] === 'casual') &&
-        isAvailable(p, table.startTime, table.endTime, busyMap.get(p.id) ?? [])
+        isAvailable(p, table.startTime, table.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
       )
       // 'must' voters get priority over 'casual' ones for the remaining seats
       .sort((a, b) => (a.interests[table.gameId] === 'must' ? 0 : 1) - (b.interests[table.gameId] === 'must' ? 0 : 1));

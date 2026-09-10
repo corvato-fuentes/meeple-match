@@ -35,7 +35,7 @@ export async function runTableGeneration(
   if (stale.length > 0) await deleteTables(eventCode, stale.map((t) => t.id));
   const lockedTables = allTables.filter((t) => t.status === 'confirmed');
 
-  const fills = fillExistingTables(allPlayers, allGames, lockedTables);
+  const fills = fillExistingTables(allPlayers, allGames, lockedTables, event.settings.bufferMinutes);
   for (const fill of fills) await fillTableSeats(eventCode, fill.tableId, fill.playerIds);
   const currentTables = fills.length > 0 ? await getTables(eventCode) : lockedTables;
   const batchNumber = currentTables.length > 0
