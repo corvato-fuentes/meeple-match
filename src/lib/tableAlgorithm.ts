@@ -377,16 +377,23 @@ export interface IdleGap {
 
 /**
  * Reports the free windows each player has (arrival→departure minus any non-cancelled table
- * they're seated at) — surfaced to the admin so they can spot and manually fix idle stretches
- * the algorithm couldn't fill on its own (not enough matching votes/explainers at that time).
+ * they're seated at and minus scheduled breaks like lunch) — surfaced to the admin so they can
+ * spot and manually fix idle stretches the algorithm couldn't fill on its own.
  */
-export function computeIdleGaps(players: Player[], tables: Table[], minGapMinutes = 60): IdleGap[] {
+export function computeIdleGaps(
+  players: Player[],
+  tables: Table[],
+  breaks: { start: string; end: string }[] = [],
+  minGapMinutes = 60
+): IdleGap[] {
   const gaps: IdleGap[] = [];
+  const breakWindows = breaks.map((b) => ({ start: toMinutes(b.start), end: toMinutes(b.end) }));
   for (const p of players) {
-    const busy = tables
-      .filter((t) => t.playerIds.includes(p.id) && t.status !== 'cancelled')
-      .map((t) => ({ start: toMinutes(t.startTime), end: toMinutes(t.endTime) }))
-      .sort((a, b) => a.start - b.start);
+    const busy = [
+      ...tables.filter((t) => t.playerIds.includes(p.id) && t.status !== 'cancelled')
+        .map((t) => ({ start: toMinutes(t.startTime), end: toMinutes(t.endTime) })),
+      ...breakWindows,
+    ].sort((a, b) => a.start - b.start);
 
     let cursor = toMinutes(p.arrivalTime);
     const depart = toMinutes(p.departureTime);

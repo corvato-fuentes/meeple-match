@@ -229,7 +229,7 @@ export default function AdminPage() {
 
   const confirmedCount = tables.filter((t) => ['confirmed', 'in-progress'].includes(t.status)).length;
   const proposedCount = tables.filter((t) => t.status === 'proposed').length;
-  const idleGaps = computeIdleGaps(players, tables);
+  const idleGaps = computeIdleGaps(players, tables, event.settings.breaks);
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10 space-y-6'>
