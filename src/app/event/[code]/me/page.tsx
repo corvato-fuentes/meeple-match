@@ -8,6 +8,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
+import { savePlayerEvent } from '@/lib/myEvents';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import VotingHelp from '@/components/ui/VotingHelp';
 import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
@@ -53,7 +54,7 @@ export default function MyTicketPage() {
   const skipBggSearchRef = useRef(false);
 
   useEffect(() => {
-    const ticketCode = (searchParams.get('ticket') ?? sessionStorage.getItem(STORAGE_KEY(code))) as string | null;
+    const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
     if (!ticketCode) { router.replace('/event/' + code); return; }
     async function load() {
       const [ev, gs] = await Promise.all([getEvent(code), getGames(code)]);
@@ -66,6 +67,8 @@ export default function MyTicketPage() {
       setCanExplain(p.canExplain);
       setRepeatGameIds(p.repeatGameIds ?? []);
       setLoading(false);
+      localStorage.setItem(STORAGE_KEY(code), ticketCode!);
+      savePlayerEvent({ code, ticketCode: ticketCode!, name: ev.name, date: ev.date, playerName: p.name });
     }
     load();
   }, [code, router, searchParams]);

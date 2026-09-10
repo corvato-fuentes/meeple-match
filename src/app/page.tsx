@@ -4,7 +4,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createEvent } from '@/lib/firestore';
 import { generateUniqueShortCode } from '@/lib/shortCode';
-import { getMyEvents, saveMyEvent, removeMyEvent, type SavedEvent } from '@/lib/myEvents';
+import {
+  getMyEvents, saveMyEvent, removeMyEvent, type SavedEvent,
+  getMyPlayerEvents, removeMyPlayerEvent, type SavedPlayerEvent,
+} from '@/lib/myEvents';
 import { createMathTradeEvent, generateUniqueMathTradeCode } from '@/lib/mathtradeFirestore';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 
@@ -13,6 +16,7 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [myEvents, setMyEvents] = useState<SavedEvent[]>([]);
+  const [myPlayerEvents, setMyPlayerEvents] = useState<SavedPlayerEvent[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isLocalhost, setIsLocalhost] = useState(false);
   const [showMathTradeForm, setShowMathTradeForm] = useState(false);
@@ -29,6 +33,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     setMyEvents(getMyEvents());
+    setMyPlayerEvents(getMyPlayerEvents());
     setIsLocalhost(['localhost', '127.0.0.1'].includes(window.location.hostname));
   }, []);
 
@@ -41,6 +46,11 @@ export default function LandingPage() {
   function handleForgetEvent(code: string) {
     removeMyEvent(code);
     setMyEvents(getMyEvents());
+  }
+
+  function handleForgetPlayerEvent(code: string) {
+    removeMyPlayerEvent(code);
+    setMyPlayerEvents(getMyPlayerEvents());
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -111,6 +121,31 @@ export default function LandingPage() {
                     Abrir →
                   </Link>
                   <button onClick={() => handleForgetEvent(ev.code)} title='Olvidar este evento'
+                    className='text-gray-600 hover:text-gray-400 text-sm'>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {myPlayerEvents.length > 0 && (
+        <section className='border border-gray-700 rounded-xl p-5 space-y-3'>
+          <h2 className='text-xl font-semibold'>Mis inscripciones</h2>
+          <div className='space-y-2'>
+            {myPlayerEvents.map((ev) => (
+              <div key={ev.code} className='flex items-center justify-between border border-gray-800 rounded-lg px-3 py-2'>
+                <div>
+                  <p className='font-medium text-sm'>{ev.name || ev.code}</p>
+                  <p className='text-xs text-gray-500'>{ev.date} · {ev.playerName}</p>
+                </div>
+                <div className='flex items-center gap-3'>
+                  <Link href={`/event/${ev.code}/me?ticket=${ev.ticketCode}`} className='text-indigo-400 text-sm hover:underline'>
+                    Abrir →
+                  </Link>
+                  <button onClick={() => handleForgetPlayerEvent(ev.code)} title='Olvidar esta inscripción'
                     className='text-gray-600 hover:text-gray-400 text-sm'>
                     ✕
                   </button>

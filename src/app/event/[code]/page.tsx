@@ -8,6 +8,7 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
+import { savePlayerEvent } from '@/lib/myEvents';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import VotingHelp from '@/components/ui/VotingHelp';
@@ -109,7 +110,7 @@ export default function EventPage() {
 
   useEffect(() => {
     async function init() {
-      const saved = sessionStorage.getItem(STORAGE_KEY(code));
+      const saved = localStorage.getItem(STORAGE_KEY(code));
       if (saved) { router.replace('/event/' + code + '/me?ticket=' + saved); return; }
       const ev = await getEvent(code);
       if (!ev || ev.status === 'closed') { setStep('closed'); return; }
@@ -129,7 +130,8 @@ export default function EventPage() {
     setTicketError('');
     const player = await getPlayerByTicketCode(code, ticketInput.toUpperCase());
     if (!player) { setTicketError('Código no encontrado. Verificá y volvé a intentar.'); return; }
-    sessionStorage.setItem(STORAGE_KEY(code), player.ticketCode);
+    localStorage.setItem(STORAGE_KEY(code), player.ticketCode);
+    if (event) savePlayerEvent({ code, ticketCode: player.ticketCode, name: event.name, date: event.date, playerName: player.name });
     router.push('/event/' + code + '/me?ticket=' + player.ticketCode);
   }
 
@@ -250,7 +252,8 @@ export default function EventPage() {
         body: JSON.stringify({ code, ticketCode }),
       }).catch(() => {});
     }
-    sessionStorage.setItem(STORAGE_KEY(code), ticketCode);
+    localStorage.setItem(STORAGE_KEY(code), ticketCode);
+    savePlayerEvent({ code, ticketCode, name: event.name, date: event.date, playerName: displayName });
     router.push('/event/' + code + '/me?ticket=' + ticketCode);
   }
 
@@ -373,7 +376,7 @@ export default function EventPage() {
             <p>{contactError}</p>
             {existingTicket && (
               <button
-                onClick={() => { sessionStorage.setItem(STORAGE_KEY(code), existingTicket); router.push('/event/' + code + '/me?ticket=' + existingTicket); }}
+                onClick={() => { localStorage.setItem(STORAGE_KEY(code), existingTicket); router.push('/event/' + code + '/me?ticket=' + existingTicket); }}
                 className="text-indigo-400 hover:underline">
                 Ver mi ticket →
               </button>
