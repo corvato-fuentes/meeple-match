@@ -501,6 +501,9 @@ export default function AdminPage() {
         <Link href={`/admin/${code}/${adminToken}/players`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
           Ver jugadores →
         </Link>
+        <Link href={`/admin/${code}/${adminToken}/games`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
+          Ver juegos →
+        </Link>
         <Link href={`/event/${code}/board`}
           onClick={() => sessionStorage.setItem(BOARD_RETURN_KEY(code), adminUrl)}
           className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
