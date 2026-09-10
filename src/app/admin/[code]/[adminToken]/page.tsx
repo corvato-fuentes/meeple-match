@@ -7,6 +7,7 @@ import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { runTableGeneration } from '@/lib/tableGeneration';
+import { computeIdleGaps } from '@/lib/tableAlgorithm';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
@@ -43,6 +44,7 @@ export default function AdminPage() {
   const [gmailAppPasswordDraft, setGmailAppPasswordDraft] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
   const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  const [showIdleGaps, setShowIdleGaps] = useState(false);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -227,6 +229,7 @@ export default function AdminPage() {
 
   const confirmedCount = tables.filter((t) => ['confirmed', 'in-progress'].includes(t.status)).length;
   const proposedCount = tables.filter((t) => t.status === 'proposed').length;
+  const idleGaps = computeIdleGaps(players, tables);
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10 space-y-6'>
@@ -276,6 +279,22 @@ export default function AdminPage() {
         <StatCard label='Mesas prop.' value={proposedCount} />
         <StatCard label='Mesas conf.' value={confirmedCount} />
       </div>
+
+      {idleGaps.length > 0 && (
+        <section className='border border-amber-800 bg-amber-950/20 rounded-xl p-4'>
+          <button onClick={() => setShowIdleGaps((v) => !v)} className='w-full flex justify-between items-center text-sm font-semibold text-amber-300'>
+            <span>⚠️ {idleGaps.length} hueco{idleGaps.length !== 1 ? 's' : ''} libre{idleGaps.length !== 1 ? 's' : ''} sin mesa</span>
+            <span>{showIdleGaps ? '▾' : '▸'}</span>
+          </button>
+          {showIdleGaps && (
+            <div className='mt-2 space-y-1'>
+              {idleGaps.map((g, i) => (
+                <p key={i} className='text-xs text-gray-300'>{g.playerName}: libre {g.start}–{g.end}</p>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Status */}
       <section className='border border-gray-700 rounded-xl p-4 space-y-2'>

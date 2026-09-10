@@ -54,7 +54,8 @@ function findEarliestWindow(
   bufferMinutes: number,
   busyMap: Map<string, { start: string; end: string }[]>,
   physicalTables: number | null,
-  occupiedTables: { startTime: string; endTime: string }[]
+  occupiedTables: { startTime: string; endTime: string }[],
+  sameGameWindows: { startTime: string; endTime: string }[]
 ): { start: string; end: string } | null {
   const candidates = new Set<number>();
   players.forEach((p) => {
@@ -68,12 +69,16 @@ function findEarliestWindow(
     // A physical table only frees up once an occupying game finishes (+ buffer to reset it)
     occupiedTables.forEach((t) => candidates.add(roundUpToGrid(toMinutes(t.endTime) + bufferMinutes)));
   }
+  // A second table of the exact same game needs its own copy freed up too — a single physical
+  // copy can't be at two tables at once, regardless of the venue's overall physicalTables cap.
+  sameGameWindows.forEach((t) => candidates.add(roundUpToGrid(toMinutes(t.endTime) + bufferMinutes)));
 
   for (const startMin of Array.from(candidates).sort((a, b) => a - b)) {
     const start = toTimeString(startMin);
     const end = toTimeString(startMin + durationMinutes);
     if (!players.every((p) => isAvailable(p, start, end, busyMap.get(p.id) ?? []))) continue;
     if (physicalTables != null && concurrentTableCount(occupiedTables, start, end) >= physicalTables) continue;
+    if (sameGameWindows.some((t) => overlaps(t.startTime, t.endTime, start, end))) continue;
     return { start, end };
   }
   return null;
@@ -144,6 +149,11 @@ export function generateTables(
     // Loops so a single generation pass can seat all of them across as many tables as fit
     // (e.g. max 5 but 10 different "must" voters → two tables, different players, different times).
     const seated = new Set(seatedByGame.get(game.id) ?? []);
+    // Every existing (non-cancelled) window this exact game is already booked into — a second
+    // table for it can never overlap these, since it's the same single physical copy.
+    const gameWindows: { startTime: string; endTime: string }[] = existingTables
+      .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
+      .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
     while (true) {
       const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
       const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
@@ -161,34 +171,52 @@ export function generateTables(
       // valid "Quiero" group — otherwise a game with e.g. 3 must + 1 casual (min 4) never gets a table.
       if (mustPlayers.length + casualPlayers.length < game.minPlayers) break;
 
-      // Prioritizes "Quiero" voters for seats first, then within each tier the less-booked-up /
-      // wider-window players, so casuals only fill in when there aren't enough must-voters.
+      // Prioritizes "Quiero" voters for seats first, then within each tier whoever arrives
+      // earliest — so a late arrival doesn't get pulled into a group ahead of someone who's been
+      // free since the morning, which would needlessly push the whole table's start time back.
       const byFlexibility = [...mustPlayers, ...casualPlayers].sort((a, b) => {
         const mustA = a.interests[game.id] === 'must' ? 0 : 1;
         const mustB = b.interests[game.id] === 'must' ? 0 : 1;
         if (mustA !== mustB) return mustA - mustB;
+        const arrivalA = toMinutes(a.arrivalTime);
+        const arrivalB = toMinutes(b.arrivalTime);
+        if (arrivalA !== arrivalB) return arrivalA - arrivalB;
         const busyA = (busyMap.get(a.id) ?? []).length;
         const busyB = (busyMap.get(b.id) ?? []).length;
         if (busyA !== busyB) return busyA - busyB;
         return windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime);
       });
 
-      // Falls back to smaller (but still valid) groups if the fullest group can't find a shared window
-      let coreGroup: Player[] | null = null;
-      let sharedWindow: { start: string; end: string } | null = null;
-      for (let size = game.maxPlayers; size >= game.minPlayers && !sharedWindow; size--) {
-        const candidate = byFlexibility.slice(0, size);
-        const hasExplainer = candidate.some((p) => p.canExplain.includes(game.id));
-        if (!hasExplainer) {
-          const extra = explainers.find((e) => candidate.every((p) => p.id !== e.id));
-          if (!extra || candidate.length >= game.maxPlayers) continue;
-          candidate.push(extra);
+      // Tries every valid group size within [minSize, maxSize] and keeps whichever finds the
+      // earliest shared window overall (not just the first that works), so the morning fills up
+      // before defaulting to a later slot just because it's the first one that happened to work.
+      function tryFindGroup(minSize: number, maxSize: number): { group: Player[]; window: { start: string; end: string } } | null {
+        let best: { group: Player[]; window: { start: string; end: string } } | null = null;
+        for (let size = maxSize; size >= minSize; size--) {
+          const candidate = byFlexibility.slice(0, size);
+          const hasExplainer = candidate.some((p) => p.canExplain.includes(game.id));
+          if (!hasExplainer) {
+            const extra = explainers.find((e) => candidate.every((p) => p.id !== e.id));
+            if (!extra || candidate.length >= game.maxPlayers) continue;
+            candidate.push(extra);
+          }
+          const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows);
+          if (found && (!best || toMinutes(found.start) < toMinutes(best.window.start))) {
+            best = { group: candidate, window: found };
+          }
         }
-        const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables);
-        if (found) { coreGroup = candidate; sharedWindow = found; }
+        return best;
       }
-      if (!coreGroup || !sharedWindow) break;
-      const window = sharedWindow;
+
+      // Prefers an all-"Quiero" group whenever there are enough must-voters to hit the minimum
+      // on their own — "Me sumo" voters only get mixed in if that's not possible, even if a mixed
+      // group would've found an earlier window (composition beats raw earliest-start here).
+      const maxMustOnlySize = Math.min(game.maxPlayers, mustPlayers.length);
+      let best = maxMustOnlySize >= game.minPlayers ? tryFindGroup(game.minPlayers, maxMustOnlySize) : null;
+      if (!best) best = tryFindGroup(game.minPlayers, game.maxPlayers);
+      if (!best) break;
+      const coreGroup = best.group;
+      const window = best.window;
 
       const group = [...coreGroup];
       for (const casual of casualPlayers) {
@@ -222,6 +250,7 @@ export function generateTables(
         tableNumber: tableNumber++,
       });
       occupiedTables.push({ startTime: window.start, endTime: window.end });
+      gameWindows.push({ startTime: window.start, endTime: window.end });
     }
   }
 
@@ -275,4 +304,39 @@ export function fillExistingTables(players: Player[], games: Game[], existingTab
   }
 
   return fills;
+}
+
+export interface IdleGap {
+  playerId: string;
+  playerName: string;
+  start: string;
+  end: string;
+}
+
+/**
+ * Reports the free windows each player has (arrival→departure minus any non-cancelled table
+ * they're seated at) — surfaced to the admin so they can spot and manually fix idle stretches
+ * the algorithm couldn't fill on its own (not enough matching votes/explainers at that time).
+ */
+export function computeIdleGaps(players: Player[], tables: Table[], minGapMinutes = 60): IdleGap[] {
+  const gaps: IdleGap[] = [];
+  for (const p of players) {
+    const busy = tables
+      .filter((t) => t.playerIds.includes(p.id) && t.status !== 'cancelled')
+      .map((t) => ({ start: toMinutes(t.startTime), end: toMinutes(t.endTime) }))
+      .sort((a, b) => a.start - b.start);
+
+    let cursor = toMinutes(p.arrivalTime);
+    const depart = toMinutes(p.departureTime);
+    for (const b of busy) {
+      if (b.start > cursor && b.start - cursor >= minGapMinutes) {
+        gaps.push({ playerId: p.id, playerName: p.name, start: toTimeString(cursor), end: toTimeString(b.start) });
+      }
+      cursor = Math.max(cursor, b.end);
+    }
+    if (depart > cursor && depart - cursor >= minGapMinutes) {
+      gaps.push({ playerId: p.id, playerName: p.name, start: toTimeString(cursor), end: toTimeString(depart) });
+    }
+  }
+  return gaps;
 }
