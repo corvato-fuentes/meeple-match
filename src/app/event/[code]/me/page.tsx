@@ -4,7 +4,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames,
-  updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame,
+  updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
@@ -48,6 +48,8 @@ export default function MyTicketPage() {
   const [newGame, setNewGame] = useState<DraftGame>(EMPTY_DRAFT_GAME);
   const [canExplainNew, setCanExplainNew] = useState(false);
   const [addingGame, setAddingGame] = useState(false);
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
+  const [removingGameId, setRemovingGameId] = useState<string | null>(null);
   const [bggResults, setBggResults] = useState<BggSearchResult[]>([]);
   const [bggOpen, setBggOpen] = useState(false);
   const [bggLoading, setBggLoading] = useState(false);
@@ -125,18 +127,67 @@ export default function MyTicketPage() {
     if (!player || !newGame.name.trim() || addingGame) return;
     setAddingGame(true);
     try {
-      const gameId = await addPlayerGame(code, player.id, player.name, player.bringGameIds, newGame);
-      const createdGame: Game = { id: gameId, ...newGame, ownerPlayerId: player.id, ownerName: player.name };
-      const updatedCanExplain = canExplainNew ? [...canExplain, gameId] : canExplain;
-      setGames((gs) => [...gs, createdGame]);
-      setPlayer((p) => p ? { ...p, bringGameIds: [...p.bringGameIds, gameId] } : p);
-      setCanExplain(updatedCanExplain);
-      await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain, repeatGameIds });
+      if (editingGameId) {
+        await updateGame(code, editingGameId, newGame);
+        setGames((gs) => gs.map((g) => (g.id === editingGameId ? { ...g, ...newGame } : g)));
+        const updatedCanExplain = canExplainNew
+          ? [...new Set([...canExplain, editingGameId])]
+          : canExplain.filter((id) => id !== editingGameId);
+        setCanExplain(updatedCanExplain);
+        await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain, repeatGameIds });
+      } else {
+        const gameId = await addPlayerGame(code, player.id, player.name, player.bringGameIds, newGame);
+        const createdGame: Game = { id: gameId, ...newGame, ownerPlayerId: player.id, ownerName: player.name };
+        const updatedCanExplain = canExplainNew ? [...canExplain, gameId] : canExplain;
+        setGames((gs) => [...gs, createdGame]);
+        setPlayer((p) => p ? { ...p, bringGameIds: [...p.bringGameIds, gameId] } : p);
+        setCanExplain(updatedCanExplain);
+        await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain, repeatGameIds });
+      }
       setNewGame(EMPTY_DRAFT_GAME);
       setCanExplainNew(false);
+      setEditingGameId(null);
       setShowAddGame(false);
     } finally {
       setAddingGame(false);
+    }
+  }
+
+  function startEditGame(game: Game) {
+    setEditingGameId(game.id);
+    setNewGame({
+      name: game.name, bggUrl: game.bggUrl, minPlayers: game.minPlayers,
+      maxPlayers: game.maxPlayers, durationMinutes: game.durationMinutes, complexity: game.complexity,
+    });
+    setCanExplainNew(canExplain.includes(game.id));
+    setShowAddGame(true);
+  }
+
+  function cancelEditGame() {
+    setEditingGameId(null);
+    setNewGame(EMPTY_DRAFT_GAME);
+    setCanExplainNew(false);
+    setShowAddGame(false);
+  }
+
+  async function handleRemoveGame(gameId: string) {
+    if (!player || removingGameId) return;
+    if (!confirm('¿Eliminar este juego de tu lista? Se borrarán los votos que otros jugadores hicieron sobre él.')) return;
+    setRemovingGameId(gameId);
+    try {
+      await removePlayerGame(code, player.id, gameId);
+      setGames((gs) => gs.filter((g) => g.id !== gameId));
+      setPlayer((p) => p ? { ...p, bringGameIds: p.bringGameIds.filter((id) => id !== gameId) } : p);
+      setCanExplain((ids) => ids.filter((id) => id !== gameId));
+      setRepeatGameIds((ids) => ids.filter((id) => id !== gameId));
+      setInterests((cur) => {
+        const next = { ...cur };
+        delete next[gameId];
+        return next;
+      });
+      if (editingGameId === gameId) cancelEditGame();
+    } finally {
+      setRemovingGameId(null);
     }
   }
 
@@ -244,21 +295,33 @@ export default function MyTicketPage() {
           {myGames.length > 0 && (
             <div className="space-y-2 mb-3">
               {myGames.map((g) => (
-                <div key={g.id} className="border border-gray-700 rounded-xl px-3 py-2 bg-gray-800 text-sm">
-                  <span className="font-medium">{g.name}</span>
-                  <span className="text-xs text-gray-500 ml-2">{g.minPlayers}–{g.maxPlayers}p · {COMPLEXITY_LABEL[g.complexity]}</span>
+                <div key={g.id} className="border border-gray-700 rounded-xl px-3 py-2 bg-gray-800 text-sm flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="font-medium">{g.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">{g.minPlayers}–{g.maxPlayers}p · {COMPLEXITY_LABEL[g.complexity]}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => startEditGame(g)} className="text-xs text-indigo-400 hover:underline">
+                      Editar
+                    </button>
+                    <button onClick={() => handleRemoveGame(g.id)} disabled={removingGameId === g.id}
+                      className="text-xs text-red-400 hover:underline disabled:opacity-40">
+                      {removingGameId === g.id ? 'Eliminando...' : 'Eliminar'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
-          {atGameLimit ? (
+          {editingGameId ? null : atGameLimit ? (
             <p className="text-xs text-amber-400">Llegaste al máximo de {event.settings.maxGamesPerPlayer} juegos para este evento.</p>
           ) : !showAddGame ? (
             <button onClick={() => setShowAddGame(true)}
               className="w-full border border-gray-700 rounded-xl py-2 text-sm font-medium hover:bg-gray-800">
               + Agregar otro juego
             </button>
-          ) : (
+          ) : null}
+          {showAddGame && (
             <div className="space-y-3 border border-gray-700 rounded-xl p-4 bg-gray-800">
               <div className="relative">
                 <input className="w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-2" placeholder="Nombre del juego"
@@ -313,13 +376,13 @@ export default function MyTicketPage() {
                 Sé explicarlo
               </label>
               <div className="flex gap-2">
-                <button onClick={() => { setShowAddGame(false); setNewGame(EMPTY_DRAFT_GAME); setCanExplainNew(false); }}
+                <button onClick={cancelEditGame}
                   className="flex-1 border border-gray-700 rounded-lg py-2 text-sm font-medium">
                   Cancelar
                 </button>
                 <button onClick={handleAddGame} disabled={!newGame.name.trim() || addingGame}
                   className="flex-1 bg-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-600 disabled:opacity-40">
-                  {addingGame ? 'Agregando...' : '+ Agregar juego'}
+                  {addingGame ? 'Guardando...' : editingGameId ? '💾 Guardar juego' : '+ Agregar juego'}
                 </button>
               </div>
             </div>

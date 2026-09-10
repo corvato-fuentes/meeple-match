@@ -90,6 +90,56 @@ export async function setGameOwner(eventCode: string, gameId: string, ownerPlaye
   await updateDoc(doc(db, 'events', eventCode, 'games', gameId), { ownerPlayerId });
 }
 
+/** Lets a player edit a game they own (name/player counts/duration/complexity/BGG link) after registering. */
+export async function updateGame(
+  eventCode: string,
+  gameId: string,
+  fields: Partial<Pick<Game, 'name' | 'bggUrl' | 'minPlayers' | 'maxPlayers' | 'durationMinutes' | 'complexity'>>
+): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'games', gameId), fields);
+}
+
+/**
+ * Removes a game a player brought: deletes the game, unlinks it from the owner's bringGameIds,
+ * strips any votes on it from every player, and cancels tables that were proposing it.
+ */
+export async function removePlayerGame(eventCode: string, playerId: string, gameId: string): Promise<void> {
+  const [playersSnap, tablesSnap] = await Promise.all([
+    getDocs(collection(db, 'events', eventCode, 'players')),
+    getDocs(collection(db, 'events', eventCode, 'tables')),
+  ]);
+
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'events', eventCode, 'games', gameId));
+
+  playersSnap.docs.forEach((playerDoc) => {
+    const isOwner = playerDoc.id === playerId;
+    const p = playerDoc.data() as Player;
+    const referencesGame = gameId in p.interests || p.canExplain.includes(gameId) || (p.repeatGameIds ?? []).includes(gameId);
+    if (!isOwner && !referencesGame) return;
+
+    const fields: Record<string, unknown> = {};
+    if (isOwner) fields.bringGameIds = p.bringGameIds.filter((id) => id !== gameId);
+    if (referencesGame) {
+      const interests = { ...p.interests };
+      delete interests[gameId];
+      fields.interests = interests;
+      fields.canExplain = p.canExplain.filter((id) => id !== gameId);
+      fields.repeatGameIds = (p.repeatGameIds ?? []).filter((id) => id !== gameId);
+    }
+    batch.update(playerDoc.ref, fields);
+  });
+
+  tablesSnap.docs.forEach((tableDoc) => {
+    const table = tableDoc.data() as Table;
+    if (table.gameId === gameId && table.status !== 'cancelled') {
+      batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [] });
+    }
+  });
+
+  await batch.commit();
+}
+
 export function subscribeGames(eventCode: string, cb: (games: Game[]) => void) {
   return onSnapshot(collection(db, 'events', eventCode, 'games'), (snap) =>
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Game)))
