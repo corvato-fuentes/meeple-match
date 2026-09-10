@@ -587,7 +587,7 @@ export default function EventPage() {
                 <label className="flex items-center gap-2 text-xs text-gray-400 mt-1">
                   <input type="checkbox" checked={repeatInterestIds.includes(g.id)}
                     onChange={() => toggleRepeatInterest(g.id)} />
-                  🔁 Me sumaría a una segunda mesa de este juego
+                  Me sumaría a una segunda mesa de este juego
                 </label>
               )}
             </div>

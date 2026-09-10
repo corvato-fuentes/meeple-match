@@ -432,7 +432,7 @@ function GameVoteCard({
       {(interest === 'must' || interest === 'casual') && (
         <label className="flex items-center gap-1.5 text-xs text-gray-400 mt-1">
           <input type="checkbox" checked={repeatInterest} onChange={onToggleRepeatInterest} />
-          🔁 Me sumaría a una segunda mesa de este juego
+          Me sumaría a una segunda mesa de este juego
         </label>
       )}
     </div>

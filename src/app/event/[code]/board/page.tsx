@@ -392,6 +392,12 @@ function TableSection({
                   </div>
                 );
               })}
+              {t.explainerIsPlaying === false && (
+                <div className='flex items-center gap-2 text-sm text-gray-500'>
+                  <span>{playerMap.get(t.explainerId)?.name ?? t.explainerId}</span>
+                  <span className='text-xs bg-purple-950 text-purple-300 px-1.5 rounded'>explica y se va</span>
+                </div>
+              )}
             </div>
           </div>
         ))}

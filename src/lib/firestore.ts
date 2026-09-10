@@ -191,9 +191,9 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
     const wasExplainer = table.explainerId === playerId;
     if (!wasSeated && !wasExplainer) return;
     const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
-    const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId'>> = { playerIds: remainingPlayerIds };
+    const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId' | 'explainerIsPlaying'>> = { playerIds: remainingPlayerIds };
     if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
-    else if (wasExplainer) fields.explainerId = remainingPlayerIds[0];
+    else if (wasExplainer) { fields.explainerId = remainingPlayerIds[0]; fields.explainerIsPlaying = true; }
     batch.update(tableDoc.ref, fields);
   });
 
@@ -281,7 +281,7 @@ export async function updateTableStatus(
 export async function updateTable(
   eventCode: string,
   tableId: string,
-  fields: Partial<Pick<Table, 'startTime' | 'endTime' | 'playerIds' | 'explainerId'>>
+  fields: Partial<Pick<Table, 'startTime' | 'endTime' | 'playerIds' | 'explainerId' | 'explainerIsPlaying'>>
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), {
     ...fields,

@@ -73,6 +73,7 @@ export default function TablesPage() {
       endTime: draft.endTime,
       playerIds: draft.playerIds,
       explainerId: explainerStillIn ? t.explainerId : (draft.playerIds[0] ?? ''),
+      explainerIsPlaying: true,
     });
     cancelEdit();
   }
@@ -158,6 +159,12 @@ export default function TablesPage() {
                             </div>
                           );
                         })}
+                        {t.explainerIsPlaying === false && !isEditing && (
+                          <div className='flex items-center gap-2 text-sm text-gray-400'>
+                            <span>{playerMap.get(t.explainerId)?.name ?? t.explainerId}</span>
+                            <span className='text-xs bg-purple-950 text-purple-300 px-1.5 rounded'>explica y se va</span>
+                          </div>
+                        )}
                       </div>
 
                       {isEditing && (

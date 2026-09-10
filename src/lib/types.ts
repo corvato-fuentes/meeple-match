@@ -82,6 +82,7 @@ export interface Table {
   startTime: string;
   endTime: string;
   explainerId: string;
+  explainerIsPlaying: boolean; // false = "explica y se va": teaches for a short block, isn't in playerIds and doesn't take a seat
   playerIds: string[];
   status: TableStatus;
   isManuallyEdited: boolean;

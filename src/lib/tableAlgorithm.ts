@@ -7,6 +7,7 @@ interface TableProposal {
   startTime: string;
   endTime: string;
   explainerId: string;
+  explainerIsPlaying: boolean;
   playerIds: string[];
   status: TableStatus;
   isManuallyEdited: boolean;
@@ -31,6 +32,9 @@ function isAvailable(
   if (ws < toMinutes(player.arrivalTime) || we > toMinutes(player.departureTime)) return false;
   return busy.every((bw) => toMinutes(bw.end) <= ws || toMinutes(bw.start) >= we);
 }
+
+// A drop-in teacher (not seated, not playing) only ties up ~30 min explaining before they're free again
+const TEACH_ONLY_MINUTES = 30;
 
 function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
   return toMinutes(aStart) < toMinutes(bEnd) && toMinutes(aEnd) > toMinutes(bStart);
@@ -158,15 +162,23 @@ export function generateTables(
       const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
       const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
       const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
-      // Someone who can explain the game but doesn't actually want to play it (unvoted or "no")
-      // is just sharing their knowledge, not offering a seat — they don't fill in as a filler explainer.
-      const explainers = players.filter(
+      // A seat-occupying explainer must actually want to play too (must/casual) — they're in for the whole session.
+      const seatExplainers = players.filter(
         (p) => p.canExplain.includes(game.id) &&
           (p.interests[game.id] === 'must' || p.interests[game.id] === 'casual') &&
           eligibleForAnotherTable(p)
       );
+      // Anyone who can explain but isn't getting seated (didn't vote must/casual, or got outranked
+      // by higher-priority voters) can drop in just to teach for a short block, then leave — no
+      // seat consumed, no full-session commitment. Least-committed volunteers are tried first so a
+      // "must" voter's own seat isn't wasted on teaching duty if someone less invested can do it.
+      const teachOnlyCandidates = players
+        .filter((p) => p.canExplain.includes(game.id))
+        .sort((a, b) => {
+          const rank = (p: Player) => (p.interests[game.id] === 'must' ? 2 : p.interests[game.id] === 'casual' ? 1 : 0);
+          return rank(a) - rank(b);
+        });
 
-      if (explainers.length === 0) break;
       // "Me sumo" (casual) voters can help reach the minimum too, not just top up an already-
       // valid "Quiero" group — otherwise a game with e.g. 3 must + 1 casual (min 4) never gets a table.
       if (mustPlayers.length + casualPlayers.length < game.minPlayers) break;
@@ -187,22 +199,51 @@ export function generateTables(
         return windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime);
       });
 
+      interface GroupResult {
+        group: Player[];
+        window: { start: string; end: string };
+        teachOnlyExplainer: Player | null;
+      }
+
       // Tries every valid group size within [minSize, maxSize] and keeps whichever finds the
       // earliest shared window overall (not just the first that works), so the morning fills up
       // before defaulting to a later slot just because it's the first one that happened to work.
-      function tryFindGroup(minSize: number, maxSize: number): { group: Player[]; window: { start: string; end: string } } | null {
-        let best: { group: Player[]; window: { start: string; end: string } } | null = null;
+      function tryFindGroup(minSize: number, maxSize: number): GroupResult | null {
+        let best: GroupResult | null = null;
         for (let size = maxSize; size >= minSize; size--) {
           const candidate = byFlexibility.slice(0, size);
-          const hasExplainer = candidate.some((p) => p.canExplain.includes(game.id));
-          if (!hasExplainer) {
-            const extra = explainers.find((e) => candidate.every((p) => p.id !== e.id));
-            if (!extra || candidate.length >= game.maxPlayers) continue;
-            candidate.push(extra);
+          const hasSeatedExplainer = candidate.some((p) => p.canExplain.includes(game.id));
+
+          if (hasSeatedExplainer) {
+            const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows);
+            if (found && (!best || toMinutes(found.start) < toMinutes(best.window.start))) {
+              best = { group: candidate, window: found, teachOnlyExplainer: null };
+            }
+            continue;
           }
+
+          // No one in the seated group can explain — first see if a drop-in teacher covers it
+          // without needing a seat, before falling back to pulling one in as a full player.
           const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows);
-          if (found && (!best || toMinutes(found.start) < toMinutes(best.window.start))) {
-            best = { group: candidate, window: found };
+          if (found) {
+            const teachEnd = toTimeString(toMinutes(found.start) + TEACH_ONLY_MINUTES);
+            const teacher = teachOnlyCandidates.find(
+              (p) => candidate.every((c) => c.id !== p.id) && isAvailable(p, found.start, teachEnd, busyMap.get(p.id) ?? [])
+            );
+            if (teacher) {
+              if (!best || toMinutes(found.start) < toMinutes(best.window.start)) {
+                best = { group: candidate, window: found, teachOnlyExplainer: teacher };
+              }
+              continue;
+            }
+          }
+
+          const extra = seatExplainers.find((e) => candidate.every((p) => p.id !== e.id));
+          if (!extra || candidate.length >= game.maxPlayers) continue;
+          const padded = [...candidate, extra];
+          const foundPadded = findEarliestWindow(padded, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows);
+          if (foundPadded && (!best || toMinutes(foundPadded.start) < toMinutes(best.window.start))) {
+            best = { group: padded, window: foundPadded, teachOnlyExplainer: null };
           }
         }
         return best;
@@ -217,18 +258,29 @@ export function generateTables(
       if (!best) break;
       const coreGroup = best.group;
       const window = best.window;
+      const teachOnlyExplainer = best.teachOnlyExplainer;
 
       const group = [...coreGroup];
       for (const casual of casualPlayers) {
         if (group.length >= game.maxPlayers) break;
         if (group.some((p) => p.id === casual.id)) continue;
+        if (teachOnlyExplainer && casual.id === teachOnlyExplainer.id) continue;
         if (isAvailable(casual, window.start, window.end, busyMap.get(casual.id) ?? []))
           group.push(casual);
       }
 
-      const explainer = group
+      // Among seated explainers, a "Quiero" beats a "Me sumo" — playing-and-explaining is the ideal,
+      // ranked by how much they wanted to be there in the first place; window width only tiebreaks.
+      const seatedExplainer = group
         .filter((p) => p.canExplain.includes(game.id))
-        .sort((a, b) => windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime))[0];
+        .sort((a, b) => {
+          const rankA = a.interests[game.id] === 'must' ? 0 : 1;
+          const rankB = b.interests[game.id] === 'must' ? 0 : 1;
+          if (rankA !== rankB) return rankA - rankB;
+          return windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime);
+        })[0];
+      const explainer = seatedExplainer ?? teachOnlyExplainer!;
+      const explainerIsPlaying = !!seatedExplainer;
 
       group.forEach((p) => {
         const bw = busyMap.get(p.id) ?? [];
@@ -237,12 +289,22 @@ export function generateTables(
         seated.add(p.id);
       });
 
+      // The drop-in teacher only blocks their own short teaching window — not the whole session,
+      // and they're never added to `seated`, so they stay eligible to actually play this game later.
+      if (!explainerIsPlaying && teachOnlyExplainer) {
+        const teachEnd = toTimeString(toMinutes(window.start) + TEACH_ONLY_MINUTES);
+        const bw = busyMap.get(teachOnlyExplainer.id) ?? [];
+        bw.push({ start: window.start, end: teachEnd });
+        busyMap.set(teachOnlyExplainer.id, bw);
+      }
+
       proposals.push({
         gameId: game.id,
         gameName: game.name,
         startTime: window.start,
         endTime: window.end,
         explainerId: explainer.id,
+        explainerIsPlaying,
         playerIds: group.map((p) => p.id),
         status: 'proposed',
         isManuallyEdited: false,
