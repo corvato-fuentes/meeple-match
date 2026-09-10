@@ -88,6 +88,24 @@ export default function TablesPage() {
     setAddPlayerId('');
   }
 
+  // Ranks candidates for a table's open seat: interested (must/casual) & free first, then
+  // interested-but-busy, then everyone else — so the admin doesn't have to guess who fits.
+  function candidatesFor(t: Table, currentIds: string[]) {
+    return players
+      .filter((p) => !currentIds.includes(p.id))
+      .map((p) => {
+        const vote = p.interests[t.gameId];
+        const busy = tables.some((other) =>
+          other.id !== t.id && other.status !== 'cancelled' && other.playerIds.includes(p.id) &&
+          toMinutes(other.startTime) < toMinutes(t.endTime) && toMinutes(other.endTime) > toMinutes(t.startTime)
+        );
+        const rank = (vote === 'must' ? 0 : vote === 'casual' ? 1 : 2) + (busy ? 10 : 0);
+        const label = (vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '') + p.name + (busy ? ' (ocupado)' : '');
+        return { player: p, rank, label };
+      })
+      .sort((a, b) => a.rank - b.rank);
+  }
+
   return (
     <main className='max-w-2xl mx-auto px-4 py-10'>
       <div className='flex items-center gap-3 mb-6'>
@@ -106,7 +124,7 @@ export default function TablesPage() {
                 {slotGroups.get(slot)!.map((t) => {
                   const isEditing = editingId === t.id;
                   const currentIds = isEditing && draft ? draft.playerIds : t.playerIds;
-                  const availableToAdd = players.filter((p) => !currentIds.includes(p.id));
+                  const candidates = candidatesFor(t, currentIds);
                   return (
                     <div key={t.id} className='border border-gray-700 rounded-xl p-4 bg-gray-800 space-y-3'>
                       <div className='flex justify-between items-start gap-2'>
@@ -172,7 +190,7 @@ export default function TablesPage() {
                           <select value={addPlayerId} onChange={(e) => setAddPlayerId(e.target.value)}
                             className='flex-1 text-sm border border-gray-700 bg-gray-900 rounded-lg px-2 py-1'>
                             <option value=''>+ Agregar jugador...</option>
-                            {availableToAdd.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            {candidates.map((c) => <option key={c.player.id} value={c.player.id}>{c.label}</option>)}
                           </select>
                           <button onClick={addPlayer} disabled={!addPlayerId}
                             className='text-sm border border-gray-700 rounded-lg px-3 py-1 hover:bg-gray-700 disabled:opacity-50'>

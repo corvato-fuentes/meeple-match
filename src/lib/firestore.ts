@@ -1,6 +1,6 @@
 import {
   doc, collection, getDoc, getDocs, addDoc, updateDoc,
-  query, where, onSnapshot, Timestamp, writeBatch,
+  query, where, onSnapshot, Timestamp, writeBatch, runTransaction,
   orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -316,6 +316,26 @@ export async function deleteTables(eventCode: string, tableIds: string[]): Promi
   await batch.commit();
 }
 
+/**
+ * Same as deleteTables, but re-checks each table's status inside a transaction right before
+ * deleting it — closing the race where an admin confirms a table at the same moment a
+ * regeneration (triggered by another player's concurrent vote) decided it was stale and safe
+ * to discard. Returns the ids that turned out to be confirmed in the meantime and were kept.
+ */
+export async function deleteStaleTables(eventCode: string, tableIds: string[]): Promise<string[]> {
+  const keptConfirmed: string[] = [];
+  await Promise.all(tableIds.map(async (id) => {
+    const ref = doc(db, 'events', eventCode, 'tables', id);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) return;
+      if ((snap.data() as Table).status === 'confirmed') { keptConfirmed.push(id); return; }
+      tx.delete(ref);
+    });
+  }));
+  return keptConfirmed;
+}
+
 export async function updateTableStatus(
   eventCode: string,
   tableId: string,
@@ -429,9 +449,9 @@ export async function seedFakePlayers(eventCode: string, drafts: FakePlayerDraft
 
 // ── Derived helpers ───────────────────────────────────────────────────────────
 
-/** Tables assigned to a specific player (calculated, not stored) */
+/** Tables assigned to a specific player (calculated, not stored) — includes tables where they're only the drop-in explainer */
 export function getPlayerTables(playerId: string, tables: Table[]): Table[] {
   return tables.filter(
-    (t) => t.playerIds.includes(playerId) && t.status !== 'cancelled'
+    (t) => (t.playerIds.includes(playerId) || t.explainerId === playerId) && t.status !== 'cancelled'
   );
 }

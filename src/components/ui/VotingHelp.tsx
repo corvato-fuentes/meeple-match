@@ -20,7 +20,7 @@ export default function VotingHelp() {
               <li><strong>❤️ Quiero:</strong> voto fuerte — el sistema arma mesas priorizando juegos con más "Quiero".</li>
               <li><strong>👍 Me sumo:</strong> te gustaría jugarlo, pero solo entrás si sobra un lugar después de completar la mesa con los "Quiero".</li>
               <li><strong>👎 No:</strong> no te interesa; el juego se oculta de tu lista.</li>
-              <li><strong>Sé explicarlo:</strong> marcalo si conocés las reglas — sin al menos un explicador, esa mesa no se arma. Si marcás esto pero no votás ❤️ ni 👍 en ese juego, no ocupás un lugar en la mesa: solo vas a explicarlo un rato y después quedás libre para jugar otra cosa.</li>
+              <li><strong>🎓 Sé explicarlo:</strong> marcalo si conocés las reglas — sin al menos un explicador, esa mesa no se arma. Si marcás esto pero no votás ❤️ ni 👍 en ese juego, no ocupás un lugar en la mesa: solo vas a explicarlo un rato y después quedás libre para jugar otra cosa.</li>
               <li><strong>🔁 Repetir:</strong> si ya te tocó jugarlo, marcalo para poder entrar a una segunda mesa del mismo juego más tarde.</li>
             </ul>
             <p className="text-gray-400">

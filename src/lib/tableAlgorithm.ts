@@ -37,7 +37,7 @@ function isAvailable(
 }
 
 // A drop-in teacher (not seated, not playing) only ties up ~30 min explaining before they're free again
-const TEACH_ONLY_MINUTES = 30;
+export const TEACH_ONLY_MINUTES = 30;
 
 function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
   return toMinutes(aStart) < toMinutes(bEnd) && toMinutes(aEnd) > toMinutes(bStart);

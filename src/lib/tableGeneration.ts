@@ -1,4 +1,4 @@
-import { getPlayers, getGames, getTables, saveProposedTables, deleteTables, fillTableSeats } from '@/lib/firestore';
+import { getPlayers, getGames, getTables, saveProposedTables, deleteStaleTables, fillTableSeats } from '@/lib/firestore';
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
 import { isAutoGenerationLocked } from '@/lib/timeUtils';
 import type { MeepleEvent } from '@/lib/types';
@@ -32,8 +32,13 @@ export async function runTableGeneration(
     getPlayers(eventCode), getGames(eventCode), getTables(eventCode),
   ]);
   const stale = allTables.filter((t) => t.status !== 'confirmed');
-  if (stale.length > 0) await deleteTables(eventCode, stale.map((t) => t.id));
-  const lockedTables = allTables.filter((t) => t.status === 'confirmed');
+  // Re-checked per-table inside a transaction — if one of these got confirmed by the admin at
+  // this exact moment, it's kept instead of being wiped out from under them.
+  const keptConfirmed = stale.length > 0 ? await deleteStaleTables(eventCode, stale.map((t) => t.id)) : [];
+  const lockedTables = [
+    ...allTables.filter((t) => t.status === 'confirmed'),
+    ...stale.filter((t) => keptConfirmed.includes(t.id)),
+  ];
 
   const fills = fillExistingTables(allPlayers, allGames, lockedTables, event.settings.bufferMinutes);
   for (const fill of fills) await fillTableSeats(eventCode, fill.tableId, fill.playerIds);

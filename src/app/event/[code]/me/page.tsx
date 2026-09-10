@@ -7,10 +7,14 @@ import {
   updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
+import { TEACH_ONLY_MINUTES } from '@/lib/tableAlgorithm';
+import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { savePlayerEvent } from '@/lib/myEvents';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import VotingHelp from '@/components/ui/VotingHelp';
+import TablesHelp from '@/components/ui/TablesHelp';
+import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
 import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
@@ -227,9 +231,9 @@ export default function MyTicketPage() {
   const availableGames = games
     .filter((g) => interests[g.id] !== 'must' && interests[g.id] !== 'casual' && interests[g.id] !== 'no');
   const dismissedGames = games.filter((g) => interests[g.id] === 'no');
-  const confirmedTables = myTables.filter((t) =>
-    ['confirmed', 'in-progress', 'proposed'].includes(t.status)
-  );
+  const confirmedTables = myTables
+    .filter((t) => ['confirmed', 'in-progress', 'proposed'].includes(t.status))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   const statusBadge: Record<string, string> = {
     confirmed: 'bg-green-900 text-green-300',
@@ -263,24 +267,43 @@ export default function MyTicketPage() {
         </div>
 
         <section>
-          <h2 className="font-semibold text-gray-200 mb-2">Tus mesas</h2>
+          <h2 className="font-semibold text-gray-200 mb-2">Tus mesas <TablesHelp /></h2>
           {confirmedTables.length === 0 ? (
             <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
               Todavía no tenés mesas asignadas. Las verás aparecer acá en tiempo real.
             </p>
           ) : (
             <div className="space-y-2">
-              {confirmedTables.map((t) => (
-                <div key={t.id} className="border border-gray-700 rounded-xl px-4 py-3 bg-gray-800">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium">{t.gameName}</span>
-                    <span className={'text-xs px-2 py-0.5 rounded-full ' + (statusBadge[t.status] ?? 'bg-gray-700 text-gray-300')}>
-                      {t.status}
-                    </span>
+              {confirmedTables.map((t) => {
+                const isPlaying = t.playerIds.includes(player.id);
+                const isExplainer = t.explainerId === player.id;
+                const teachOnly = isExplainer && !isPlaying;
+                const displayStart = t.startTime;
+                const displayEnd = teachOnly
+                  ? toTimeString(toMinutes(t.startTime) + TEACH_ONLY_MINUTES)
+                  : t.endTime;
+                return (
+                  <div key={t.id} className="border border-gray-700 rounded-xl px-4 py-3 bg-gray-800">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">{t.gameName}</span>
+                      <span className={'text-xs px-2 py-0.5 rounded-full ' + (statusBadge[t.status] ?? 'bg-gray-700 text-gray-300')}>
+                        {t.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-400">Mesa {t.tableNumber} · {displayStart}–{displayEnd}</p>
+                    <div className="flex gap-1 mt-1">
+                      {isPlaying && (
+                        <span className="text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded">🎲 Jugador</span>
+                      )}
+                      {isExplainer && (
+                        <span className="text-xs bg-purple-900 text-purple-300 px-1.5 rounded">
+                          🎓 Explicador{teachOnly ? ' (explica y se va)' : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-400">Mesa {t.tableNumber} · {t.startTime}–{t.endTime}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <Link href={`/event/${code}/board`}
@@ -391,7 +414,8 @@ export default function MyTicketPage() {
       </div>
 
       <section>
-        <h2 className="font-semibold text-gray-200 mb-3">Votá los juegos <VotingHelp /></h2>
+        <h2 className="font-semibold text-gray-200 mb-1">Votá los juegos <VotingHelp /></h2>
+        <WhyVoteHelp />
         <div className="grid grid-cols-2 gap-4">
           <div>
             <h3 className="text-sm font-semibold text-gray-400 mb-2">Juegos disponibles</h3>
