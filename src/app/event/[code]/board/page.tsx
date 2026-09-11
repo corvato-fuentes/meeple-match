@@ -134,7 +134,7 @@ export default function BoardPage() {
   // Physical table number (not the sequential session id) — same assignment used by the grid,
   // so "Mesa #N" means the same thing in both views.
   const physicalSlotByTableId = useMemo(() => {
-    const { assignments } = assignPhysicalSlots(tables, event?.settings.bufferMinutes ?? 0);
+    const { assignments } = assignPhysicalSlots(tables, event?.settings.bufferMinutes ?? 0, event?.settings.physicalTables ?? null);
     return new Map(assignments.map((a) => [a.table.id, a.slot + 1]));
   }, [tables, event]);
 
@@ -329,7 +329,7 @@ function ScheduleGrid({
   bufferMinutes: number;
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
-  const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes), [activeTables, bufferMinutes]);
+  const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes, physicalTables), [activeTables, bufferMinutes, physicalTables]);
   const buckets = useMemo(() => buildBuckets(activeTables, eventStartTime, eventEndTime), [activeTables, eventStartTime, eventEndTime]);
   const rowCount = Math.max(slotCount, physicalTables ?? 0, 1);
 
