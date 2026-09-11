@@ -2,8 +2,18 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, subscribeGames, subscribePlayers, mergeGames, ungroupGame } from '@/lib/firestore';
-import type { MeepleEvent, Game, Player } from '@/lib/types';
+import { getEvent, verifyAdminToken, subscribeGames, subscribePlayers, mergeGames, ungroupGame, updateGame } from '@/lib/firestore';
+import type { MeepleEvent, Game, Player, GameComplexity } from '@/lib/types';
+
+const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Ligero', medium: 'Medio', heavy: 'Complejo' };
+
+interface EditDraft {
+  name: string;
+  minPlayers: number;
+  maxPlayers: number;
+  durationMinutes: number;
+  complexity: GameComplexity;
+}
 
 export default function GamesPage() {
   const { code, adminToken } = useParams<{ code: string; adminToken: string }>();
@@ -14,6 +24,9 @@ export default function GamesPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mergePrimaryId, setMergePrimaryId] = useState('');
   const [merging, setMerging] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -65,6 +78,30 @@ export default function GamesPage() {
     }
   }
 
+  function startEdit(g: Game) {
+    setEditingId(g.id);
+    setEditDraft({
+      name: g.name, minPlayers: g.minPlayers, maxPlayers: g.maxPlayers,
+      durationMinutes: g.durationMinutes, complexity: g.complexity,
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDraft(null);
+  }
+
+  async function saveEdit(gameId: string) {
+    if (!editDraft || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      await updateGame(code, gameId, editDraft);
+      cancelEdit();
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   return (
     <main className='max-w-2xl mx-auto px-4 py-10'>
       <div className='flex items-center gap-3 mb-6'>
@@ -111,17 +148,26 @@ export default function GamesPage() {
             return (
               <div key={primary.id} className={'border rounded-xl p-3 bg-gray-800 ' + (notEnough ? 'border-amber-800' : 'border-gray-700')}>
                 <div className='flex justify-between items-start gap-2'>
-                  <div className='flex items-start gap-2'>
+                  <div className='flex items-start gap-2 flex-1 min-w-0'>
                     <input type='checkbox' className='mt-1' checked={selectedIds.includes(primary.id)}
                       onChange={() => toggleSelect(primary.id)} />
-                    <div>
-                      <p className='font-semibold'>
+                    <div className='flex-1 min-w-0'>
+                      <p className='font-semibold flex items-center gap-2'>
                         {primary.name}
-                        {isGroup && <span className='ml-2 text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded'>🧩 {copies.length} copias</span>}
+                        {isGroup && <span className='text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded'>🧩 {copies.length} copias</span>}
+                        {editingId !== primary.id && (
+                          <button onClick={() => startEdit(primary)} className='text-xs text-indigo-400 hover:underline'>
+                            ✏️ editar
+                          </button>
+                        )}
                       </p>
-                      <p className='text-xs text-gray-500'>
-                        Trae: {copies.map((c) => c.ownerName).join(', ')} · {primary.minPlayers}–{primary.maxPlayers}p · {primary.durationMinutes}min
-                      </p>
+                      {editingId === primary.id && editDraft ? (
+                        <GameEditForm draft={editDraft} onChange={setEditDraft} onSave={() => saveEdit(primary.id)} onCancel={cancelEdit} saving={savingEdit} />
+                      ) : (
+                        <p className='text-xs text-gray-500'>
+                          Trae: {copies.map((c) => c.ownerName).join(', ')} · {primary.minPlayers}–{primary.maxPlayers}p · {primary.durationMinutes}min
+                        </p>
+                      )}
                     </div>
                   </div>
                   {notEnough && <span className='text-xs text-amber-400 shrink-0'>⚠️ Faltan votos ({total}/{primary.minPlayers})</span>}
@@ -135,15 +181,27 @@ export default function GamesPage() {
                 {isGroup && (
                   <div className='mt-2 pt-2 border-t border-gray-700 space-y-1'>
                     {copies.map((c) => (
-                      <div key={c.id} className='flex items-center justify-between text-xs text-gray-400'>
+                      <div key={c.id}>
+                        <div className='flex items-center justify-between text-xs text-gray-400'>
                         <span className='flex items-center gap-2'>
                           <input type='checkbox' checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
                           {c.name} (de {c.ownerName}){c.id === primary.id && ' · principal'}
                         </span>
-                        {c.id !== primary.id && (
-                          <button onClick={() => ungroupGame(code, c.id)} className='text-red-400 hover:text-red-300'>
-                            separar
-                          </button>
+                        <span className='flex items-center gap-2'>
+                          {c.id !== primary.id && (
+                            <button onClick={() => startEdit(c)} className='text-indigo-400 hover:underline'>
+                              editar
+                            </button>
+                          )}
+                          {c.id !== primary.id && (
+                            <button onClick={() => ungroupGame(code, c.id)} className='text-red-400 hover:text-red-300'>
+                              separar
+                            </button>
+                          )}
+                        </span>
+                        </div>
+                        {editingId === c.id && editDraft && (
+                          <GameEditForm draft={editDraft} onChange={setEditDraft} onSave={() => saveEdit(c.id)} onCancel={cancelEdit} saving={savingEdit} />
                         )}
                       </div>
                     ))}
@@ -155,6 +213,62 @@ export default function GamesPage() {
         </div>
       )}
     </main>
+  );
+}
+
+function GameEditForm({
+  draft, onChange, onSave, onCancel, saving,
+}: {
+  draft: EditDraft;
+  onChange: (d: EditDraft) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className='mt-2 space-y-2 border border-gray-700 rounded-lg p-2 bg-gray-900'>
+      <input className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+        value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} />
+      <div className='grid grid-cols-2 gap-2'>
+        <div>
+          <label className='text-xs text-gray-400'>Mín. jugadores</label>
+          <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+            value={draft.minPlayers} onFocus={(e) => e.target.select()}
+            onChange={(e) => onChange({ ...draft, minPlayers: +e.target.value })} />
+        </div>
+        <div>
+          <label className='text-xs text-gray-400'>Máx. jugadores</label>
+          <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+            value={draft.maxPlayers} onFocus={(e) => e.target.select()}
+            onChange={(e) => onChange({ ...draft, maxPlayers: +e.target.value })} />
+        </div>
+        <div>
+          <label className='text-xs text-gray-400'>Duración (min)</label>
+          <input type='number' min={5} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+            value={draft.durationMinutes} onFocus={(e) => e.target.select()}
+            onChange={(e) => onChange({ ...draft, durationMinutes: +e.target.value })} />
+        </div>
+        <div>
+          <label className='text-xs text-gray-400'>Complejidad</label>
+          <select className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+            value={draft.complexity}
+            onChange={(e) => onChange({ ...draft, complexity: e.target.value as GameComplexity })}>
+            {(['light', 'medium', 'heavy'] as GameComplexity[]).map((c) => (
+              <option key={c} value={c}>{COMPLEXITY_LABEL[c]}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className='flex gap-2'>
+        <button onClick={onCancel} className='flex-1 border border-gray-700 rounded-lg py-1 text-xs font-medium'>
+          Cancelar
+        </button>
+        <button onClick={onSave} disabled={saving}
+          className='flex-1 bg-indigo-600 rounded-lg py-1 text-xs font-medium hover:bg-indigo-700 disabled:opacity-50'>
+          {saving ? 'Guardando...' : 'Guardar'}
+        </button>
+      </div>
+    </div>
   );
 }
 
