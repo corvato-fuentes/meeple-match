@@ -121,7 +121,10 @@ export async function setGameOwner(eventCode: string, gameId: string, ownerPlaye
 export async function updateGame(
   eventCode: string,
   gameId: string,
-  fields: Partial<Pick<Game, 'name' | 'bggUrl' | 'minPlayers' | 'maxPlayers' | 'durationMinutes' | 'complexity'>>
+  fields: Partial<Pick<Game,
+    'name' | 'bggUrl' | 'minPlayers' | 'maxPlayers' | 'durationMinutes' | 'complexity' |
+    'perPlayerMinutes' | 'setupMinutes' | 'explanationMinutes'
+  >>
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'games', gameId), fields);
 }

@@ -55,6 +55,12 @@ export interface Game {
   // (the "primary" copy has groupId === its own id). Votes/canExplain/repeat all live on the
   // primary; the scheduling algorithm treats the group as one game with N concurrent copies.
   groupId?: string | null;
+  // Extra metadata captured for a future, more precise duration estimate — not used in any
+  // calculation yet (durationMinutes above still drives scheduling). The idea: total duration
+  // would eventually be setupMinutes + explanationMinutes + (perPlayerMinutes * playerCount).
+  perPlayerMinutes?: number | null;
+  setupMinutes?: number | null;
+  explanationMinutes?: number | null;
 }
 
 export type DraftGame = Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>;

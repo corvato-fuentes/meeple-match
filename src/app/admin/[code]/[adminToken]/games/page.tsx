@@ -13,6 +13,9 @@ interface EditDraft {
   maxPlayers: number;
   durationMinutes: number;
   complexity: GameComplexity;
+  perPlayerMinutes: number | null;
+  setupMinutes: number | null;
+  explanationMinutes: number | null;
 }
 
 export default function GamesPage() {
@@ -83,6 +86,9 @@ export default function GamesPage() {
     setEditDraft({
       name: g.name, minPlayers: g.minPlayers, maxPlayers: g.maxPlayers,
       durationMinutes: g.durationMinutes, complexity: g.complexity,
+      perPlayerMinutes: g.perPlayerMinutes ?? null,
+      setupMinutes: g.setupMinutes ?? null,
+      explanationMinutes: g.explanationMinutes ?? null,
     });
   }
 
@@ -257,6 +263,27 @@ function GameEditForm({
               <option key={c} value={c}>{COMPLEXITY_LABEL[c]}</option>
             ))}
           </select>
+        </div>
+      </div>
+      <p className='text-xs text-gray-500 pt-1'>Datos extra (opcional, todavía no afectan el agendamiento):</p>
+      <div className='grid grid-cols-2 gap-2'>
+        <div>
+          <label className='text-xs text-gray-400'>Min. por jugador</label>
+          <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+            value={draft.perPlayerMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+            onChange={(e) => onChange({ ...draft, perPlayerMinutes: e.target.value ? +e.target.value : null })} />
+        </div>
+        <div>
+          <label className='text-xs text-gray-400'>Min. de seteo</label>
+          <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+            value={draft.setupMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+            onChange={(e) => onChange({ ...draft, setupMinutes: e.target.value ? +e.target.value : null })} />
+        </div>
+        <div>
+          <label className='text-xs text-gray-400'>Min. de explicación</label>
+          <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+            value={draft.explanationMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+            onChange={(e) => onChange({ ...draft, explanationMinutes: e.target.value ? +e.target.value : null })} />
         </div>
       </div>
       <div className='flex gap-2'>
