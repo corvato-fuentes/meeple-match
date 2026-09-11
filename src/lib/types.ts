@@ -82,6 +82,7 @@ export interface Player {
   canExplain: string[];
   repeatGameIds: string[]; // gameIds the player is happy to play again in a second table
   paymentProofUrl: string | null; // Cloudinary secure_url; unguessable path, never linked on any public-facing page
+  noAutoSchedule?: boolean; // opted out of automatic table generation — admin can still seat them manually
 }
 
 export interface Table {

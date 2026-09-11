@@ -12,6 +12,7 @@ import { savePlayerEvent } from '@/lib/myEvents';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import VotingHelp from '@/components/ui/VotingHelp';
+import NoAutoScheduleHelp from '@/components/ui/NoAutoScheduleHelp';
 import type { MeepleEvent, Game, GameComplexity, InterestLevel, DraftGame } from '@/lib/types';
 
 type Step = 'loading' | 'closed' | 'reaccess' | 1 | 2 | 3;
@@ -48,6 +49,7 @@ export default function EventPage() {
   const [submitting, setSubmitting] = useState(false);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
+  const [noAutoSchedule, setNoAutoSchedule] = useState(false);
 
   const [myGames, setMyGames] = useState<DraftGame[]>([]);
   const [newGame, setNewGame] = useState<DraftGame>({
@@ -241,6 +243,7 @@ export default function EventPage() {
       bringGameIds: savedGameIds, interests: finalInterests, canExplain: [...canExplainGameIds, ...canExplainOtherIds],
       repeatGameIds: repeatInterestIds,
       paymentProofUrl,
+      noAutoSchedule,
     } as Parameters<typeof addPlayer>[1]).then((playerId) =>
       Promise.all(savedGameIds.map((gameId) => setGameOwner(code, gameId, playerId)))
     );
@@ -381,6 +384,11 @@ export default function EventPage() {
             )}
           </div>
         )}
+        <label className="flex items-start gap-2 text-xs text-gray-400">
+          <input type="checkbox" className="mt-0.5" checked={noAutoSchedule}
+            onChange={(e) => setNoAutoSchedule(e.target.checked)} />
+          <span>🚫 No quiero que se me generen/agenden mesas automáticamente <NoAutoScheduleHelp /></span>
+        </label>
         {contactError && (
           <div className="text-sm text-red-400 space-y-1">
             <p>{contactError}</p>
@@ -555,7 +563,11 @@ export default function EventPage() {
                       : 'border-gray-700 text-gray-500 hover:bg-gray-800';
                     return (
                       <button key={level}
-                        onClick={() => setOwnGameVotes({ ...ownGameVotes, [i]: level })}
+                        onClick={() => setOwnGameVotes((cur) => {
+                          const next = { ...cur };
+                          if (cur[i] === level) delete next[i]; else next[i] = level;
+                          return next;
+                        })}
                         className={'flex-1 py-1.5 rounded-lg border transition-colors flex flex-col items-center gap-0.5 leading-tight ' + cls}>
                         <span className="text-sm">{level === 'must' ? '❤️' : level === 'casual' ? '👍' : '👎'}</span>
                         <span className="text-[10px]">{level === 'must' ? 'Sí o sí' : level === 'casual' ? 'Si falta' : 'Solo comparto'}</span>
@@ -595,7 +607,11 @@ export default function EventPage() {
                     : 'border-gray-700 text-gray-500 hover:bg-gray-800';
                   return (
                     <button key={level}
-                      onClick={() => setInterests({ ...interests, [g.id]: level })}
+                      onClick={() => setInterests((cur) => {
+                        const next = { ...cur };
+                        if (cur[g.id] === level) delete next[g.id]; else next[g.id] = level;
+                        return next;
+                      })}
                       className={'flex-1 py-1.5 rounded-lg border transition-colors flex flex-col items-center gap-0.5 leading-tight ' + cls}>
                       <span className="text-sm">{level === 'must' ? '❤️' : level === 'casual' ? '👍' : '👎'}</span>
                       <span className="text-[10px]">{level === 'must' ? 'Sí o sí' : level === 'casual' ? 'Si falta' : 'No me interesa'}</span>

@@ -116,7 +116,7 @@ export default function TablesPage() {
           toMinutes(other.startTime) < toMinutes(t.endTime) && toMinutes(other.endTime) > toMinutes(t.startTime)
         );
         const rank = (vote === 'must' ? 0 : vote === 'casual' ? 1 : 2) + (busy ? 10 : 0);
-        const label = (vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '') + p.name + (busy ? ' (ocupado)' : '');
+        const label = (vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '') + p.name + (busy ? ' (ocupado)' : '') + (p.noAutoSchedule ? ' 🚫' : '');
         return { player: p, rank, label };
       })
       .sort((a, b) => a.rank - b.rank);

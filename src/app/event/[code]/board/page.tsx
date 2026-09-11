@@ -224,7 +224,7 @@ export default function BoardPage() {
               physicalTables={event?.settings.physicalTables ?? null}
               eventStartTime={event?.startTime ?? null} eventEndTime={event?.endTime ?? null}
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
-              nearMiss={nearMissGames}
+              nearMiss={nearMissGames} games={games}
             />
           ) : (
             <div className='space-y-10'>
@@ -326,6 +326,8 @@ interface GridEntry {
   endTime: string;
   gameName: string;
   nearMiss?: NearMissGame;
+  seatsFilled?: number;
+  seatsMax?: number;
 }
 
 interface GridCell {
@@ -356,7 +358,7 @@ function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: Sched
 }
 
 function ScheduleGrid({
-  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, nearMiss,
+  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, nearMiss, games,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -366,11 +368,13 @@ function ScheduleGrid({
   breaks: ScheduledBreak[];
   bufferMinutes: number;
   nearMiss: NearMissGame[];
+  games: Game[];
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
   const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes), [activeTables, bufferMinutes]);
   const buckets = useMemo(() => buildBuckets(activeTables, eventStartTime, eventEndTime), [activeTables, eventStartTime, eventEndTime]);
   const rowCount = Math.max(slotCount, physicalTables ?? 0, 1);
+  const maxPlayersByGameId = useMemo(() => new Map(games.map((g) => [g.id, g.maxPlayers])), [games]);
 
   // Near-miss ghosts never open a new row — each one slots into the first existing physical
   // table row that's actually free (no real session) during its whole suggested window. If none
@@ -418,7 +422,10 @@ function ScheduleGrid({
             {Array.from({ length: rowCount }, (_, slotIdx) => {
               const rowTables = assignments.filter((a) => a.slot === slotIdx).map((a) => a.table);
               const rowEntries: GridEntry[] = [
-                ...rowTables.map((t) => ({ startTime: t.startTime, endTime: t.endTime, gameName: t.gameName })),
+                ...rowTables.map((t) => ({
+                  startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
+                  seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId),
+                })),
                 ...(nearMissByRow.get(slotIdx) ?? []).map((nm) => ({ startTime: nm.startTime, endTime: nm.endTime, gameName: nm.gameName, nearMiss: nm })),
               ];
               const cells = buildRowCells(rowEntries, buckets, breaks);
@@ -440,6 +447,9 @@ function ScheduleGrid({
                           <div className={'rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName)}>
                             <div className='font-medium text-xs'>{cell.entry.gameName}</div>
                             <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
+                            {cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
+                              <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
+                            )}
                           </div>
                         )
                       ) : cell.breakLabel && (

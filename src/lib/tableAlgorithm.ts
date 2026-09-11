@@ -141,7 +141,7 @@ export function generateTables(
   function isRepeatFallbackOnly(game: Game): boolean {
     const seated = seatedByGame.get(game.id);
     if (!seated || seated.size === 0) return false;
-    const voters = players.filter((p) => p.interests[game.id] === 'must' || p.interests[game.id] === 'casual');
+    const voters = players.filter((p) => !p.noAutoSchedule && (p.interests[game.id] === 'must' || p.interests[game.id] === 'casual'));
     const freshVoters = voters.filter((p) => !seated.has(p.id));
     return freshVoters.length < game.minPlayers;
   }
@@ -150,10 +150,10 @@ export function generateTables(
     const fallbackA = isRepeatFallbackOnly(a);
     const fallbackB = isRepeatFallbackOnly(b);
     if (fallbackA !== fallbackB) return fallbackA ? 1 : -1;
-    const mustA = players.filter((p) => p.interests[a.id] === 'must').length;
-    const mustB = players.filter((p) => p.interests[b.id] === 'must').length;
-    const totA = mustA + players.filter((p) => p.interests[a.id] === 'casual').length;
-    const totB = mustB + players.filter((p) => p.interests[b.id] === 'casual').length;
+    const mustA = players.filter((p) => !p.noAutoSchedule && p.interests[a.id] === 'must').length;
+    const mustB = players.filter((p) => !p.noAutoSchedule && p.interests[b.id] === 'must').length;
+    const totA = mustA + players.filter((p) => !p.noAutoSchedule && p.interests[a.id] === 'casual').length;
+    const totB = mustB + players.filter((p) => !p.noAutoSchedule && p.interests[b.id] === 'casual').length;
     // A game with enough voters for only ONE table this pass (not even close to double its
     // minimum) has zero room to recover if it loses just one of them to another game's schedule —
     // it either happens now or never. A game with enough demand for several tables degrades
@@ -206,14 +206,14 @@ export function generateTables(
       .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
     while (true) {
       const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
-      const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
-      const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
+      const mustPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
+      const casualPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
       // Anyone who can explain but isn't getting seated (didn't vote must/casual, or got outranked
       // by higher-priority voters) can drop in just to teach for a short block, then leave — no
       // seat consumed, no full-session commitment. Least-committed volunteers are tried first so a
       // "must" voter's own seat isn't wasted on teaching duty if someone less invested can do it.
       const teachOnlyCandidates = players
-        .filter((p) => p.canExplain.includes(game.id))
+        .filter((p) => !p.noAutoSchedule && p.canExplain.includes(game.id))
         .sort((a, b) => {
           const rank = (p: Player) => (p.interests[game.id] === 'must' ? 2 : p.interests[game.id] === 'casual' ? 1 : 0);
           return rank(a) - rank(b);
@@ -430,8 +430,8 @@ export function findNearMissGames(
 
     const seated = seatedByGame.get(game.id) ?? new Set<string>();
     const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
-    const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
-    const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
+    const mustPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
+    const casualPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
     const fullGroup = [...mustPlayers, ...casualPlayers];
     if (fullGroup.length < game.minPlayers - 1) continue;
 
@@ -446,7 +446,7 @@ export function findNearMissGames(
       if (group.some((p) => p.canExplain.includes(game.id))) return true;
       const teachEnd = toTimeString(toMinutes(window.start) + TEACH_ONLY_MINUTES);
       return players.some(
-        (p) => p.canExplain.includes(game.id) && group.every((g) => g.id !== p.id) &&
+        (p) => !p.noAutoSchedule && p.canExplain.includes(game.id) && group.every((g) => g.id !== p.id) &&
           isAvailable(p, window.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes)
       );
     };
@@ -508,6 +508,7 @@ export function fillExistingTables(players: Player[], games: Game[], existingTab
 
     const candidates = players
       .filter((p) =>
+        !p.noAutoSchedule &&
         !table.playerIds.includes(p.id) &&
         (p.interests[table.gameId] === 'must' || p.interests[table.gameId] === 'casual') &&
         isAvailable(p, table.startTime, table.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
