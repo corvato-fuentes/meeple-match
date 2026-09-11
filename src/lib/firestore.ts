@@ -142,15 +142,22 @@ export async function mergeGames(eventCode: string, gameIds: string[], primaryId
   if (gameIds.length < 2 || !gameIds.includes(primaryId)) return;
   const secondaryIds = gameIds.filter((id) => id !== primaryId);
 
-  const [playersSnap, tablesSnap, primarySnap] = await Promise.all([
+  const [playersSnap, tablesSnap, gameDocs] = await Promise.all([
     getDocs(collection(db, 'events', eventCode, 'players')),
     getDocs(collection(db, 'events', eventCode, 'tables')),
-    getDoc(doc(db, 'events', eventCode, 'games', primaryId)),
+    Promise.all(gameIds.map((id) => getDoc(doc(db, 'events', eventCode, 'games', id)))),
   ]);
-  const primaryName = (primarySnap.data() as Game | undefined)?.name;
+  const groupGames = gameDocs.map((d) => (d.exists() ? { ...(d.data() as Game), id: d.id } : null)).filter((g): g is Game => !!g);
+  const primaryName = groupGames.find((g) => g.id === primaryId)?.name;
+  // Copies are often entered independently (e.g. someone else's box, a different BGG lookup) and
+  // may disagree on how long the game actually takes — only the primary's duration ever gets used
+  // for scheduling, so take the longest one in the group rather than silently keeping whichever
+  // happened to be marked primary.
+  const longestDuration = Math.max(...groupGames.map((g) => g.durationMinutes));
 
   const batch = writeBatch(db);
   gameIds.forEach((id) => batch.update(doc(db, 'events', eventCode, 'games', id), { groupId: primaryId }));
+  batch.update(doc(db, 'events', eventCode, 'games', primaryId), { durationMinutes: longestDuration });
 
   playersSnap.docs.forEach((playerDoc) => {
     const p = playerDoc.data() as Player;

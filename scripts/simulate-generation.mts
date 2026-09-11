@@ -41,4 +41,18 @@ for (const t of proposals) {
   console.log(`- ${t.gameName} ${t.startTime}-${t.endTime} players=[${names.join(', ')}]`);
 }
 
+// Flags any game with enough total votes to hit its minimum that still ended up with zero table —
+// worth checking by hand, since it means the schedule genuinely has no room for it right now.
+const scheduledGameIds = new Set(proposals.map((t) => t.gameId));
+const primaryGames = games.filter((g: any) => !g.groupId || g.groupId === g.id);
+console.log('\n=== ORPHANED GAMES (enough votes, zero tables) ===');
+for (const g of primaryGames) {
+  if (scheduledGameIds.has(g.id)) continue;
+  const must = players.filter((p: any) => p.interests?.[g.id] === 'must').length;
+  const casual = players.filter((p: any) => p.interests?.[g.id] === 'casual').length;
+  if (must + casual >= g.minPlayers) {
+    console.log(`- ${g.name} (${g.minPlayers}-${g.maxPlayers}p, ${g.durationMinutes}min): must=${must} casual=${casual}`);
+  }
+}
+
 process.exit(0);

@@ -22,12 +22,13 @@ function fitsColumn(occupied: ColumnInterval[], sessions: Table[], bufferMinutes
 
 /**
  * Assigns each table session to a physical table slot, trying to keep every session of the same
- * game on a single table for the whole day rather than deciding slot-by-slot. Games are placed
- * one at a time (earliest first session first) into the first existing column where ALL of that
- * game's sessions fit without colliding with what's already there (respecting bufferMinutes
- * between different games); only if no single column works for the whole game does it fall back
- * to whatever's available. This still lets other, unrelated games slot into the gaps between a
- * game's own sessions in the same column, so table usage stays compact.
+ * game (or, for a merged multi-copy game, of the same physical copy) on a single table for the
+ * whole day rather than deciding slot-by-slot. Groups are placed one at a time (earliest first
+ * session first) into the first existing column where ALL of the group's sessions fit without
+ * colliding with what's already there (respecting bufferMinutes between different games); only if
+ * no single column works for the whole group does it fall back to whatever's available. This still
+ * lets other, unrelated games slot into the gaps between a group's own sessions in the same
+ * column, so table usage stays compact.
  */
 export function assignPhysicalSlots(
   tables: Table[],
@@ -41,9 +42,24 @@ export function assignPhysicalSlots(
   }
   for (const sessions of byGame.values()) sessions.sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
 
-  // Earliest first session first (tableNumber as a deterministic tiebreak) — so whichever game
+  // A merged game with multiple physical copies can have sessions running at the same time (one
+  // per copy) — those can never share a column, so split each game into the fewest "tracks" of
+  // mutually non-overlapping sessions first. A single-copy game's sessions are already
+  // non-overlapping by construction, so this is a no-op for the common case and only kicks in
+  // for real concurrent copies.
+  const trackGroups = [...byGame.values()].flatMap((sessions) => {
+    const tracks: Table[][] = [];
+    for (const s of sessions) {
+      const start = toMinutes(s.startTime);
+      const track = tracks.find((t) => toMinutes(t[t.length - 1].endTime) + bufferMinutes <= start);
+      if (track) track.push(s); else tracks.push([s]);
+    }
+    return tracks;
+  });
+
+  // Earliest first session first (tableNumber as a deterministic tiebreak) — so whichever track
   // has been around longest gets first pick of a column.
-  const gameGroups = [...byGame.values()].sort((a, b) => {
+  const gameGroups = trackGroups.sort((a, b) => {
     const diff = toMinutes(a[0].startTime) - toMinutes(b[0].startTime);
     return diff !== 0 ? diff : a[0].tableNumber - b[0].tableNumber;
   });
