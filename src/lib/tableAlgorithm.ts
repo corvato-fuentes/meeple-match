@@ -152,9 +152,15 @@ export function generateTables(
     if (fallbackA !== fallbackB) return fallbackA ? 1 : -1;
     const mustA = players.filter((p) => p.interests[a.id] === 'must').length;
     const mustB = players.filter((p) => p.interests[b.id] === 'must').length;
-    if (mustB !== mustA) return mustB - mustA;
     const totA = mustA + players.filter((p) => p.interests[a.id] === 'casual').length;
     const totB = mustB + players.filter((p) => p.interests[b.id] === 'casual').length;
+    // A game with barely enough voters to hit its minimum has zero room to lose anyone to
+    // another game's schedule — scheduled first so a bigger, more flexible game doesn't quietly
+    // consume one of its few compatible voters' free time before its own turn comes up.
+    const slackA = totA - a.minPlayers;
+    const slackB = totB - b.minPlayers;
+    if (slackA !== slackB) return slackA - slackB;
+    if (mustB !== mustA) return mustB - mustA;
     const ratioA = totA > 0 ? mustA / totA : 0;
     const ratioB = totB > 0 ? mustB / totB : 0;
     if (ratioB !== ratioA) return ratioB - ratioA;
