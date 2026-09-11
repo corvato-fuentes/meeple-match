@@ -570,7 +570,7 @@ function GameVoteCard({
           {game.name}{isOwn && <span className="text-indigo-400 font-normal"> · lo traés vos</span>}
           {copyCount > 1 && <span className="ml-1 text-[10px] bg-indigo-900 text-indigo-300 px-1 rounded">🧩 {copyCount} copias</span>}
         </span>
-        <span className="text-xs text-gray-500">{game.minPlayers}–{game.maxPlayers}p · {COMPLEXITY_LABEL[game.complexity]}</span>
+        <span className="text-xs text-gray-500">{game.minPlayers}–{game.maxPlayers}p · {game.durationMinutes}min · {COMPLEXITY_LABEL[game.complexity]}</span>
       </div>
       {!isOwn && <p className="text-[11px] text-gray-500 mb-1">Trae: {ownerLabel}</p>}
       <a href={game.bggUrl ?? bggSearchUrl(game.name)} target="_blank" rel="noopener noreferrer"
