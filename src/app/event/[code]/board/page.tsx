@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getEvent, subscribeTables, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
+import { findNearMissGames, type NearMissGame } from '@/lib/tableAlgorithm';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import type { MeepleEvent, Table, Player, ScheduledBreak, Game } from '@/lib/types';
 
@@ -154,6 +155,15 @@ export default function BoardPage() {
       .sort((a, b) => b.must - a.must);
   }, [games, players, tables]);
 
+  // Games exactly one player short of their minimum that already have a valid shared window and
+  // an explainer lined up — shown dimmed in the grid as "join here and this happens" suggestions
+  // for walk-ins/improvisers who didn't vote.
+  const nearMissGames = useMemo(() => {
+    if (!event) return [];
+    const activeTables = tables.filter((t) => t.status !== 'cancelled');
+    return findNearMissGames(players, games, activeTables, event.settings.bufferMinutes, event.settings.physicalTables, event.settings.breaks);
+  }, [players, games, tables, event]);
+
   return (
     <main className='min-h-screen bg-gray-900 text-white p-6'>
       <div className='mb-8 flex items-start justify-between flex-wrap gap-4'>
@@ -214,6 +224,7 @@ export default function BoardPage() {
               physicalTables={event?.settings.physicalTables ?? null}
               eventStartTime={event?.startTime ?? null} eventEndTime={event?.endTime ?? null}
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
+              nearMiss={nearMissGames}
             />
           ) : (
             <div className='space-y-10'>
@@ -318,7 +329,7 @@ function buildRowCells(rowTables: Table[], buckets: number[], breaks: ScheduledB
 }
 
 function ScheduleGrid({
-  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes,
+  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, nearMiss,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -327,6 +338,7 @@ function ScheduleGrid({
   eventEndTime: string | null;
   breaks: ScheduledBreak[];
   bufferMinutes: number;
+  nearMiss: NearMissGame[];
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
   const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes, physicalTables), [activeTables, bufferMinutes, physicalTables]);
@@ -380,11 +392,47 @@ function ScheduleGrid({
                 </tr>
               );
             })}
+            {nearMiss.map((nm) => {
+              const cells = buildNearMissCells(nm, buckets);
+              return (
+                <tr key={'nearmiss-' + nm.gameId} className='border-t border-gray-800 opacity-50'>
+                  <td className='p-2 font-semibold text-amber-400 whitespace-nowrap sticky left-0 bg-gray-900'>
+                    🔶 Casi
+                  </td>
+                  {cells.map((cell, ci) => (
+                    <td key={ci} colSpan={cell.span} className='p-1.5 text-center align-middle border-l border-gray-800'>
+                      {cell.active && (
+                        <div className='rounded-lg border border-dashed border-amber-700 bg-amber-950/40 text-amber-300 px-2 py-1.5'>
+                          <div className='font-medium text-xs'>{nm.gameName} · falta {nm.missing}</div>
+                          <div className='text-[11px] opacity-75'>{nm.startTime}–{nm.endTime}</div>
+                        </div>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </section>
   );
+}
+
+/** Splits the bucket columns into runs of "inside this near-miss game's window" vs not, for colSpan rendering. */
+function buildNearMissCells(entry: NearMissGame, buckets: number[]): { span: number; active: boolean }[] {
+  const start = toMinutes(entry.startTime);
+  const end = toMinutes(entry.endTime);
+  const cells: { span: number; active: boolean }[] = [];
+  let i = 0;
+  while (i < buckets.length) {
+    const active = buckets[i] >= start && buckets[i] < end;
+    let span = 1;
+    while (i + span < buckets.length && (buckets[i + span] >= start && buckets[i + span] < end) === active) span++;
+    cells.push({ span, active });
+    i += span;
+  }
+  return cells;
 }
 
 function BreaksBanner({ breaks }: { breaks: ScheduledBreak[] }) {

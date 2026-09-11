@@ -355,6 +355,89 @@ export function generateTables(
   return proposals;
 }
 
+export interface NearMissGame {
+  gameId: string;
+  gameName: string;
+  startTime: string;
+  endTime: string;
+  missing: number; // how many more players it needs to reach minPlayers — always 1 for now
+  playerNames: string[];
+}
+
+/**
+ * Games that are exactly one player short of their minimum, but where the voters who ARE
+ * committed already share a valid window (available, buffered, with a real explainer lined up,
+ * and an actual free physical table at that time). Surfaced to walk-in/improvising players as
+ * "join here and this table happens" suggestions — doesn't reserve anything, just reports it.
+ */
+export function findNearMissGames(
+  players: Player[],
+  games: Game[],
+  existingTables: Table[],
+  bufferMinutes: number,
+  physicalTables: number | null,
+  breaks: { start: string; end: string }[] = []
+): NearMissGame[] {
+  const busyMap = new Map<string, { start: string; end: string }[]>();
+  players.forEach((p) => {
+    const busy = getBusyWindows(p.id, existingTables);
+    busy.push(...breaks);
+    busyMap.set(p.id, busy);
+  });
+  const occupiedTables: { startTime: string; endTime: string }[] = existingTables
+    .filter((t) => t.status !== 'cancelled')
+    .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
+  const seatedByGame = new Map<string, Set<string>>();
+  existingTables.forEach((t) => {
+    if (t.status === 'cancelled') return;
+    const seated = seatedByGame.get(t.gameId) ?? new Set<string>();
+    t.playerIds.forEach((id) => seated.add(id));
+    seatedByGame.set(t.gameId, seated);
+  });
+
+  const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
+  const results: NearMissGame[] = [];
+
+  for (const game of primaryGames) {
+    const copies = games.filter((g) => (g.groupId ?? g.id) === game.id).length || 1;
+    const ownerWindows = games
+      .filter((g) => (g.groupId ?? g.id) === game.id)
+      .map((g) => players.find((p) => p.id === g.ownerPlayerId))
+      .filter((p): p is Player => !!p)
+      .map((owner) => ({ start: owner.arrivalTime, end: owner.departureTime }));
+
+    const seated = seatedByGame.get(game.id) ?? new Set<string>();
+    const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
+    const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
+    const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
+    const group = [...mustPlayers, ...casualPlayers];
+    if (group.length !== game.minPlayers - 1) continue;
+
+    const gameWindows: { startTime: string; endTime: string }[] = existingTables
+      .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
+      .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
+
+    const found = findEarliestWindow(group, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
+    if (!found) continue;
+
+    const hasSeatedExplainer = group.some((p) => p.canExplain.includes(game.id));
+    if (!hasSeatedExplainer) {
+      const teachEnd = toTimeString(toMinutes(found.start) + TEACH_ONLY_MINUTES);
+      const teacher = players
+        .filter((p) => p.canExplain.includes(game.id))
+        .find((p) => group.every((g) => g.id !== p.id) && isAvailable(p, found.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes));
+      if (!teacher) continue;
+    }
+
+    results.push({
+      gameId: game.id, gameName: game.name, startTime: found.start, endTime: found.end,
+      missing: 1, playerNames: group.map((p) => p.name),
+    });
+  }
+
+  return results;
+}
+
 export interface TableFill {
   tableId: string;
   playerIds: string[]; // full updated roster (existing + newly added)
