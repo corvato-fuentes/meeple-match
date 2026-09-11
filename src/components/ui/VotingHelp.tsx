@@ -17,9 +17,9 @@ export default function VotingHelp() {
             onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold text-gray-100">¿Cómo funciona esto?</h3>
             <ul className="space-y-2 text-gray-300">
-              <li><strong>❤️ Quiero:</strong> voto fuerte — el sistema arma mesas priorizando juegos con más "Quiero".</li>
-              <li><strong>👍 Me sumo:</strong> te gustaría jugarlo, pero solo entrás si sobra un lugar después de completar la mesa con los "Quiero".</li>
-              <li><strong>👎 No:</strong> no te interesa; el juego se oculta de tu lista.</li>
+              <li><strong>❤️ Sí o sí:</strong> lo querés jugar sí o sí — voto fuerte, el sistema arma mesas priorizando juegos con más "Sí o sí".</li>
+              <li><strong>👍 Si falta:</strong> te sumás si falta gente para completar la mesa, pero solo entrás después de los "Sí o sí".</li>
+              <li><strong>👎 No me interesa:</strong> el juego se oculta de tu lista.</li>
               <li><strong>🎓 Sé explicarlo:</strong> marcalo si conocés las reglas — sin al menos un explicador, esa mesa no se arma. Si marcás esto pero no votás ❤️ ni 👍 en ese juego, no ocupás un lugar en la mesa: solo vas a explicarlo un rato y después quedás libre para jugar otra cosa.</li>
               <li><strong>🔁 Repetir:</strong> si ya te tocó jugarlo, marcalo para poder entrar a una segunda mesa del mismo juego más tarde.</li>
             </ul>

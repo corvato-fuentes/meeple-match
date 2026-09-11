@@ -588,8 +588,9 @@ function GameVoteCard({
           return (
             <button key={level}
               onClick={() => onSetInterest(level)}
-              className={'flex-1 py-1 text-[11px] rounded-lg border transition-colors ' + cls}>
-              {level === 'must' ? '❤️' : level === 'casual' ? '👍' : '👎'}
+              className={'flex-1 py-1.5 rounded-lg border transition-colors flex flex-col items-center gap-0.5 leading-tight ' + cls}>
+              <span className="text-sm">{level === 'must' ? '❤️' : level === 'casual' ? '👍' : '👎'}</span>
+              <span className="text-[10px]">{level === 'must' ? 'Sí o sí' : level === 'casual' ? 'Si falta' : 'No me interesa'}</span>
             </button>
           );
         })}

@@ -556,8 +556,9 @@ export default function EventPage() {
                     return (
                       <button key={level}
                         onClick={() => setOwnGameVotes({ ...ownGameVotes, [i]: level })}
-                        className={'flex-1 py-1 text-xs rounded-lg border transition-colors ' + cls}>
-                        {level === 'must' ? '❤️ Quiero' : level === 'casual' ? '👍 Me sumo' : '👎 Solo lo comparto'}
+                        className={'flex-1 py-1.5 rounded-lg border transition-colors flex flex-col items-center gap-0.5 leading-tight ' + cls}>
+                        <span className="text-sm">{level === 'must' ? '❤️' : level === 'casual' ? '👍' : '👎'}</span>
+                        <span className="text-[10px]">{level === 'must' ? 'Sí o sí' : level === 'casual' ? 'Si falta' : 'Solo comparto'}</span>
                       </button>
                     );
                   })}
@@ -595,8 +596,9 @@ export default function EventPage() {
                   return (
                     <button key={level}
                       onClick={() => setInterests({ ...interests, [g.id]: level })}
-                      className={'flex-1 py-1 text-xs rounded-lg border transition-colors ' + cls}>
-                      {level === 'must' ? '❤️ Quiero' : level === 'casual' ? '👍 Me sumo' : '👎 No'}
+                      className={'flex-1 py-1.5 rounded-lg border transition-colors flex flex-col items-center gap-0.5 leading-tight ' + cls}>
+                      <span className="text-sm">{level === 'must' ? '❤️' : level === 'casual' ? '👍' : '👎'}</span>
+                      <span className="text-[10px]">{level === 'must' ? 'Sí o sí' : level === 'casual' ? 'Si falta' : 'No me interesa'}</span>
                     </button>
                   );
                 })}
