@@ -134,9 +134,9 @@ export default function BoardPage() {
   // Physical table number (not the sequential session id) — same assignment used by the grid,
   // so "Mesa #N" means the same thing in both views.
   const physicalSlotByTableId = useMemo(() => {
-    const { assignments } = assignPhysicalSlots(tables);
+    const { assignments } = assignPhysicalSlots(tables, event?.settings.bufferMinutes ?? 0);
     return new Map(assignments.map((a) => [a.table.id, a.slot + 1]));
-  }, [tables]);
+  }, [tables, event]);
 
   // Games with enough votes to justify a table (must + casual >= minPlayers) that still don't
   // have one — usually because no shared time window exists yet given everyone's schedules.
@@ -213,7 +213,7 @@ export default function BoardPage() {
               tables={tables} nowMinutes={eventIsToday ? nowMinutes : null}
               physicalTables={event?.settings.physicalTables ?? null}
               eventStartTime={event?.startTime ?? null} eventEndTime={event?.endTime ?? null}
-              breaks={event?.settings.breaks ?? []}
+              breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
             />
           ) : (
             <div className='space-y-10'>
@@ -318,7 +318,7 @@ function buildRowCells(rowTables: Table[], buckets: number[], breaks: ScheduledB
 }
 
 function ScheduleGrid({
-  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks,
+  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -326,9 +326,10 @@ function ScheduleGrid({
   eventStartTime: string | null;
   eventEndTime: string | null;
   breaks: ScheduledBreak[];
+  bufferMinutes: number;
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
-  const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables), [activeTables]);
+  const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes), [activeTables, bufferMinutes]);
   const buckets = useMemo(() => buildBuckets(activeTables, eventStartTime, eventEndTime), [activeTables, eventStartTime, eventEndTime]);
   const rowCount = Math.max(slotCount, physicalTables ?? 0, 1);
 

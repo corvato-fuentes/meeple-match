@@ -30,7 +30,9 @@ function isAvailable(
 ): boolean {
   const ws = toMinutes(winStart);
   const we = toMinutes(winEnd);
-  if (ws < toMinutes(player.arrivalTime) || we > toMinutes(player.departureTime)) return false;
+  // Buffer applies right after arrival too — nobody sits down and starts playing the instant
+  // they walk in, regardless of which candidate time slot this window came from.
+  if (ws < toMinutes(player.arrivalTime) + bufferMinutes || we > toMinutes(player.departureTime)) return false;
   // A buffer gap is required on both sides — not just "no overlap" — so a player never goes
   // straight from one table into the next with zero time to stand up and walk over.
   return busy.every((bw) => toMinutes(bw.end) + bufferMinutes <= ws || we + bufferMinutes <= toMinutes(bw.start));

@@ -41,7 +41,7 @@ export default function TablesPage() {
   const playerMap = new Map(players.map((p) => [p.id, p]));
 
   // Groups sessions by physical table slot so numbering matches the public board exactly
-  const { assignments } = assignPhysicalSlots(tables);
+  const { assignments } = assignPhysicalSlots(tables, event.settings.bufferMinutes);
   const slotGroups = new Map<number, Table[]>();
   for (const a of assignments) {
     const group = slotGroups.get(a.slot) ?? [];
