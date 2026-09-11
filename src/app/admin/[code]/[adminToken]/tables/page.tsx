@@ -165,10 +165,12 @@ export default function TablesPage() {
                       <div className='space-y-1'>
                         {currentIds.map((pid) => {
                           const p = playerMap.get(pid);
+                          const vote = p?.interests[t.gameId];
+                          const voteIcon = vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '';
                           return (
                             <div key={pid} className='flex items-center justify-between text-sm'>
                               <span className='flex items-center gap-2'>
-                                {p?.name ?? pid}
+                                {voteIcon}{p?.name ?? pid}
                                 {pid === t.explainerId && <span className='text-xs bg-purple-900 text-purple-300 px-1.5 rounded'>explica</span>}
                               </span>
                               {isEditing && (
