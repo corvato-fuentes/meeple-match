@@ -62,7 +62,8 @@ function findEarliestWindow(
   busyMap: Map<string, { start: string; end: string }[]>,
   physicalTables: number | null,
   occupiedTables: { startTime: string; endTime: string }[],
-  sameGameWindows: { startTime: string; endTime: string }[]
+  sameGameWindows: { startTime: string; endTime: string }[],
+  gameCopies: number
 ): { start: string; end: string } | null {
   const candidates = new Set<number>();
   players.forEach((p) => {
@@ -76,8 +77,8 @@ function findEarliestWindow(
     // A physical table only frees up once an occupying game finishes (+ buffer to reset it)
     occupiedTables.forEach((t) => candidates.add(roundUpToGrid(toMinutes(t.endTime) + bufferMinutes)));
   }
-  // A second table of the exact same game needs its own copy freed up too — a single physical
-  // copy can't be at two tables at once, regardless of the venue's overall physicalTables cap.
+  // A copy of this exact game needs one of its own copies freed up too — up to gameCopies tables
+  // of it can run at once (more than 1 only when the admin merged duplicate entries together).
   sameGameWindows.forEach((t) => candidates.add(roundUpToGrid(toMinutes(t.endTime) + bufferMinutes)));
 
   for (const startMin of Array.from(candidates).sort((a, b) => a - b)) {
@@ -85,7 +86,7 @@ function findEarliestWindow(
     const end = toTimeString(startMin + durationMinutes);
     if (!players.every((p) => isAvailable(p, start, end, busyMap.get(p.id) ?? [], bufferMinutes))) continue;
     if (physicalTables != null && concurrentTableCount(occupiedTables, start, end) >= physicalTables) continue;
-    if (sameGameWindows.some((t) => overlaps(t.startTime, t.endTime, start, end))) continue;
+    if (concurrentTableCount(sameGameWindows, start, end) >= gameCopies) continue;
     return { start, end };
   }
   return null;
@@ -143,7 +144,11 @@ export function generateTables(
     const ratioB = totB > 0 ? mustB / totB : 0;
     if (ratioB !== ratioA) return ratioB - ratioA;
     return a.minPlayers - b.minPlayers;
-  });
+  })
+    // Secondary copies of a merged game (admin marked them as duplicates of a primary) never get
+    // their own table-forming pass — the primary's pass below books up to `copies` concurrent
+    // tables to cover all of them at once.
+    .filter((g) => !g.groupId || g.groupId === g.id);
 
   const proposals: TableProposal[] = [];
   let tableNumber = existingTables.length
@@ -151,13 +156,16 @@ export function generateTables(
     : 1;
 
   for (const game of sorted) {
+    // How many physical copies of this game exist — more than 1 only when the admin merged
+    // duplicate entries together; lets that many tables of it run at the same time.
+    const copies = games.filter((g) => (g.groupId ?? g.id) === game.id).length || 1;
     // Players already seated at a table for this game only count again if they opted into a
     // replay — otherwise further tables for the same game are built from fresh voters only.
     // Loops so a single generation pass can seat all of them across as many tables as fit
     // (e.g. max 5 but 10 different "must" voters → two tables, different players, different times).
     const seated = new Set(seatedByGame.get(game.id) ?? []);
-    // Every existing (non-cancelled) window this exact game is already booked into — a second
-    // table for it can never overlap these, since it's the same single physical copy.
+    // Every existing (non-cancelled) window this exact game is already booked into — further
+    // tables for it can't overlap beyond the number of physical copies available.
     const gameWindows: { startTime: string; endTime: string }[] = existingTables
       .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
       .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
@@ -218,7 +226,7 @@ export function generateTables(
           const hasSeatedExplainer = candidate.some((p) => p.canExplain.includes(game.id));
 
           if (hasSeatedExplainer) {
-            const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows);
+            const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies);
             if (found && (!best || toMinutes(found.start) < toMinutes(best.window.start))) {
               best = { group: candidate, window: found, teachOnlyExplainer: null };
             }
@@ -227,7 +235,7 @@ export function generateTables(
 
           // No one in the seated group can explain — first see if a drop-in teacher covers it
           // without needing a seat, before falling back to pulling one in as a full player.
-          const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows);
+          const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies);
           if (found) {
             const teachEnd = toTimeString(toMinutes(found.start) + TEACH_ONLY_MINUTES);
             const teacher = teachOnlyCandidates.find(
@@ -244,7 +252,7 @@ export function generateTables(
           const extra = seatExplainers.find((e) => candidate.every((p) => p.id !== e.id));
           if (!extra || candidate.length >= game.maxPlayers) continue;
           const padded = [...candidate, extra];
-          const foundPadded = findEarliestWindow(padded, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows);
+          const foundPadded = findEarliestWindow(padded, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies);
           if (foundPadded && (!best || toMinutes(foundPadded.start) < toMinutes(best.window.start))) {
             best = { group: padded, window: foundPadded, teachOnlyExplainer: null };
           }

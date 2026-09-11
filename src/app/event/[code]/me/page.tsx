@@ -4,7 +4,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames,
-  updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame,
+  updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame, updatePlayerTimes,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { TEACH_ONLY_MINUTES } from '@/lib/tableAlgorithm';
@@ -12,6 +12,7 @@ import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { savePlayerEvent } from '@/lib/myEvents';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
+import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import VotingHelp from '@/components/ui/VotingHelp';
 import TablesHelp from '@/components/ui/TablesHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
@@ -54,6 +55,10 @@ export default function MyTicketPage() {
   const [addingGame, setAddingGame] = useState(false);
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [removingGameId, setRemovingGameId] = useState<string | null>(null);
+  const [editingTimes, setEditingTimes] = useState(false);
+  const [draftArrival, setDraftArrival] = useState('');
+  const [draftDeparture, setDraftDeparture] = useState('');
+  const [savingTimes, setSavingTimes] = useState(false);
   const [bggResults, setBggResults] = useState<BggSearchResult[]>([]);
   const [bggOpen, setBggOpen] = useState(false);
   const [bggLoading, setBggLoading] = useState(false);
@@ -204,6 +209,27 @@ export default function MyTicketPage() {
     setSaving(false);
   }
 
+  function startEditTimes() {
+    if (!player) return;
+    setDraftArrival(player.arrivalTime);
+    setDraftDeparture(player.departureTime);
+    setEditingTimes(true);
+  }
+
+  async function saveTimes() {
+    if (!player || savingTimes) return;
+    setSavingTimes(true);
+    try {
+      await updatePlayerTimes(code, player.id, draftArrival, draftDeparture);
+      setPlayer((p) => p ? { ...p, arrivalTime: draftArrival, departureTime: draftDeparture } : p);
+      setEditingTimes(false);
+      // Fire-and-forget: availability changed, so tables may need to be reshuffled.
+      if (event?.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
+    } finally {
+      setSavingTimes(false);
+    }
+  }
+
   function toggleCanExplain(gameId: string) {
     setCanExplain((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
   }
@@ -225,12 +251,18 @@ export default function MyTicketPage() {
   const myGames = games.filter((g) => g.ownerPlayerId === player.id);
   const gameLimit = event.settings.maxGamesPerPlayer;
   const atGameLimit = gameLimit != null && player.bringGameIds.length >= gameLimit;
+  // Merged duplicates (admin marked two entries as copies of the same game) only get one votable
+  // row — the primary — combining every copy's owner name into a single label below.
+  const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
+  const copiesOf = (g: Game) => games.filter((m) => (m.groupId ?? m.id) === g.id);
+  const ownerLabel = (g: Game) => copiesOf(g).map((m) => m.ownerName).join(', ');
+  const isOwnGroup = (g: Game) => copiesOf(g).some((m) => m.ownerPlayerId === player.id);
   // Own games are votable too — the scheduling algorithm only seats players who voted must/casual on a game.
-  const wishlistGames = games.filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual');
+  const wishlistGames = primaryGames.filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual');
   // Unvoted games stay on top; "no"-voted games are collapsed into a separate section below.
-  const availableGames = games
+  const availableGames = primaryGames
     .filter((g) => interests[g.id] !== 'must' && interests[g.id] !== 'casual' && interests[g.id] !== 'no');
-  const dismissedGames = games.filter((g) => interests[g.id] === 'no');
+  const dismissedGames = primaryGames.filter((g) => interests[g.id] === 'no');
   const confirmedTables = myTables
     .filter((t) => ['confirmed', 'in-progress', 'proposed'].includes(t.status))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
@@ -255,6 +287,36 @@ export default function MyTicketPage() {
           <p className="text-sm mt-2 text-gray-400">
             Hola, <strong>{player.name}</strong> · {player.arrivalTime}–{player.departureTime}
           </p>
+          {!editingTimes ? (
+            <button onClick={startEditTimes} className="block mx-auto text-xs text-indigo-400 hover:underline mt-0.5">
+              ✏️ Editar horario
+            </button>
+          ) : (
+            <div className="mt-2 border border-gray-700 rounded-xl p-3 bg-gray-800 space-y-2 text-left">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-400">Llego</label>
+                  <TimeWheelPicker value={draftArrival} onChange={setDraftArrival}
+                    minTime={event.startTime} maxTime={event.endTime} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">Me voy</label>
+                  <TimeWheelPicker value={draftDeparture} onChange={setDraftDeparture}
+                    minTime={event.startTime} maxTime={event.endTime} />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingTimes(false)}
+                  className="flex-1 border border-gray-700 rounded-lg py-1.5 text-sm font-medium">
+                  Cancelar
+                </button>
+                <button onClick={saveTimes} disabled={savingTimes}
+                  className="flex-1 bg-indigo-600 rounded-lg py-1.5 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                  {savingTimes ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+          )}
           {event.location && (
             <p className="text-sm text-gray-400 mt-1">📍 {event.location}</p>
           )}
@@ -311,6 +373,16 @@ export default function MyTicketPage() {
             className="block text-center mt-3 text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
             📺 Ver grilla completa
           </Link>
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <Link href={`/event/${code}/votes`}
+              className="text-center text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
+              📊 Votos totales
+            </Link>
+            <Link href={`/event/${code}/roster`}
+              className="text-center text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
+              👥 Ver inscriptos
+            </Link>
+          </div>
         </section>
 
         <section>
@@ -421,7 +493,7 @@ export default function MyTicketPage() {
             <h3 className="text-sm font-semibold text-gray-400 mb-2">Juegos disponibles</h3>
             <div className="space-y-2">
               {availableGames.map((g) => (
-                <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
+                <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
                   onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
                   canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)}
                   repeatInterest={repeatGameIds.includes(g.id)} onToggleRepeatInterest={() => toggleRepeatInterest(g.id)} />
@@ -436,7 +508,7 @@ export default function MyTicketPage() {
                 {showDismissed && (
                   <div className="space-y-2 mt-2">
                     {dismissedGames.map((g) => (
-                      <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
+                      <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
                         onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
                         canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)}
                         repeatInterest={repeatGameIds.includes(g.id)} onToggleRepeatInterest={() => toggleRepeatInterest(g.id)} />
@@ -454,7 +526,7 @@ export default function MyTicketPage() {
             ) : (
               <div className="space-y-2">
                 {wishlistGames.map((g) => (
-                  <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={g.ownerPlayerId === player.id}
+                  <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
                     onSetInterest={(level) => setInterests({ ...interests, [g.id]: level })}
                     canExplain={canExplain.includes(g.id)} onToggleCanExplain={() => toggleCanExplain(g.id)}
                     repeatInterest={repeatGameIds.includes(g.id)} onToggleRepeatInterest={() => toggleRepeatInterest(g.id)} />
@@ -476,24 +548,29 @@ export default function MyTicketPage() {
 }
 
 function GameVoteCard({
-  game, interest, isOwn, onSetInterest, canExplain, onToggleCanExplain, repeatInterest, onToggleRepeatInterest,
+  game, interest, isOwn, ownerLabel, onSetInterest, canExplain, onToggleCanExplain, repeatInterest, onToggleRepeatInterest,
 }: {
   game: Game;
   interest: InterestLevel | undefined;
   isOwn: boolean;
+  ownerLabel: string;
   onSetInterest: (level: InterestLevel) => void;
   canExplain: boolean;
   onToggleCanExplain: () => void;
   repeatInterest: boolean;
   onToggleRepeatInterest: () => void;
 }) {
+  const copyCount = ownerLabel.split(',').length;
   return (
     <div className="border border-gray-700 rounded-xl px-3 py-2 bg-gray-800">
       <div className="flex justify-between items-start mb-1">
-        <span className="font-medium text-sm">{game.name}{isOwn && <span className="text-indigo-400 font-normal"> · lo traés vos</span>}</span>
+        <span className="font-medium text-sm">
+          {game.name}{isOwn && <span className="text-indigo-400 font-normal"> · lo traés vos</span>}
+          {copyCount > 1 && <span className="ml-1 text-[10px] bg-indigo-900 text-indigo-300 px-1 rounded">🧩 {copyCount} copias</span>}
+        </span>
         <span className="text-xs text-gray-500">{game.minPlayers}–{game.maxPlayers}p · {COMPLEXITY_LABEL[game.complexity]}</span>
       </div>
-      {!isOwn && <p className="text-[11px] text-gray-500 mb-1">Trae: {game.ownerName}</p>}
+      {!isOwn && <p className="text-[11px] text-gray-500 mb-1">Trae: {ownerLabel}</p>}
       <a href={game.bggUrl ?? bggSearchUrl(game.name)} target="_blank" rel="noopener noreferrer"
         className="text-[11px] text-indigo-400 hover:underline inline-block mb-2">
         {game.bggUrl ? '🎲 Ver en BGG' : '🎲 Buscar en BGG'}

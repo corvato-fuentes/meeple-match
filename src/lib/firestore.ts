@@ -4,7 +4,7 @@ import {
   orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { MeepleEvent, EventAdminConfig, Game, Player, Table } from './types';
+import type { MeepleEvent, EventAdminConfig, Game, Player, Table, InterestLevel } from './types';
 import type { FakePlayerDraft } from './fakeData';
 import { randomInterest, randomOwnGameInterest } from './fakeData';
 import { generateTicketCodeCandidate } from './ticketCode';
@@ -72,6 +72,33 @@ export async function updateEventDetails(
   await updateDoc(doc(db, 'events', code), details);
 }
 
+const GEN_LOCK_TIMEOUT_MS = 20_000; // safety net in case a previous run crashed without releasing
+
+/**
+ * Claims an exclusive lock on this event's table-generation step, stored as a plain field on the
+ * event doc (no rules changes needed — updates to it are already allowed). Prevents two
+ * concurrent regenerations (e.g. two players voting seconds apart) from each computing a full
+ * schedule without seeing the other's writes, which was creating duplicate/overlapping tables.
+ */
+export async function acquireGenerationLock(eventCode: string): Promise<boolean> {
+  const ref = doc(db, 'events', eventCode);
+  try {
+    return await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const lockedAt = (snap.data() as { genLockAt?: number } | undefined)?.genLockAt;
+      if (lockedAt && Date.now() - lockedAt < GEN_LOCK_TIMEOUT_MS) return false;
+      tx.update(ref, { genLockAt: Date.now() });
+      return true;
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function releaseGenerationLock(eventCode: string): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode), { genLockAt: null });
+}
+
 
 // ── Games ─────────────────────────────────────────────────────────────────────
 
@@ -97,6 +124,66 @@ export async function updateGame(
   fields: Partial<Pick<Game, 'name' | 'bggUrl' | 'minPlayers' | 'maxPlayers' | 'durationMinutes' | 'complexity'>>
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'games', gameId), fields);
+}
+
+const INTEREST_RANK: Record<InterestLevel, number> = { must: 3, casual: 2, no: 1 };
+
+/**
+ * Marks a set of games as copies of the same physical game (e.g. two players both loaded "The
+ * Castles of Burgundy" under slightly different names). All copies get tagged with the same
+ * groupId — the primary's id — so the scheduling algorithm treats them as one game with N
+ * concurrent copies instead of N unrelated games. Any votes/canExplain/repeat already recorded
+ * on a secondary copy, and any table already referencing one, are folded into the primary.
+ */
+export async function mergeGames(eventCode: string, gameIds: string[], primaryId: string): Promise<void> {
+  if (gameIds.length < 2 || !gameIds.includes(primaryId)) return;
+  const secondaryIds = gameIds.filter((id) => id !== primaryId);
+
+  const [playersSnap, tablesSnap, primarySnap] = await Promise.all([
+    getDocs(collection(db, 'events', eventCode, 'players')),
+    getDocs(collection(db, 'events', eventCode, 'tables')),
+    getDoc(doc(db, 'events', eventCode, 'games', primaryId)),
+  ]);
+  const primaryName = (primarySnap.data() as Game | undefined)?.name;
+
+  const batch = writeBatch(db);
+  gameIds.forEach((id) => batch.update(doc(db, 'events', eventCode, 'games', id), { groupId: primaryId }));
+
+  playersSnap.docs.forEach((playerDoc) => {
+    const p = playerDoc.data() as Player;
+    const touchesGroup = secondaryIds.some(
+      (id) => id in p.interests || p.canExplain.includes(id) || (p.repeatGameIds ?? []).includes(id)
+    );
+    if (!touchesGroup) return;
+
+    const votes = [p.interests[primaryId], ...secondaryIds.map((id) => p.interests[id])].filter(Boolean) as InterestLevel[];
+    const bestVote = votes.sort((a, b) => INTEREST_RANK[b] - INTEREST_RANK[a])[0];
+    const interests = { ...p.interests };
+    secondaryIds.forEach((id) => delete interests[id]);
+    if (bestVote) interests[primaryId] = bestVote; else delete interests[primaryId];
+
+    const canExplain = new Set(p.canExplain.filter((id) => !secondaryIds.includes(id)));
+    if (secondaryIds.some((id) => p.canExplain.includes(id))) canExplain.add(primaryId);
+
+    const repeatGameIds = new Set((p.repeatGameIds ?? []).filter((id) => !secondaryIds.includes(id)));
+    if (secondaryIds.some((id) => (p.repeatGameIds ?? []).includes(id))) repeatGameIds.add(primaryId);
+
+    batch.update(playerDoc.ref, { interests, canExplain: [...canExplain], repeatGameIds: [...repeatGameIds] });
+  });
+
+  tablesSnap.docs.forEach((tableDoc) => {
+    const t = tableDoc.data() as Table;
+    if (secondaryIds.includes(t.gameId)) {
+      batch.update(tableDoc.ref, { gameId: primaryId, ...(primaryName && { gameName: primaryName }) });
+    }
+  });
+
+  await batch.commit();
+}
+
+/** Pulls a single game back out of its merge group — it becomes standalone again. Doesn't touch votes. */
+export async function ungroupGame(eventCode: string, gameId: string): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'games', gameId), { groupId: null });
 }
 
 /**
@@ -196,6 +283,16 @@ export async function updatePlayerInterests(
   interests: Player['interests']
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { interests });
+}
+
+/** Updates a player's arrival/departure window — editable by the player themselves or the admin. */
+export async function updatePlayerTimes(
+  eventCode: string,
+  playerId: string,
+  arrivalTime: string,
+  departureTime: string
+): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { arrivalTime, departureTime });
 }
 
 /**

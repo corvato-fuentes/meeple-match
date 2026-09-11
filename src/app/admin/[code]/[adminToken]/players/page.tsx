@@ -2,7 +2,9 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, getPlayerTables, deletePlayer } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, getPlayerTables, deletePlayer, updatePlayerTimes } from '@/lib/firestore';
+import { runTableGeneration } from '@/lib/tableGeneration';
+import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
 export default function PlayersPage() {
@@ -18,6 +20,10 @@ export default function PlayersPage() {
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resendingAll, setResendingAll] = useState(false);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
+  const [editingTimesId, setEditingTimesId] = useState<string | null>(null);
+  const [draftArrival, setDraftArrival] = useState('');
+  const [draftDeparture, setDraftDeparture] = useState('');
+  const [savingTimes, setSavingTimes] = useState(false);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -29,6 +35,25 @@ export default function PlayersPage() {
     const unsubT = subscribeTables(code, setTables);
     return () => { unsubP(); unsubT(); };
   }, [code, adminToken]);
+
+  function startEditTimes(p: Player) {
+    setEditingTimesId(p.id);
+    setDraftArrival(p.arrivalTime);
+    setDraftDeparture(p.departureTime);
+  }
+
+  async function saveTimes(playerId: string) {
+    if (savingTimes) return;
+    setSavingTimes(true);
+    try {
+      await updatePlayerTimes(code, playerId, draftArrival, draftDeparture);
+      setEditingTimesId(null);
+      // Fire-and-forget: availability changed, so tables may need to be reshuffled.
+      if (event?.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
+    } finally {
+      setSavingTimes(false);
+    }
+  }
 
   async function handleDeletePlayer(player: Player) {
     if (!confirm(`¿Eliminar a ${player.name}? Se borrarán sus juegos y su lugar en las mesas.`)) return;
@@ -88,6 +113,10 @@ export default function PlayersPage() {
         <Link href={`/admin/${code}/${adminToken}`} className='text-gray-500 hover:text-gray-300'>←</Link>
         <h1 className='text-xl font-bold'>Jugadores — {event.name}</h1>
         <span className='text-sm text-gray-500'>{players.length}{event.settings.maxPlayers ? ` / ${event.settings.maxPlayers}` : ''}</span>
+        <Link href={`/admin/${code}/${adminToken}/games`}
+          className='ml-auto text-xs border border-gray-700 rounded-lg px-2 py-1 hover:bg-gray-800'>
+          🎲 Ver votos totales
+        </Link>
       </div>
       <div className='flex items-center gap-3 mb-6'>
         <button onClick={handleResendAll} disabled={resendingAll}
@@ -111,7 +140,39 @@ export default function PlayersPage() {
                   <div>
                     <p className='font-semibold'>{p.name}</p>
                     {p.alias && <p className='text-xs text-gray-500'>{p.firstName} {p.lastName}</p>}
-                    <p className='text-sm text-gray-400'>{p.arrivalTime}–{p.departureTime} · ticket: <span className='font-mono'>{p.ticketCode}</span></p>
+                    {editingTimesId === p.id ? (
+                      <div className='border border-gray-700 rounded-xl p-3 bg-gray-900 space-y-2 my-1 max-w-xs'>
+                        <div className='grid grid-cols-2 gap-2'>
+                          <div>
+                            <label className='text-xs text-gray-400'>Llega</label>
+                            <TimeWheelPicker value={draftArrival} onChange={setDraftArrival}
+                              minTime={event.startTime} maxTime={event.endTime} />
+                          </div>
+                          <div>
+                            <label className='text-xs text-gray-400'>Se va</label>
+                            <TimeWheelPicker value={draftDeparture} onChange={setDraftDeparture}
+                              minTime={event.startTime} maxTime={event.endTime} />
+                          </div>
+                        </div>
+                        <div className='flex gap-2'>
+                          <button onClick={() => setEditingTimesId(null)}
+                            className='flex-1 border border-gray-700 rounded-lg py-1 text-xs font-medium'>
+                            Cancelar
+                          </button>
+                          <button onClick={() => saveTimes(p.id)} disabled={savingTimes}
+                            className='flex-1 bg-indigo-600 rounded-lg py-1 text-xs font-medium hover:bg-indigo-700 disabled:opacity-50'>
+                            {savingTimes ? 'Guardando...' : 'Guardar'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className='text-sm text-gray-400'>
+                        {p.arrivalTime}–{p.departureTime} · ticket: <span className='font-mono'>{p.ticketCode}</span>
+                        <button onClick={() => startEditTimes(p)} className='ml-2 text-xs text-indigo-400 hover:underline'>
+                          ✏️ editar
+                        </button>
+                      </p>
+                    )}
                     <p className='text-xs text-gray-500'>
                       {p.email ?? 'sin email'} · {p.phone ?? 'sin teléfono'}
                       {p.registeredAt?.toDate && ` · inscrito ${p.registeredAt.toDate().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}`}

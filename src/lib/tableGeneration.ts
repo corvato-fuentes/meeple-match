@@ -1,4 +1,7 @@
-import { getPlayers, getGames, getTables, saveProposedTables, deleteStaleTables, fillTableSeats } from '@/lib/firestore';
+import {
+  getPlayers, getGames, getTables, saveProposedTables, deleteStaleTables, fillTableSeats,
+  acquireGenerationLock, releaseGenerationLock,
+} from '@/lib/firestore';
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
 import { isAutoGenerationLocked } from '@/lib/timeUtils';
 import type { MeepleEvent } from '@/lib/types';
@@ -6,6 +9,14 @@ import type { MeepleEvent } from '@/lib/types';
 export interface TableGenerationResult {
   filledSeats: number;
   newTables: number;
+}
+
+async function acquireLockWithRetry(eventCode: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (await acquireGenerationLock(eventCode)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
 }
 
 /**
@@ -28,32 +39,44 @@ export async function runTableGeneration(
     return { filledSeats: 0, newTables: 0 };
   }
 
-  const [allPlayers, allGames, allTables] = await Promise.all([
-    getPlayers(eventCode), getGames(eventCode), getTables(eventCode),
-  ]);
-  const stale = allTables.filter((t) => t.status !== 'confirmed');
-  // Re-checked per-table inside a transaction — if one of these got confirmed by the admin at
-  // this exact moment, it's kept instead of being wiped out from under them.
-  const keptConfirmed = stale.length > 0 ? await deleteStaleTables(eventCode, stale.map((t) => t.id)) : [];
-  const lockedTables = [
-    ...allTables.filter((t) => t.status === 'confirmed'),
-    ...stale.filter((t) => keptConfirmed.includes(t.id)),
-  ];
+  // Two regenerations running at once (e.g. two players voting seconds apart) would each build a
+  // full schedule without seeing the other's writes, producing duplicate/overlapping tables. If
+  // another run is already in flight, this one backs off — the next vote/registration triggers
+  // another pass anyway, so nothing is permanently lost, just deferred a few seconds.
+  if (!(await acquireLockWithRetry(eventCode))) {
+    return { filledSeats: 0, newTables: 0 };
+  }
 
-  const fills = fillExistingTables(allPlayers, allGames, lockedTables, event.settings.bufferMinutes);
-  for (const fill of fills) await fillTableSeats(eventCode, fill.tableId, fill.playerIds);
-  const currentTables = fills.length > 0 ? await getTables(eventCode) : lockedTables;
-  const batchNumber = currentTables.length > 0
-    ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
-    : 1;
-  const proposals = generateTables(
-    allPlayers, allGames, currentTables,
-    event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks
-  );
-  await saveProposedTables(eventCode, proposals as any);
-  const filledSeats = fills.reduce((n, f) => {
-    const before = lockedTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0;
-    return n + (f.playerIds.length - before);
-  }, 0);
-  return { filledSeats, newTables: proposals.length };
+  try {
+    const [allPlayers, allGames, allTables] = await Promise.all([
+      getPlayers(eventCode), getGames(eventCode), getTables(eventCode),
+    ]);
+    const stale = allTables.filter((t) => t.status !== 'confirmed');
+    // Re-checked per-table inside a transaction — if one of these got confirmed by the admin at
+    // this exact moment, it's kept instead of being wiped out from under them.
+    const keptConfirmed = stale.length > 0 ? await deleteStaleTables(eventCode, stale.map((t) => t.id)) : [];
+    const lockedTables = [
+      ...allTables.filter((t) => t.status === 'confirmed'),
+      ...stale.filter((t) => keptConfirmed.includes(t.id)),
+    ];
+
+    const fills = fillExistingTables(allPlayers, allGames, lockedTables, event.settings.bufferMinutes);
+    for (const fill of fills) await fillTableSeats(eventCode, fill.tableId, fill.playerIds);
+    const currentTables = fills.length > 0 ? await getTables(eventCode) : lockedTables;
+    const batchNumber = currentTables.length > 0
+      ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
+      : 1;
+    const proposals = generateTables(
+      allPlayers, allGames, currentTables,
+      event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks
+    );
+    await saveProposedTables(eventCode, proposals as any);
+    const filledSeats = fills.reduce((n, f) => {
+      const before = lockedTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0;
+      return n + (f.playerIds.length - before);
+    }, 0);
+    return { filledSeats, newTables: proposals.length };
+  } finally {
+    await releaseGenerationLock(eventCode);
+  }
 }

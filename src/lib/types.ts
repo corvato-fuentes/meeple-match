@@ -51,6 +51,10 @@ export interface Game {
   complexity: GameComplexity;
   ownerPlayerId: string;
   ownerName: string;
+  // Set when 2+ players independently loaded the same physical game — all copies share this id
+  // (the "primary" copy has groupId === its own id). Votes/canExplain/repeat all live on the
+  // primary; the scheduling algorithm treats the group as one game with N concurrent copies.
+  groupId?: string | null;
 }
 
 export type DraftGame = Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>;

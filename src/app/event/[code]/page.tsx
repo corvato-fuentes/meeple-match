@@ -302,6 +302,16 @@ export default function EventPage() {
             Ya me registré — tengo mi código
           </button>
         </form>
+        <div className="grid grid-cols-2 gap-2 pt-2">
+          <Link href={`/event/${code}/votes`}
+            className="text-center text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
+            📊 Votos totales
+          </Link>
+          <Link href={`/event/${code}/roster`}
+            className="text-center text-sm border border-gray-700 rounded-xl py-2 hover:bg-gray-800">
+            👥 Ver inscriptos
+          </Link>
+        </div>
       </div>
     </main>
   );
@@ -510,6 +520,10 @@ export default function EventPage() {
 
   if (step === 3) {
     const isEmpty = games.length === 0;
+    // Merged duplicates (admin marked two entries as copies of the same game) only get one
+    // votable row — the primary — combining every copy's owner name into a single label.
+    const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
+    const ownerLabel = (g: Game) => games.filter((m) => (m.groupId ?? m.id) === g.id).map((m) => m.ownerName).join(', ');
     return (
       <main className="max-w-sm mx-auto px-4 py-12">
         <p className="text-xs text-gray-500 mb-1">Paso 3 de 3</p>
@@ -553,13 +567,19 @@ export default function EventPage() {
           </div>
         )}
         <div className="space-y-2 mb-6">
-          {games.map((g) => (
+          {primaryGames.map((g) => {
+            const label = ownerLabel(g);
+            const copyCount = label.split(',').length;
+            return (
             <div key={g.id} className="border border-gray-700 rounded-xl px-4 py-3 bg-gray-800">
               <div className="flex justify-between items-start mb-1">
-                <span className="font-medium">{g.name}</span>
+                <span className="font-medium">
+                  {g.name}
+                  {copyCount > 1 && <span className="ml-1 text-[10px] bg-indigo-900 text-indigo-300 px-1 rounded">🧩 {copyCount} copias</span>}
+                </span>
                 <span className="text-xs text-gray-500">{g.minPlayers}–{g.maxPlayers}p · {COMPLEXITY_LABEL[g.complexity]}</span>
               </div>
-              <p className="text-xs text-gray-500 mb-1">Trae: {g.ownerName}</p>
+              <p className="text-xs text-gray-500 mb-1">Trae: {label}</p>
               <a href={g.bggUrl ?? bggSearchUrl(g.name)} target="_blank" rel="noopener noreferrer"
                 className="text-xs text-indigo-400 hover:underline inline-block mb-2">
                 {g.bggUrl ? '🎲 Ver en BGG' : '🎲 Buscar en BGG'}
@@ -594,7 +614,8 @@ export default function EventPage() {
                 </label>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
         <div className="flex gap-3">
           <button onClick={() => setStep(2)} className="flex-1 border border-gray-700 rounded-xl py-2 text-sm">← Atrás</button>

@@ -240,7 +240,9 @@ function buildBuckets(tables: Table[], eventStartTime: string | null, eventEndTi
   if (tables.length > 0) maxEnd = Math.max(maxEnd, ...tables.map((t) => toMinutes(t.endTime)));
   const start = Math.floor(minStart / GRID_BUCKET_MIN) * GRID_BUCKET_MIN;
   const buckets: number[] = [];
-  for (let m = start; m < maxEnd; m += GRID_BUCKET_MIN) buckets.push(m);
+  // Includes one trailing bucket exactly at maxEnd (rendered empty, no table can start there) so
+  // the grid's rightmost header shows the real closing time instead of stopping one slot short.
+  for (let m = start; m <= maxEnd; m += GRID_BUCKET_MIN) buckets.push(m);
   return buckets;
 }
 
