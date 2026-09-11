@@ -410,28 +410,48 @@ export function findNearMissGames(
     const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
     const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
     const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
-    const group = [...mustPlayers, ...casualPlayers];
-    if (group.length !== game.minPlayers - 1) continue;
+    const fullGroup = [...mustPlayers, ...casualPlayers];
+    if (fullGroup.length < game.minPlayers - 1) continue;
 
     const gameWindows: { startTime: string; endTime: string }[] = existingTables
       .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
       .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
 
-    const found = findEarliestWindow(group, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
-    if (!found) continue;
+    const tryWindow = (group: Player[]) =>
+      group.length === 0 ? null : findEarliestWindow(group, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
 
-    const hasSeatedExplainer = group.some((p) => p.canExplain.includes(game.id));
-    if (!hasSeatedExplainer) {
-      const teachEnd = toTimeString(toMinutes(found.start) + TEACH_ONLY_MINUTES);
-      const teacher = players
-        .filter((p) => p.canExplain.includes(game.id))
-        .find((p) => group.every((g) => g.id !== p.id) && isAvailable(p, found.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes));
-      if (!teacher) continue;
+    const hasExplainer = (group: Player[], window: { start: string; end: string }) => {
+      if (group.some((p) => p.canExplain.includes(game.id))) return true;
+      const teachEnd = toTimeString(toMinutes(window.start) + TEACH_ONLY_MINUTES);
+      return players.some(
+        (p) => p.canExplain.includes(game.id) && group.every((g) => g.id !== p.id) &&
+          isAvailable(p, window.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes)
+      );
+    };
+
+    let found: { start: string; end: string } | null = null;
+    let usedGroup: Player[] | null = null;
+
+    if (fullGroup.length === game.minPlayers - 1) {
+      // Exactly one player short — check if the group that IS committed already has a window.
+      const w = tryWindow(fullGroup);
+      if (w && hasExplainer(fullGroup, w)) { found = w; usedGroup = fullGroup; }
+    } else if (fullGroup.length >= game.minPlayers) {
+      // Enough total votes, but no table found yet (schedules didn't line up for everyone) — see
+      // if dropping just the one most schedule-incompatible voter lets the rest fit; a walk-in
+      // could fill that spot instead.
+      for (let i = 0; i < fullGroup.length && !found; i++) {
+        const reduced = fullGroup.filter((_, idx) => idx !== i);
+        const w = tryWindow(reduced);
+        if (w && hasExplainer(reduced, w)) { found = w; usedGroup = reduced; }
+      }
     }
+
+    if (!found || !usedGroup) continue;
 
     results.push({
       gameId: game.id, gameName: game.name, startTime: found.start, endTime: found.end,
-      missing: 1, playerNames: group.map((p) => p.name),
+      missing: Math.max(1, game.minPlayers - usedGroup.length), playerNames: usedGroup.map((p) => p.name),
     });
   }
 

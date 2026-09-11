@@ -273,6 +273,26 @@ export default function BoardPage() {
               </div>
             </section>
           )}
+
+          {nearMissGames.length > 0 && (
+            <section>
+              <h2 className='text-xl font-semibold mb-3 text-gray-200'>🔶 Casi se arman — falta 1 jugador</h2>
+              <p className='text-sm text-gray-500 mb-3'>
+                Ya tienen horario en común y explicador — solo falta que alguien más se sume.
+              </p>
+              <div className='space-y-2'>
+                {nearMissGames.map((nm) => (
+                  <div key={nm.gameId} className='border border-amber-700 rounded-xl p-3 bg-amber-950/20'>
+                    <div className='flex justify-between items-start'>
+                      <p className='font-semibold text-amber-300'>{nm.gameName}</p>
+                      <span className='text-xs text-amber-400 shrink-0'>{nm.startTime}–{nm.endTime}</span>
+                    </div>
+                    <p className='text-xs text-gray-400 mt-1'>Ya confirmados: {nm.playerNames.join(', ')}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
     </main>

@@ -6,54 +6,63 @@ export interface SlotAssignment {
   table: Table;
 }
 
-// A game only "keeps" its table across a gap between its own sessions if the next one starts
-// within this long — otherwise the table sits empty too long to justify holding it reserved.
-const STICKY_SLOT_WINDOW_MIN = 30;
+interface ColumnInterval {
+  start: number;
+  end: number;
+}
+
+/** True if none of a game's sessions would overlap (with buffer) anything already in this column. */
+function fitsColumn(occupied: ColumnInterval[], sessions: Table[], bufferMinutes: number): boolean {
+  return sessions.every((s) => {
+    const start = toMinutes(s.startTime);
+    const end = toMinutes(s.endTime);
+    return occupied.every((iv) => end + bufferMinutes <= iv.start || start >= iv.end + bufferMinutes);
+  });
+}
 
 /**
- * Assigns each table session to a physical table slot, packing sessions as tightly as possible
- * (reusing any free slot regardless of which game used it last) so the board doesn't spread out
- * across more physical tables than it needs to. A slot only counts as free once bufferMinutes
- * have passed since its last session ended.
- *
- * The one exception: if a game's next session starts soon after its previous one (within
- * STICKY_SLOT_WINDOW_MIN), it returns to the same slot instead of hopping around — easier for
- * players to find "the Ark Nova table". If the gap is longer than that, the slot is up for grabs
- * like any other and the returning session just gets packed in wherever fits.
+ * Assigns each table session to a physical table slot, trying to keep every session of the same
+ * game on a single table for the whole day rather than deciding slot-by-slot. Games are placed
+ * one at a time (earliest first session first) into the first existing column where ALL of that
+ * game's sessions fit without colliding with what's already there (respecting bufferMinutes
+ * between different games); only if no single column works for the whole game does it fall back
+ * to whatever's available. This still lets other, unrelated games slot into the gaps between a
+ * game's own sessions in the same column, so table usage stays compact.
  */
 export function assignPhysicalSlots(
   tables: Table[],
   bufferMinutes = 0
 ): { assignments: SlotAssignment[]; slotCount: number } {
-  const sorted = [...tables].sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
-  const slotFreeAt: number[] = [];
-  const lastSlotByGame = new Map<string, number>();
-  const lastEndByGame = new Map<string, number>();
+  const byGame = new Map<string, Table[]>();
+  for (const t of tables) {
+    const arr = byGame.get(t.gameId) ?? [];
+    arr.push(t);
+    byGame.set(t.gameId, arr);
+  }
+  for (const sessions of byGame.values()) sessions.sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+
+  // Earliest first session first (tableNumber as a deterministic tiebreak) — so whichever game
+  // has been around longest gets first pick of a column.
+  const gameGroups = [...byGame.values()].sort((a, b) => {
+    const diff = toMinutes(a[0].startTime) - toMinutes(b[0].startTime);
+    return diff !== 0 ? diff : a[0].tableNumber - b[0].tableNumber;
+  });
+
+  const columns: ColumnInterval[][] = [];
   const assignments: SlotAssignment[] = [];
 
-  for (const t of sorted) {
-    const start = toMinutes(t.startTime);
-    const end = toMinutes(t.endTime);
-    const priorSlot = lastSlotByGame.get(t.gameId);
-    const priorEnd = lastEndByGame.get(t.gameId);
-
-    let slot = -1;
-    if (
-      priorSlot != null && priorEnd != null &&
-      start - priorEnd <= STICKY_SLOT_WINDOW_MIN &&
-      (slotFreeAt[priorSlot] ?? 0) + bufferMinutes <= start
-    ) {
-      slot = priorSlot;
-    } else {
-      slot = slotFreeAt.findIndex((freeAt) => freeAt + bufferMinutes <= start);
-      if (slot === -1) slot = slotFreeAt.length;
+  for (const sessions of gameGroups) {
+    let slot = columns.findIndex((occupied) => fitsColumn(occupied, sessions, bufferMinutes));
+    if (slot === -1) {
+      columns.push([]);
+      slot = columns.length - 1;
     }
-
-    slotFreeAt[slot] = end;
-    lastSlotByGame.set(t.gameId, slot);
-    lastEndByGame.set(t.gameId, end);
-    assignments.push({ slot, table: t });
+    sessions.forEach((s) => {
+      columns[slot].push({ start: toMinutes(s.startTime), end: toMinutes(s.endTime) });
+      assignments.push({ slot, table: s });
+    });
+    columns[slot].sort((a, b) => a.start - b.start);
   }
 
-  return { assignments, slotCount: slotFreeAt.length };
+  return { assignments, slotCount: columns.length };
 }
