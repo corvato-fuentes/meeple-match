@@ -71,10 +71,6 @@ export default function GamesPage() {
         <Link href={`/admin/${code}/${adminToken}`} className='text-gray-500 hover:text-gray-300'>←</Link>
         <h1 className='text-xl font-bold'>Juegos — {event.name}</h1>
         <span className='text-sm text-gray-500'>{games.length}</span>
-        <Link href={`/admin/${code}/${adminToken}/players`}
-          className='ml-auto text-xs border border-gray-700 rounded-lg px-2 py-1 hover:bg-gray-800'>
-          👥 Ver inscriptos
-        </Link>
       </div>
 
       <p className='text-xs text-gray-500 mb-4'>

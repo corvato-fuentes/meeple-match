@@ -113,10 +113,6 @@ export default function PlayersPage() {
         <Link href={`/admin/${code}/${adminToken}`} className='text-gray-500 hover:text-gray-300'>←</Link>
         <h1 className='text-xl font-bold'>Jugadores — {event.name}</h1>
         <span className='text-sm text-gray-500'>{players.length}{event.settings.maxPlayers ? ` / ${event.settings.maxPlayers}` : ''}</span>
-        <Link href={`/admin/${code}/${adminToken}/games`}
-          className='ml-auto text-xs border border-gray-700 rounded-lg px-2 py-1 hover:bg-gray-800'>
-          🎲 Ver votos totales
-        </Link>
       </div>
       <div className='flex items-center gap-3 mb-6'>
         <button onClick={handleResendAll} disabled={resendingAll}
