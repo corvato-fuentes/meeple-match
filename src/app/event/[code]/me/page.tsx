@@ -258,7 +258,9 @@ export default function MyTicketPage() {
   const ownerLabel = (g: Game) => copiesOf(g).map((m) => m.ownerName).join(', ');
   const isOwnGroup = (g: Game) => copiesOf(g).some((m) => m.ownerPlayerId === player.id);
   // Own games are votable too — the scheduling algorithm only seats players who voted must/casual on a game.
-  const wishlistGames = primaryGames.filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual');
+  const wishlistGames = primaryGames
+    .filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual')
+    .sort((a, b) => (interests[a.id] === 'must' ? 0 : 1) - (interests[b.id] === 'must' ? 0 : 1));
   // Unvoted games stay on top; "no"-voted games are collapsed into a separate section below.
   const availableGames = primaryGames
     .filter((g) => interests[g.id] !== 'must' && interests[g.id] !== 'casual' && interests[g.id] !== 'no');
