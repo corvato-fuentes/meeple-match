@@ -262,7 +262,10 @@ export function generateTables(
 
       // Prefers an all-"Quiero" group whenever there are enough must-voters to hit the minimum
       // on their own — "Me sumo" voters only get mixed in if that's not possible, even if a mixed
-      // group would've found an earlier window (composition beats raw earliest-start here).
+      // group would've found an earlier window (composition beats raw earliest-start here). This
+      // holds even with multiple copies: two pure "Quiero" tables can still run in parallel if
+      // enough distinct must-voters are free at an overlapping time, but a copy is never filled
+      // with "Me sumo" voters just to avoid sitting idle while more hearts wait their turn later.
       const maxMustOnlySize = Math.min(game.maxPlayers, mustPlayers.length);
       let best = maxMustOnlySize >= game.minPlayers ? tryFindGroup(game.minPlayers, maxMustOnlySize) : null;
       if (!best) best = tryFindGroup(game.minPlayers, game.maxPlayers);

@@ -52,7 +52,8 @@ const tables = tablesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
 console.log('\n=== GAMES (' + games.length + ') ===');
 for (const g of games) {
-  console.log(`- ${g.name} | id=${g.id} | ${g.minPlayers}-${g.maxPlayers}p | ${g.durationMinutes}min | owner=${g.ownerName}`);
+  const groupNote = g.groupId ? (g.groupId === g.id ? ' [PRINCIPAL de grupo]' : ` [copia de ${g.groupId}]`) : '';
+  console.log(`- ${g.name} | id=${g.id} | ${g.minPlayers}-${g.maxPlayers}p | ${g.durationMinutes}min | owner=${g.ownerName}${groupNote}`);
 }
 
 console.log('\n=== PLAYERS (' + players.length + ') ===');

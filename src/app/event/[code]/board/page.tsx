@@ -2,11 +2,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, subscribeTables, getPlayers } from '@/lib/firestore';
+import { getEvent, subscribeTables, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
-import type { MeepleEvent, Table, Player, ScheduledBreak } from '@/lib/types';
+import type { MeepleEvent, Table, Player, ScheduledBreak, Game } from '@/lib/types';
 
 const STATUS_LABEL: Record<Table['status'], string> = {
   proposed: 'Propuesta',
@@ -61,6 +61,7 @@ export default function BoardPage() {
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [view, setView] = useState<'grid' | 'cards'>('grid');
   // Defaults to the public event page; upgraded below (via sessionStorage) if opened from the
@@ -71,6 +72,7 @@ export default function BoardPage() {
   useEffect(() => {
     getEvent(code).then(setEvent);
     getPlayers(code).then(setPlayers);
+    getGames(code).then(setGames);
     const unsub = subscribeTables(code, (ts) =>
       setTables(ts.filter((t) => t.status !== 'cancelled'))
     );
@@ -135,6 +137,22 @@ export default function BoardPage() {
     const { assignments } = assignPhysicalSlots(tables);
     return new Map(assignments.map((a) => [a.table.id, a.slot + 1]));
   }, [tables]);
+
+  // Games with enough votes to justify a table (must + casual >= minPlayers) that still don't
+  // have one — usually because no shared time window exists yet given everyone's schedules.
+  const unscheduledDemand = useMemo(() => {
+    const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
+    const scheduledGameIds = new Set(tables.map((t) => t.gameId));
+    return primaryGames
+      .filter((g) => !scheduledGameIds.has(g.id))
+      .map((g) => {
+        const must = players.filter((p) => p.interests[g.id] === 'must').length;
+        const casual = players.filter((p) => p.interests[g.id] === 'casual').length;
+        return { game: g, must, casual, total: must + casual };
+      })
+      .filter((row) => row.total >= row.game.minPlayers)
+      .sort((a, b) => b.must - a.must);
+  }, [games, players, tables]);
 
   return (
     <main className='min-h-screen bg-gray-900 text-white p-6'>
@@ -217,6 +235,32 @@ export default function BoardPage() {
                 cardClass='border-gray-800 bg-gray-900' dim
               />
             </div>
+          )}
+
+          {unscheduledDemand.length > 0 && (
+            <section>
+              <h2 className='text-xl font-semibold mb-3 text-gray-200'>⏳ Con votos suficientes, sin mesa todavía</h2>
+              <p className='text-sm text-gray-500 mb-3'>
+                Alcanzan los votos para armar mesa, pero todavía no encontraron un horario en común libre para todos.
+              </p>
+              <div className='space-y-2'>
+                {unscheduledDemand.map(({ game, must, casual, total }) => (
+                  <div key={game.id} className='border border-amber-800 rounded-xl p-3 bg-gray-800'>
+                    <div className='flex justify-between items-start'>
+                      <div>
+                        <p className='font-semibold'>{game.name}</p>
+                        <p className='text-xs text-gray-500'>{game.minPlayers}–{game.maxPlayers}p · {game.durationMinutes}min</p>
+                      </div>
+                      <span className='text-xs text-amber-400 shrink-0'>{total}/{game.minPlayers} necesarios</span>
+                    </div>
+                    <div className='flex gap-3 mt-2 text-sm'>
+                      <span className='text-red-300'>❤️ {must}</span>
+                      <span className='text-blue-300'>👍 {casual}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
         </div>
       )}
