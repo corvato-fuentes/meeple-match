@@ -262,6 +262,7 @@ export default function BoardPage() {
             </div>
           )}
 
+          <div className='grid grid-cols-1 md:grid-cols-2 gap-6 items-start'>
           {unscheduledDemand.length > 0 && (
             <section>
               <h2 className='text-xl font-semibold mb-3 text-gray-200'>⏳ Con votos suficientes, sin mesa todavía</h2>
@@ -327,6 +328,7 @@ export default function BoardPage() {
               </div>
             </section>
           )}
+          </div>
         </div>
       )}
     </main>
