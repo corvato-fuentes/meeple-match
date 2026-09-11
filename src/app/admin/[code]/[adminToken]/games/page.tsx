@@ -232,60 +232,70 @@ function GameEditForm({
   saving: boolean;
 }) {
   return (
-    <div className='mt-2 space-y-2 border border-gray-700 rounded-lg p-2 bg-gray-900'>
+    <div className='mt-2 space-y-3 border border-gray-700 rounded-lg p-2 bg-gray-900'>
       <input className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
         value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} />
-      <div className='grid grid-cols-2 gap-2'>
-        <div>
-          <label className='text-xs text-gray-400'>Mín. jugadores</label>
-          <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
-            value={draft.minPlayers} onFocus={(e) => e.target.select()}
-            onChange={(e) => onChange({ ...draft, minPlayers: +e.target.value })} />
+
+      <div className='border border-gray-800 rounded-lg p-2 space-y-2'>
+        <p className='text-xs font-semibold text-gray-300'>Cantidad de jugadores</p>
+        <div className='grid grid-cols-2 gap-2'>
+          <div>
+            <label className='text-xs text-gray-400'>Mínimo</label>
+            <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+              value={draft.minPlayers} onFocus={(e) => e.target.select()}
+              onChange={(e) => onChange({ ...draft, minPlayers: +e.target.value })} />
+          </div>
+          <div>
+            <label className='text-xs text-gray-400'>Máximo</label>
+            <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+              value={draft.maxPlayers} onFocus={(e) => e.target.select()}
+              onChange={(e) => onChange({ ...draft, maxPlayers: +e.target.value })} />
+          </div>
         </div>
+      </div>
+
+      <div className='border border-gray-800 rounded-lg p-2 space-y-2'>
+        <p className='text-xs font-semibold text-gray-300'>Complejidad</p>
+        <select className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+          value={draft.complexity}
+          onChange={(e) => onChange({ ...draft, complexity: e.target.value as GameComplexity })}>
+          {(['light', 'medium', 'heavy'] as GameComplexity[]).map((c) => (
+            <option key={c} value={c}>{COMPLEXITY_LABEL[c]}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className='border border-gray-800 rounded-lg p-2 space-y-2'>
+        <p className='text-xs font-semibold text-gray-300'>Tiempo</p>
         <div>
-          <label className='text-xs text-gray-400'>Máx. jugadores</label>
-          <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
-            value={draft.maxPlayers} onFocus={(e) => e.target.select()}
-            onChange={(e) => onChange({ ...draft, maxPlayers: +e.target.value })} />
-        </div>
-        <div>
-          <label className='text-xs text-gray-400'>Duración (min)</label>
+          <label className='text-xs text-gray-400'>Duración total (min)</label>
           <input type='number' min={5} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
             value={draft.durationMinutes} onFocus={(e) => e.target.select()}
             onChange={(e) => onChange({ ...draft, durationMinutes: +e.target.value })} />
         </div>
-        <div>
-          <label className='text-xs text-gray-400'>Complejidad</label>
-          <select className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
-            value={draft.complexity}
-            onChange={(e) => onChange({ ...draft, complexity: e.target.value as GameComplexity })}>
-            {(['light', 'medium', 'heavy'] as GameComplexity[]).map((c) => (
-              <option key={c} value={c}>{COMPLEXITY_LABEL[c]}</option>
-            ))}
-          </select>
+        <p className='text-xs text-gray-500 pt-1'>Datos extra (opcional, todavía no afectan el agendamiento):</p>
+        <div className='grid grid-cols-2 gap-2'>
+          <div>
+            <label className='text-xs text-gray-400'>Minutos de juego por cada jugador</label>
+            <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+              value={draft.perPlayerMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+              onChange={(e) => onChange({ ...draft, perPlayerMinutes: e.target.value ? +e.target.value : null })} />
+          </div>
+          <div>
+            <label className='text-xs text-gray-400'>Minutos para armar el juego (seteo)</label>
+            <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+              value={draft.setupMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+              onChange={(e) => onChange({ ...draft, setupMinutes: e.target.value ? +e.target.value : null })} />
+          </div>
+          <div>
+            <label className='text-xs text-gray-400'>Minutos para explicar las reglas</label>
+            <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
+              value={draft.explanationMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+              onChange={(e) => onChange({ ...draft, explanationMinutes: e.target.value ? +e.target.value : null })} />
+          </div>
         </div>
       </div>
-      <p className='text-xs text-gray-500 pt-1'>Datos extra (opcional, todavía no afectan el agendamiento):</p>
-      <div className='grid grid-cols-2 gap-2'>
-        <div>
-          <label className='text-xs text-gray-400'>Min. por jugador</label>
-          <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
-            value={draft.perPlayerMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
-            onChange={(e) => onChange({ ...draft, perPlayerMinutes: e.target.value ? +e.target.value : null })} />
-        </div>
-        <div>
-          <label className='text-xs text-gray-400'>Min. de seteo</label>
-          <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
-            value={draft.setupMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
-            onChange={(e) => onChange({ ...draft, setupMinutes: e.target.value ? +e.target.value : null })} />
-        </div>
-        <div>
-          <label className='text-xs text-gray-400'>Min. de explicación</label>
-          <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
-            value={draft.explanationMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
-            onChange={(e) => onChange({ ...draft, explanationMinutes: e.target.value ? +e.target.value : null })} />
-        </div>
-      </div>
+
       <div className='flex gap-2'>
         <button onClick={onCancel} className='flex-1 border border-gray-700 rounded-lg py-1 text-xs font-medium'>
           Cancelar
