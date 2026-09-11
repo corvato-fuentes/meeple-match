@@ -154,12 +154,19 @@ export function generateTables(
     const mustB = players.filter((p) => p.interests[b.id] === 'must').length;
     const totA = mustA + players.filter((p) => p.interests[a.id] === 'casual').length;
     const totB = mustB + players.filter((p) => p.interests[b.id] === 'casual').length;
-    // A game with barely enough voters to hit its minimum has zero room to lose anyone to
-    // another game's schedule — scheduled first so a bigger, more flexible game doesn't quietly
-    // consume one of its few compatible voters' free time before its own turn comes up.
-    const slackA = totA - a.minPlayers;
-    const slackB = totB - b.minPlayers;
-    if (slackA !== slackB) return slackA - slackB;
+    // A game with enough voters for only ONE table this pass (not even close to double its
+    // minimum) has zero room to recover if it loses just one of them to another game's schedule —
+    // it either happens now or never. A game with enough demand for several tables degrades
+    // gracefully instead (just forms fewer of them), so it keeps competing on raw popularity
+    // like before instead of being treated as equally "at risk".
+    const singleShotA = totA < 2 * a.minPlayers;
+    const singleShotB = totB < 2 * b.minPlayers;
+    if (singleShotA !== singleShotB) return singleShotA ? -1 : 1;
+    if (singleShotA && singleShotB) {
+      const slackA = totA - a.minPlayers;
+      const slackB = totB - b.minPlayers;
+      if (slackA !== slackB) return slackA - slackB;
+    }
     if (mustB !== mustA) return mustB - mustA;
     const ratioA = totA > 0 ? mustA / totA : 0;
     const ratioB = totB > 0 ? mustB / totB : 0;
