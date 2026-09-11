@@ -195,12 +195,6 @@ export function generateTables(
       const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
       const mustPlayers = players.filter((p) => p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
       const casualPlayers = players.filter((p) => p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
-      // A seat-occupying explainer must actually want to play too (must/casual) — they're in for the whole session.
-      const seatExplainers = players.filter(
-        (p) => p.canExplain.includes(game.id) &&
-          (p.interests[game.id] === 'must' || p.interests[game.id] === 'casual') &&
-          eligibleForAnotherTable(p)
-      );
       // Anyone who can explain but isn't getting seated (didn't vote must/casual, or got outranked
       // by higher-priority voters) can drop in just to teach for a short block, then leave — no
       // seat consumed, no full-session commitment. Least-committed volunteers are tried first so a
@@ -238,48 +232,62 @@ export function generateTables(
         teachOnlyExplainer: Player | null;
       }
 
-      // Tries every valid group size within [minSize, maxSize] and keeps whichever finds the
-      // earliest shared window overall (not just the first that works), so the morning fills up
-      // before defaulting to a later slot just because it's the first one that happened to work.
-      function tryFindGroup(minSize: number, maxSize: number): GroupResult | null {
-        let best: GroupResult | null = null;
-        for (let size = maxSize; size >= minSize; size--) {
-          const candidate = byFlexibility.slice(0, size);
-          const hasSeatedExplainer = candidate.some((p) => p.canExplain.includes(game.id));
-
-          if (hasSeatedExplainer) {
-            const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
-            if (found && (!best || toMinutes(found.start) < toMinutes(best.window.start))) {
-              best = { group: candidate, window: found, teachOnlyExplainer: null };
-            }
-            continue;
-          }
-
-          // No one in the seated group can explain — first see if a drop-in teacher covers it
-          // without needing a seat, before falling back to pulling one in as a full player.
-          const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
+      // Builds a group by adding candidates one at a time in priority order, skipping anyone
+      // who'd break the shared window for whoever's already locked in — instead of requiring the
+      // whole top-N by priority to ALL be simultaneously free (one incompatible voter used to sink
+      // every group containing them, even when swapping just that one person out would've worked).
+      function buildGreedy(pool: Player[], seed: Player[], minSize: number, maxSize: number): { group: Player[]; window: { start: string; end: string } } | null {
+        let group = [...seed];
+        let window: { start: string; end: string } | null = null;
+        if (group.length) {
+          window = findEarliestWindow(group, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
+          if (!window) return null;
+        }
+        for (const candidate of pool) {
+          if (group.length >= maxSize) break;
+          if (group.some((p) => p.id === candidate.id)) continue;
+          const tentative = [...group, candidate];
+          const found = findEarliestWindow(tentative, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
           if (found) {
-            const teachEnd = toTimeString(toMinutes(found.start) + TEACH_ONLY_MINUTES);
-            const teacher = teachOnlyCandidates.find(
-              (p) => candidate.every((c) => c.id !== p.id) && isAvailable(p, found.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes)
-            );
-            if (teacher) {
-              if (!best || toMinutes(found.start) < toMinutes(best.window.start)) {
-                best = { group: candidate, window: found, teachOnlyExplainer: teacher };
-              }
-              continue;
-            }
-          }
-
-          const extra = seatExplainers.find((e) => candidate.every((p) => p.id !== e.id));
-          if (!extra || candidate.length >= game.maxPlayers) continue;
-          const padded = [...candidate, extra];
-          const foundPadded = findEarliestWindow(padded, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
-          if (foundPadded && (!best || toMinutes(foundPadded.start) < toMinutes(best.window.start))) {
-            best = { group: padded, window: foundPadded, teachOnlyExplainer: null };
+            group = tentative;
+            window = found;
           }
         }
-        return best;
+        if (group.length < minSize || !window) return null;
+        return { group, window };
+      }
+
+      // Tries seeding the greedy build with each candidate explainer in turn (playing-and-"Quiero"
+      // first), keeping whichever seed grows the biggest compatible group; falls back to building
+      // without an explainer requirement and pairing the result with a free drop-in teacher.
+      function tryFindGroup(pool: Player[], minSize: number, maxSize: number): GroupResult | null {
+        if (pool.length < minSize) return null;
+        const explainerSeeds = [...pool.filter((p) => p.canExplain.includes(game.id))].sort((a, b) => {
+          const rankA = a.interests[game.id] === 'must' ? 0 : 1;
+          const rankB = b.interests[game.id] === 'must' ? 0 : 1;
+          return rankA - rankB;
+        });
+
+        let best: GroupResult | null = null;
+        for (const seed of explainerSeeds) {
+          const built = buildGreedy(pool, [seed], minSize, maxSize);
+          if (!built) continue;
+          if (!best || built.group.length > best.group.length ||
+            (built.group.length === best.group.length && toMinutes(built.window.start) < toMinutes(best.window.start))) {
+            best = { group: built.group, window: built.window, teachOnlyExplainer: null };
+          }
+        }
+        if (best) return best;
+
+        // Nobody who'd take a seat can explain — build the group on availability alone, then see
+        // if a drop-in teacher (no seat needed) is free during that window.
+        const built = buildGreedy(pool, [], minSize, maxSize);
+        if (!built) return null;
+        const teachEnd = toTimeString(toMinutes(built.window.start) + TEACH_ONLY_MINUTES);
+        const teacher = teachOnlyCandidates.find(
+          (p) => built.group.every((c) => c.id !== p.id) && isAvailable(p, built.window.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes)
+        );
+        return teacher ? { group: built.group, window: built.window, teachOnlyExplainer: teacher } : null;
       }
 
       // Prefers an all-"Quiero" group whenever there are enough must-voters to hit the minimum
@@ -289,8 +297,9 @@ export function generateTables(
       // enough distinct must-voters are free at an overlapping time, but a copy is never filled
       // with "Me sumo" voters just to avoid sitting idle while more hearts wait their turn later.
       const maxMustOnlySize = Math.min(game.maxPlayers, mustPlayers.length);
-      let best = maxMustOnlySize >= game.minPlayers ? tryFindGroup(game.minPlayers, maxMustOnlySize) : null;
-      if (!best) best = tryFindGroup(game.minPlayers, game.maxPlayers);
+      const mustOnlyPool = byFlexibility.filter((p) => p.interests[game.id] === 'must');
+      let best = maxMustOnlySize >= game.minPlayers ? tryFindGroup(mustOnlyPool, game.minPlayers, maxMustOnlySize) : null;
+      if (!best) best = tryFindGroup(byFlexibility, game.minPlayers, game.maxPlayers);
       if (!best) break;
       const coreGroup = best.group;
       const window = best.window;
