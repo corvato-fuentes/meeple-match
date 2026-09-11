@@ -158,9 +158,10 @@ export default function BoardPage() {
 
   // Each voter's free windows (arrival→departure minus their other tables/breaks) — lets the
   // expanded voter list explain exactly why a game with "enough" votes still has no shared slot.
+  // Only windows of at least 30min are worth surfacing — anything shorter isn't really "free time".
   const idleGapsByPlayer = useMemo(() => {
     const map = new Map<string, { start: string; end: string }[]>();
-    for (const g of computeIdleGaps(players, tables, event?.settings.breaks ?? [], 0)) {
+    for (const g of computeIdleGaps(players, tables, event?.settings.breaks ?? [], 30)) {
       const arr = map.get(g.playerId) ?? [];
       arr.push({ start: g.start, end: g.end });
       map.set(g.playerId, arr);
