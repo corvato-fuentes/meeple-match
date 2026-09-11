@@ -2,10 +2,10 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateTable, getPlayers } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateTable, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
-import type { MeepleEvent, Table, Player } from '@/lib/types';
+import type { MeepleEvent, Table, Player, Game } from '@/lib/types';
 
 const STATUS_OPTIONS: Table['status'][] = ['proposed', 'confirmed', 'in-progress', 'completed', 'cancelled'];
 
@@ -20,6 +20,7 @@ export default function TablesPage() {
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
@@ -31,6 +32,7 @@ export default function TablesPage() {
       if (ok) setEvent(await getEvent(code));
     });
     getPlayers(code).then(setPlayers);
+    getGames(code).then(setGames);
     const unsub = subscribeTables(code, setTables);
     return unsub;
   }, [code, adminToken]);
@@ -39,6 +41,20 @@ export default function TablesPage() {
   if (!event) return <div className='p-8 text-center'>Cargando...</div>;
 
   const playerMap = new Map(players.map((p) => [p.id, p]));
+  const gameMap = new Map(games.map((g) => [g.id, g]));
+
+  // A table is "ideal" when it's still full of hearts: worth surfacing so the admin can
+  // confirm it with one click instead of hunting for it.
+  function isIdealTable(t: Table): boolean {
+    const game = gameMap.get(t.gameId);
+    if (!game || t.playerIds.length === 0 || t.playerIds.length < game.maxPlayers) return false;
+    const allHearts = t.playerIds.every((pid) => playerMap.get(pid)?.interests[t.gameId] === 'must');
+    if (!allHearts) return false;
+    if (t.explainerIsPlaying === false) {
+      return playerMap.get(t.explainerId)?.interests[t.gameId] === 'must';
+    }
+    return true;
+  }
 
   // Groups sessions by physical table slot so numbering matches the public board exactly
   const { assignments } = assignPhysicalSlots(tables, event.settings.bufferMinutes);
@@ -130,6 +146,9 @@ export default function TablesPage() {
                       <div className='flex justify-between items-start gap-2'>
                         <div>
                           {t.isManuallyEdited && <span className='mr-2 text-xs bg-orange-900 text-orange-300 px-1.5 rounded'>editada</span>}
+                          {t.status === 'proposed' && isIdealTable(t) && (
+                            <span className='mr-2 text-xs bg-green-900 text-green-300 px-1.5 rounded'>✅ ideal</span>
+                          )}
                           <p className='font-medium'>{t.gameName}</p>
                           {isEditing && draft ? (
                             <div className='flex gap-2 mt-1'>
@@ -153,6 +172,12 @@ export default function TablesPage() {
                           >
                             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
+                          {!isEditing && t.status === 'proposed' && isIdealTable(t) && (
+                            <button onClick={() => updateTableStatus(code, t.id, 'confirmed', true)}
+                              className='text-sm border border-green-700 text-green-300 rounded-lg px-2 py-1 hover:bg-green-900'>
+                              ✅ Confirmar
+                            </button>
+                          )}
                           {!isEditing && (
                             <button onClick={() => startEdit(t)}
                               className='text-sm border border-gray-700 rounded-lg px-2 py-1 hover:bg-gray-700'>
