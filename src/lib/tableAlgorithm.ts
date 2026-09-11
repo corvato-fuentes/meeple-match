@@ -65,7 +65,8 @@ function findEarliestWindow(
   physicalTables: number | null,
   occupiedTables: { startTime: string; endTime: string }[],
   sameGameWindows: { startTime: string; endTime: string }[],
-  gameCopies: number
+  gameCopies: number,
+  ownerWindows: { start: string; end: string }[]
 ): { start: string; end: string } | null {
   const candidates = new Set<number>();
   players.forEach((p) => {
@@ -82,13 +83,25 @@ function findEarliestWindow(
   // A copy of this exact game needs one of its own copies freed up too — up to gameCopies tables
   // of it can run at once (more than 1 only when the admin merged duplicate entries together).
   sameGameWindows.forEach((t) => candidates.add(roundUpToGrid(toMinutes(t.endTime) + bufferMinutes)));
+  // Padding each existing window's end by the buffer means a copy freed up right at that instant
+  // still counts as "in use" for a bit longer — blocking an immediate back-to-back reuse (same
+  // box needs to be reset) while still allowing true parallel copies to overlap.
+  const paddedSameGameWindows = sameGameWindows.map((t) => ({
+    startTime: t.startTime,
+    endTime: toTimeString(toMinutes(t.endTime) + bufferMinutes),
+  }));
+  // The physical copy can't be in play before its owner has actually brought it to the venue
+  ownerWindows.forEach((w) => candidates.add(roundUpToGrid(toMinutes(w.start))));
 
   for (const startMin of Array.from(candidates).sort((a, b) => a - b)) {
     const start = toTimeString(startMin);
     const end = toTimeString(startMin + durationMinutes);
     if (!players.every((p) => isAvailable(p, start, end, busyMap.get(p.id) ?? [], bufferMinutes))) continue;
     if (physicalTables != null && concurrentTableCount(occupiedTables, start, end) >= physicalTables) continue;
-    if (concurrentTableCount(sameGameWindows, start, end) >= gameCopies) continue;
+    if (concurrentTableCount(paddedSameGameWindows, start, end) >= gameCopies) continue;
+    // The game can only be scheduled while at least one of its owners is actually at the venue
+    // to have brought the physical copy — not necessarily seated at this specific table.
+    if (ownerWindows.length > 0 && !ownerWindows.some((w) => toMinutes(w.start) <= startMin && startMin + durationMinutes <= toMinutes(w.end))) continue;
     return { start, end };
   }
   return null;
@@ -161,6 +174,13 @@ export function generateTables(
     // How many physical copies of this game exist — more than 1 only when the admin merged
     // duplicate entries together; lets that many tables of it run at the same time.
     const copies = games.filter((g) => (g.groupId ?? g.id) === game.id).length || 1;
+    // The game can't be played before its owner has brought the physical copy to the venue, nor
+    // after they've left with it — one window per copy/owner in the group (usually just one).
+    const ownerWindows = games
+      .filter((g) => (g.groupId ?? g.id) === game.id)
+      .map((g) => players.find((p) => p.id === g.ownerPlayerId))
+      .filter((p): p is Player => !!p)
+      .map((owner) => ({ start: owner.arrivalTime, end: owner.departureTime }));
     // Players already seated at a table for this game only count again if they opted into a
     // replay — otherwise further tables for the same game are built from fresh voters only.
     // Loops so a single generation pass can seat all of them across as many tables as fit
@@ -228,7 +248,7 @@ export function generateTables(
           const hasSeatedExplainer = candidate.some((p) => p.canExplain.includes(game.id));
 
           if (hasSeatedExplainer) {
-            const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies);
+            const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
             if (found && (!best || toMinutes(found.start) < toMinutes(best.window.start))) {
               best = { group: candidate, window: found, teachOnlyExplainer: null };
             }
@@ -237,7 +257,7 @@ export function generateTables(
 
           // No one in the seated group can explain — first see if a drop-in teacher covers it
           // without needing a seat, before falling back to pulling one in as a full player.
-          const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies);
+          const found = findEarliestWindow(candidate, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
           if (found) {
             const teachEnd = toTimeString(toMinutes(found.start) + TEACH_ONLY_MINUTES);
             const teacher = teachOnlyCandidates.find(
@@ -254,7 +274,7 @@ export function generateTables(
           const extra = seatExplainers.find((e) => candidate.every((p) => p.id !== e.id));
           if (!extra || candidate.length >= game.maxPlayers) continue;
           const padded = [...candidate, extra];
-          const foundPadded = findEarliestWindow(padded, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies);
+          const foundPadded = findEarliestWindow(padded, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
           if (foundPadded && (!best || toMinutes(foundPadded.start) < toMinutes(best.window.start))) {
             best = { group: padded, window: foundPadded, teachOnlyExplainer: null };
           }
