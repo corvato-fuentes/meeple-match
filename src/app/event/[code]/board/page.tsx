@@ -135,7 +135,7 @@ export default function BoardPage() {
   // Physical table number (not the sequential session id) — same assignment used by the grid,
   // so "Mesa #N" means the same thing in both views.
   const physicalSlotByTableId = useMemo(() => {
-    const { assignments } = assignPhysicalSlots(tables, event?.settings.bufferMinutes ?? 0, event?.settings.physicalTables ?? null);
+    const { assignments } = assignPhysicalSlots(tables, event?.settings.bufferMinutes ?? 0);
     return new Map(assignments.map((a) => [a.table.id, a.slot + 1]));
   }, [tables, event]);
 
@@ -301,14 +301,21 @@ function buildBuckets(tables: Table[], eventStartTime: string | null, eventEndTi
   return buckets;
 }
 
+interface GridEntry {
+  startTime: string;
+  endTime: string;
+  gameName: string;
+  nearMiss?: NearMissGame;
+}
+
 interface GridCell {
   span: number;
-  table: Table | null;
+  entry: GridEntry | null;
   breakLabel?: string;
 }
 
-function buildRowCells(rowTables: Table[], buckets: number[], breaks: ScheduledBreak[]): GridCell[] {
-  const findAt = (b: number) => rowTables.find((t) => toMinutes(t.startTime) <= b && toMinutes(t.endTime) > b) ?? null;
+function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: ScheduledBreak[]): GridCell[] {
+  const findAt = (b: number) => rowEntries.find((t) => toMinutes(t.startTime) <= b && toMinutes(t.endTime) > b) ?? null;
   const findBreakAt = (b: number) => breaks.find((br) => toMinutes(br.start) <= b && toMinutes(br.end) > b) ?? null;
   const cells: GridCell[] = [];
   let i = 0;
@@ -322,7 +329,7 @@ function buildRowCells(rowTables: Table[], buckets: number[], breaks: ScheduledB
       if (nextT !== t || (br?.label ?? null) !== (nextBr?.label ?? null)) break;
       span++;
     }
-    cells.push({ span, table: t, breakLabel: br?.label });
+    cells.push({ span, entry: t, breakLabel: br?.label });
     i += span;
   }
   return cells;
@@ -341,9 +348,31 @@ function ScheduleGrid({
   nearMiss: NearMissGame[];
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
-  const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes, physicalTables), [activeTables, bufferMinutes, physicalTables]);
+  const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes), [activeTables, bufferMinutes]);
   const buckets = useMemo(() => buildBuckets(activeTables, eventStartTime, eventEndTime), [activeTables, eventStartTime, eventEndTime]);
   const rowCount = Math.max(slotCount, physicalTables ?? 0, 1);
+
+  // Near-miss ghosts never open a new row — each one slots into the first existing physical
+  // table row that's actually free (no real session) during its whole suggested window. If none
+  // of the rowCount rows has room for it, it's dropped rather than adding a table that isn't there.
+  const nearMissByRow = useMemo(() => {
+    const byRow = new Map<number, NearMissGame[]>();
+    for (const nm of nearMiss) {
+      const nmStart = toMinutes(nm.startTime);
+      const nmEnd = toMinutes(nm.endTime);
+      for (let rowIdx = 0; rowIdx < rowCount; rowIdx++) {
+        const rowTables = assignments.filter((a) => a.slot === rowIdx).map((a) => a.table);
+        const alreadyPlaced = byRow.get(rowIdx) ?? [];
+        const busy = [...rowTables, ...alreadyPlaced];
+        const overlapsSomething = busy.some((t) => toMinutes(t.startTime) < nmEnd && toMinutes(t.endTime) > nmStart);
+        if (!overlapsSomething) {
+          byRow.set(rowIdx, [...alreadyPlaced, nm]);
+          break;
+        }
+      }
+    }
+    return byRow;
+  }, [nearMiss, assignments, rowCount]);
 
   if (buckets.length === 0) return null;
 
@@ -368,7 +397,11 @@ function ScheduleGrid({
           <tbody>
             {Array.from({ length: rowCount }, (_, slotIdx) => {
               const rowTables = assignments.filter((a) => a.slot === slotIdx).map((a) => a.table);
-              const cells = buildRowCells(rowTables, buckets, breaks);
+              const rowEntries: GridEntry[] = [
+                ...rowTables.map((t) => ({ startTime: t.startTime, endTime: t.endTime, gameName: t.gameName })),
+                ...(nearMissByRow.get(slotIdx) ?? []).map((nm) => ({ startTime: nm.startTime, endTime: nm.endTime, gameName: nm.gameName, nearMiss: nm })),
+              ];
+              const cells = buildRowCells(rowEntries, buckets, breaks);
               return (
                 <tr key={slotIdx} className='border-t border-gray-800'>
                   <td className='p-2 font-semibold text-yellow-400 whitespace-nowrap sticky left-0 bg-gray-900'>
@@ -377,34 +410,21 @@ function ScheduleGrid({
                   {cells.map((cell, ci) => (
                     <td key={ci} colSpan={cell.span}
                       className={'p-1.5 text-center align-middle border-l border-gray-800'}>
-                      {cell.table ? (
-                        <div className={'rounded-lg border px-2 py-1.5 ' + colorForGame(cell.table.gameName)}>
-                          <div className='font-medium text-xs'>{cell.table.gameName}</div>
-                          <div className='text-[11px] opacity-75'>{cell.table.startTime}–{cell.table.endTime}</div>
-                        </div>
+                      {cell.entry ? (
+                        cell.entry.nearMiss ? (
+                          <div className='rounded-lg border border-dashed border-amber-700 bg-amber-950/40 text-amber-300 px-2 py-1.5 opacity-70'>
+                            <div className='font-medium text-xs'>🔶 {cell.entry.gameName} · falta {cell.entry.nearMiss.missing}</div>
+                            <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
+                          </div>
+                        ) : (
+                          <div className={'rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName)}>
+                            <div className='font-medium text-xs'>{cell.entry.gameName}</div>
+                            <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
+                          </div>
+                        )
                       ) : cell.breakLabel && (
                         <div className='rounded-lg border border-dashed border-gray-600 bg-gray-800/60 text-gray-400 px-2 py-1.5'>
                           <div className='text-xs'>🍽️ {cell.breakLabel}</div>
-                        </div>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-            {nearMiss.map((nm) => {
-              const cells = buildNearMissCells(nm, buckets);
-              return (
-                <tr key={'nearmiss-' + nm.gameId} className='border-t border-gray-800 opacity-50'>
-                  <td className='p-2 font-semibold text-amber-400 whitespace-nowrap sticky left-0 bg-gray-900'>
-                    🔶 Casi
-                  </td>
-                  {cells.map((cell, ci) => (
-                    <td key={ci} colSpan={cell.span} className='p-1.5 text-center align-middle border-l border-gray-800'>
-                      {cell.active && (
-                        <div className='rounded-lg border border-dashed border-amber-700 bg-amber-950/40 text-amber-300 px-2 py-1.5'>
-                          <div className='font-medium text-xs'>{nm.gameName} · falta {nm.missing}</div>
-                          <div className='text-[11px] opacity-75'>{nm.startTime}–{nm.endTime}</div>
                         </div>
                       )}
                     </td>
@@ -417,22 +437,6 @@ function ScheduleGrid({
       </div>
     </section>
   );
-}
-
-/** Splits the bucket columns into runs of "inside this near-miss game's window" vs not, for colSpan rendering. */
-function buildNearMissCells(entry: NearMissGame, buckets: number[]): { span: number; active: boolean }[] {
-  const start = toMinutes(entry.startTime);
-  const end = toMinutes(entry.endTime);
-  const cells: { span: number; active: boolean }[] = [];
-  let i = 0;
-  while (i < buckets.length) {
-    const active = buckets[i] >= start && buckets[i] < end;
-    let span = 1;
-    while (i + span < buckets.length && (buckets[i + span] >= start && buckets[i + span] < end) === active) span++;
-    cells.push({ span, active });
-    i += span;
-  }
-  return cells;
 }
 
 function BreaksBanner({ breaks }: { breaks: ScheduledBreak[] }) {
