@@ -150,7 +150,12 @@ export default function BoardPage() {
       .map((g) => {
         const mustVoters = players.filter((p) => p.interests[g.id] === 'must');
         const casualVoters = players.filter((p) => p.interests[g.id] === 'casual');
-        return { game: g, must: mustVoters.length, casual: casualVoters.length, total: mustVoters.length + casualVoters.length, voters: [...mustVoters, ...casualVoters] };
+        const ownerLabel = games.filter((m) => (m.groupId ?? m.id) === g.id).map((m) => m.ownerName).filter(Boolean).join(', ');
+        const hasExplainer = players.some((p) => p.canExplain.includes(g.id));
+        return {
+          game: g, must: mustVoters.length, casual: casualVoters.length, total: mustVoters.length + casualVoters.length,
+          voters: [...mustVoters, ...casualVoters], ownerLabel, hasExplainer,
+        };
       })
       .filter((row) => row.total >= row.game.minPlayers)
       .sort((a, b) => b.must - a.must);
@@ -270,18 +275,22 @@ export default function BoardPage() {
                 Alcanzan los votos para armar mesa, pero todavía no encontraron un horario en común libre para todos.
               </p>
               <div className='space-y-2'>
-                {unscheduledDemand.map(({ game, must, casual, total, voters }) => (
+                {unscheduledDemand.map(({ game, must, casual, total, voters, ownerLabel, hasExplainer }) => (
                   <div key={game.id} className='border border-amber-800 rounded-xl p-3 bg-gray-800'>
                     <div className='flex justify-between items-start'>
                       <div>
                         <p className='font-semibold'>{game.name}</p>
                         <p className='text-xs text-gray-500'>{game.minPlayers}–{game.maxPlayers}p · {game.durationMinutes}min</p>
+                        {ownerLabel && <p className='text-xs text-gray-500'>Trae: {ownerLabel}</p>}
                       </div>
                       <span className='text-xs text-amber-400 shrink-0'>{total}/{game.minPlayers} necesarios</span>
                     </div>
-                    <div className='flex gap-3 mt-2 text-sm'>
+                    <div className='flex gap-3 mt-2 text-sm items-center'>
                       <span className='text-red-300'>❤️ {must}</span>
                       <span className='text-blue-300'>👍 {casual}</span>
+                      <span className={'text-xs ' + (hasExplainer ? 'text-green-400' : 'text-red-400')}>
+                        {hasExplainer ? '🎓 hay quien explique' : '🎓 sin explicador'}
+                      </span>
                     </div>
                     <button onClick={() => setExpandedDemandId((cur) => cur === game.id ? null : game.id)}
                       className='text-xs text-gray-400 hover:text-gray-200 mt-2'>
@@ -294,7 +303,10 @@ export default function BoardPage() {
                           const slots = idleGapsByPlayer.get(p.id) ?? [];
                           return (
                             <div key={p.id} className='text-xs flex justify-between gap-2'>
-                              <span className='text-gray-300 shrink-0'>{vote === 'must' ? '❤️' : '👍'} {p.name}</span>
+                              <span className='text-gray-300 shrink-0'>
+                                {vote === 'must' ? '❤️' : '👍'} {p.name}
+                                {p.canExplain.includes(game.id) && <span className='ml-1 text-purple-300'>🎓</span>}
+                              </span>
                               <span className='text-gray-500 text-right'>
                                 {slots.length > 0 ? slots.map((s) => `${s.start}–${s.end}`).join(', ') : 'sin horario libre'}
                               </span>
@@ -548,9 +560,11 @@ function TableSection({
             <div className='space-y-1'>
               {t.playerIds.map((pid) => {
                 const p = playerMap.get(pid);
+                const vote = p?.interests[t.gameId];
+                const voteIcon = vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '';
                 return (
                   <div key={pid} className='flex items-center gap-2 text-sm'>
-                    <span className='text-gray-300'>{p?.name ?? pid}</span>
+                    <span className='text-gray-300'>{voteIcon}{p?.name ?? pid}</span>
                     {pid === t.explainerId && (
                       <span className='text-xs bg-purple-900 text-purple-300 px-1.5 rounded'>explica</span>
                     )}
