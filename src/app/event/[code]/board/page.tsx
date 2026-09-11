@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { getEvent, subscribeTables, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
-import { findNearMissGames, type NearMissGame } from '@/lib/tableAlgorithm';
+import { findNearMissGames, computeIdleGaps, type NearMissGame } from '@/lib/tableAlgorithm';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import type { MeepleEvent, Table, Player, ScheduledBreak, Game } from '@/lib/types';
 
@@ -65,6 +65,7 @@ export default function BoardPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [view, setView] = useState<'grid' | 'cards'>('grid');
+  const [expandedDemandId, setExpandedDemandId] = useState<string | null>(null);
   // Defaults to the public event page; upgraded below (via sessionStorage) if opened from the
   // admin dashboard or a player's ticket page, so "← Volver" returns to where you actually came from.
   // Client-side <Link> navigation never updates document.referrer, so that can't be used here.
@@ -147,13 +148,25 @@ export default function BoardPage() {
     return primaryGames
       .filter((g) => !scheduledGameIds.has(g.id))
       .map((g) => {
-        const must = players.filter((p) => p.interests[g.id] === 'must').length;
-        const casual = players.filter((p) => p.interests[g.id] === 'casual').length;
-        return { game: g, must, casual, total: must + casual };
+        const mustVoters = players.filter((p) => p.interests[g.id] === 'must');
+        const casualVoters = players.filter((p) => p.interests[g.id] === 'casual');
+        return { game: g, must: mustVoters.length, casual: casualVoters.length, total: mustVoters.length + casualVoters.length, voters: [...mustVoters, ...casualVoters] };
       })
       .filter((row) => row.total >= row.game.minPlayers)
       .sort((a, b) => b.must - a.must);
   }, [games, players, tables]);
+
+  // Each voter's free windows (arrival→departure minus their other tables/breaks) — lets the
+  // expanded voter list explain exactly why a game with "enough" votes still has no shared slot.
+  const idleGapsByPlayer = useMemo(() => {
+    const map = new Map<string, { start: string; end: string }[]>();
+    for (const g of computeIdleGaps(players, tables, event?.settings.breaks ?? [], 0)) {
+      const arr = map.get(g.playerId) ?? [];
+      arr.push({ start: g.start, end: g.end });
+      map.set(g.playerId, arr);
+    }
+    return map;
+  }, [players, tables, event]);
 
   // Games exactly one player short of their minimum that already have a valid shared window and
   // an explainer lined up — shown dimmed in the grid as "join here and this happens" suggestions
@@ -255,7 +268,7 @@ export default function BoardPage() {
                 Alcanzan los votos para armar mesa, pero todavía no encontraron un horario en común libre para todos.
               </p>
               <div className='space-y-2'>
-                {unscheduledDemand.map(({ game, must, casual, total }) => (
+                {unscheduledDemand.map(({ game, must, casual, total, voters }) => (
                   <div key={game.id} className='border border-amber-800 rounded-xl p-3 bg-gray-800'>
                     <div className='flex justify-between items-start'>
                       <div>
@@ -268,6 +281,26 @@ export default function BoardPage() {
                       <span className='text-red-300'>❤️ {must}</span>
                       <span className='text-blue-300'>👍 {casual}</span>
                     </div>
+                    <button onClick={() => setExpandedDemandId((cur) => cur === game.id ? null : game.id)}
+                      className='text-xs text-gray-400 hover:text-gray-200 mt-2'>
+                      {expandedDemandId === game.id ? '▾' : '▸'} Ver votantes y su disponibilidad
+                    </button>
+                    {expandedDemandId === game.id && (
+                      <div className='mt-2 space-y-1.5 border-t border-gray-700 pt-2'>
+                        {voters.map((p) => {
+                          const vote = p.interests[game.id];
+                          const slots = idleGapsByPlayer.get(p.id) ?? [];
+                          return (
+                            <div key={p.id} className='text-xs flex justify-between gap-2'>
+                              <span className='text-gray-300 shrink-0'>{vote === 'must' ? '❤️' : '👍'} {p.name}</span>
+                              <span className='text-gray-500 text-right'>
+                                {slots.length > 0 ? slots.map((s) => `${s.start}–${s.end}`).join(', ') : 'sin horario libre'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
