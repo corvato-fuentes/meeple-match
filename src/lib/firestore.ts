@@ -197,42 +197,89 @@ export async function ungroupGame(eventCode: string, gameId: string): Promise<vo
 }
 
 /**
- * Removes a game a player brought: deletes the game, unlinks it from the owner's bringGameIds,
- * strips any votes on it from every player, and cancels tables that were proposing it.
+ * Removes a game a player brought. If it's the primary of a merge group with other surviving
+ * copies, the group is kept alive: another copy is promoted to primary and everyone's votes/
+ * canExplain/repeat entries (which live under the old primary's id after a merge) are migrated
+ * to the new primary instead of being wiped — deleting your own copy shouldn't erase everyone
+ * else's votes for a game that's still being brought by someone else. Only when no copy survives
+ * does this fall back to fully deleting the game and stripping every player's vote on it, and
+ * cancelling tables that were proposing it.
  */
 export async function removePlayerGame(eventCode: string, playerId: string, gameId: string): Promise<void> {
-  const [playersSnap, tablesSnap] = await Promise.all([
+  const [gamesSnap, playersSnap, tablesSnap] = await Promise.all([
+    getDocs(collection(db, 'events', eventCode, 'games')),
     getDocs(collection(db, 'events', eventCode, 'players')),
     getDocs(collection(db, 'events', eventCode, 'tables')),
   ]);
 
+  const allGames = gamesSnap.docs.map((d) => ({ ...(d.data() as Game), id: d.id }));
+  const target = allGames.find((g) => g.id === gameId);
+  const isPrimary = !target?.groupId || target.groupId === gameId;
+  const remainingCopies = isPrimary ? allGames.filter((g) => g.id !== gameId && (g.groupId ?? g.id) === gameId) : [];
+  const newPrimary = remainingCopies[0] ?? null;
+
   const batch = writeBatch(db);
   batch.delete(doc(db, 'events', eventCode, 'games', gameId));
 
-  playersSnap.docs.forEach((playerDoc) => {
-    const isOwner = playerDoc.id === playerId;
-    const p = playerDoc.data() as Player;
-    const referencesGame = gameId in p.interests || p.canExplain.includes(gameId) || (p.repeatGameIds ?? []).includes(gameId);
-    if (!isOwner && !referencesGame) return;
+  if (newPrimary) {
+    batch.update(doc(db, 'events', eventCode, 'games', newPrimary.id), { groupId: null });
+    remainingCopies
+      .filter((g) => g.id !== newPrimary.id)
+      .forEach((g) => batch.update(doc(db, 'events', eventCode, 'games', g.id), { groupId: newPrimary.id }));
 
-    const fields: Record<string, unknown> = {};
-    if (isOwner) fields.bringGameIds = p.bringGameIds.filter((id) => id !== gameId);
-    if (referencesGame) {
-      const interests = { ...p.interests };
-      delete interests[gameId];
-      fields.interests = interests;
-      fields.canExplain = p.canExplain.filter((id) => id !== gameId);
-      fields.repeatGameIds = (p.repeatGameIds ?? []).filter((id) => id !== gameId);
-    }
-    batch.update(playerDoc.ref, fields);
-  });
+    playersSnap.docs.forEach((playerDoc) => {
+      const isOwner = playerDoc.id === playerId;
+      const p = playerDoc.data() as Player;
+      const fields: Record<string, unknown> = {};
+      if (isOwner) fields.bringGameIds = p.bringGameIds.filter((id) => id !== gameId);
+      if (gameId in p.interests || p.canExplain.includes(gameId) || (p.repeatGameIds ?? []).includes(gameId)) {
+        const interests = { ...p.interests };
+        const vote = interests[gameId];
+        delete interests[gameId];
+        if (vote && !(newPrimary.id in interests)) interests[newPrimary.id] = vote;
+        fields.interests = interests;
+        const canExplain = new Set(p.canExplain.filter((id) => id !== gameId));
+        if (p.canExplain.includes(gameId)) canExplain.add(newPrimary.id);
+        fields.canExplain = [...canExplain];
+        const repeatGameIds = new Set((p.repeatGameIds ?? []).filter((id) => id !== gameId));
+        if ((p.repeatGameIds ?? []).includes(gameId)) repeatGameIds.add(newPrimary.id);
+        fields.repeatGameIds = [...repeatGameIds];
+      }
+      if (Object.keys(fields).length > 0) batch.update(playerDoc.ref, fields);
+    });
 
-  tablesSnap.docs.forEach((tableDoc) => {
-    const table = tableDoc.data() as Table;
-    if (table.gameId === gameId && table.status !== 'cancelled') {
-      batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [] });
-    }
-  });
+    tablesSnap.docs.forEach((tableDoc) => {
+      const table = tableDoc.data() as Table;
+      if (table.gameId === gameId) {
+        batch.update(tableDoc.ref, { gameId: newPrimary.id, gameName: newPrimary.name });
+      }
+    });
+  } else {
+    playersSnap.docs.forEach((playerDoc) => {
+      const isOwner = playerDoc.id === playerId;
+      const p = playerDoc.data() as Player;
+      const referencesGame = gameId in p.interests || p.canExplain.includes(gameId) || (p.repeatGameIds ?? []).includes(gameId);
+      if (!isOwner && !referencesGame) return;
+
+      const fields: Record<string, unknown> = {};
+      if (isOwner) fields.bringGameIds = p.bringGameIds.filter((id) => id !== gameId);
+      if (referencesGame) {
+        const interests = { ...p.interests };
+        delete interests[gameId];
+        fields.interests = interests;
+        fields.canExplain = p.canExplain.filter((id) => id !== gameId);
+        fields.repeatGameIds = (p.repeatGameIds ?? []).filter((id) => id !== gameId);
+      }
+      batch.update(playerDoc.ref, fields);
+    });
+
+    tablesSnap.docs.forEach((tableDoc) => {
+      const table = tableDoc.data() as Table;
+      if (table.gameId === gameId && table.status !== 'cancelled') {
+        batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [] });
+      }
+    });
+  }
 
   await batch.commit();
 }
@@ -345,6 +392,9 @@ export async function addPlayerGame(
 /**
  * Removes a player, the games they brought, their seat/explainer slot on any table (cancelling
  * tables left with no players), and any dangling votes other players had on the deleted games.
+ * If one of their games is the primary of a merge group with a surviving copy (owned by someone
+ * else), that copy is promoted to primary instead — same group-aware logic as removePlayerGame,
+ * so deleting this player doesn't erase everyone else's votes for a game still being brought.
  */
 export async function deletePlayer(eventCode: string, playerId: string): Promise<void> {
   const playerSnap = await getDoc(doc(db, 'events', eventCode, 'players', playerId));
@@ -352,19 +402,56 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
   const player = playerSnap.data() as Player;
   const ownedGameIds = new Set(player.bringGameIds);
 
-  const [tablesSnap, playersSnap] = await Promise.all([
+  const [tablesSnap, playersSnap, gamesSnap] = await Promise.all([
     getDocs(collection(db, 'events', eventCode, 'tables')),
-    ownedGameIds.size > 0 ? getDocs(collection(db, 'events', eventCode, 'players')) : Promise.resolve(null),
+    getDocs(collection(db, 'events', eventCode, 'players')),
+    ownedGameIds.size > 0 ? getDocs(collection(db, 'events', eventCode, 'games')) : Promise.resolve(null),
   ]);
+
+  const allGames = gamesSnap ? gamesSnap.docs.map((d) => ({ ...(d.data() as Game), id: d.id })) : [];
+  // Only a group primary can trigger a promotion; a surviving copy must belong to someone else
+  // (this player's own other games are being deleted right alongside it).
+  const promotions = new Map<string, Game>(); // deleted primary's id -> promoted copy
+  ownedGameIds.forEach((gameId) => {
+    const target = allGames.find((g) => g.id === gameId);
+    const isPrimary = !target?.groupId || target.groupId === gameId;
+    if (!isPrimary) return;
+    const survivor = allGames.find((g) => g.id !== gameId && !ownedGameIds.has(g.id) && (g.groupId ?? g.id) === gameId);
+    if (survivor) promotions.set(gameId, survivor);
+  });
+  const fullyRemovedGameIds = new Set([...ownedGameIds].filter((id) => !promotions.has(id)));
 
   const batch = writeBatch(db);
   batch.delete(doc(db, 'events', eventCode, 'players', playerId));
   ownedGameIds.forEach((gameId) => batch.delete(doc(db, 'events', eventCode, 'games', gameId)));
 
+  promotions.forEach((newPrimary, oldPrimaryId) => {
+    batch.update(doc(db, 'events', eventCode, 'games', newPrimary.id), { groupId: null });
+    allGames
+      .filter((g) => g.id !== newPrimary.id && !ownedGameIds.has(g.id) && (g.groupId ?? g.id) === oldPrimaryId)
+      .forEach((g) => batch.update(doc(db, 'events', eventCode, 'games', g.id), { groupId: newPrimary.id }));
+  });
+
   tablesSnap.docs.forEach((tableDoc) => {
     const table = tableDoc.data() as Table;
     const wasSeated = table.playerIds.includes(playerId);
     const wasExplainer = table.explainerId === playerId;
+    const promoted = promotions.get(table.gameId);
+    if (promoted) {
+      const fields: Record<string, unknown> = { gameId: promoted.id, gameName: promoted.name };
+      const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
+      if (wasSeated) fields.playerIds = remainingPlayerIds;
+      if (wasExplainer) {
+        if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
+        else { fields.explainerId = remainingPlayerIds[0]; fields.explainerIsPlaying = true; }
+      }
+      batch.update(tableDoc.ref, fields);
+      return;
+    }
+    if (fullyRemovedGameIds.has(table.gameId) && table.status !== 'cancelled') {
+      batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [] });
+      return;
+    }
     if (!wasSeated && !wasExplainer) return;
     const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
     const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId' | 'explainerIsPlaying'>> = { playerIds: remainingPlayerIds };
@@ -373,21 +460,38 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
     batch.update(tableDoc.ref, fields);
   });
 
-  if (playersSnap) {
-    playersSnap.docs.forEach((otherDoc) => {
-      if (otherDoc.id === playerId) return;
-      const other = otherDoc.data() as Player;
-      const interests = { ...other.interests };
-      let interestsChanged = false;
-      ownedGameIds.forEach((gid) => {
+  playersSnap.docs.forEach((otherDoc) => {
+    if (otherDoc.id === playerId) return;
+    const other = otherDoc.data() as Player;
+    const interests = { ...other.interests };
+    let interestsChanged = false;
+    const canExplain = new Set(other.canExplain);
+    let canExplainChanged = false;
+    const repeatGameIds = new Set(other.repeatGameIds ?? []);
+    let repeatChanged = false;
+
+    ownedGameIds.forEach((gid) => {
+      const promoted = promotions.get(gid);
+      if (promoted) {
+        if (gid in interests) {
+          const vote = interests[gid];
+          delete interests[gid];
+          if (vote && !(promoted.id in interests)) interests[promoted.id] = vote;
+          interestsChanged = true;
+        }
+        if (canExplain.delete(gid)) { canExplain.add(promoted.id); canExplainChanged = true; }
+        if (repeatGameIds.delete(gid)) { repeatGameIds.add(promoted.id); repeatChanged = true; }
+      } else {
         if (gid in interests) { delete interests[gid]; interestsChanged = true; }
-      });
-      const canExplain = other.canExplain.filter((gid) => !ownedGameIds.has(gid));
-      if (interestsChanged || canExplain.length !== other.canExplain.length) {
-        batch.update(otherDoc.ref, { interests, canExplain });
+        if (canExplain.delete(gid)) canExplainChanged = true;
+        if (repeatGameIds.delete(gid)) repeatChanged = true;
       }
     });
-  }
+
+    if (interestsChanged || canExplainChanged || repeatChanged) {
+      batch.update(otherDoc.ref, { interests, canExplain: [...canExplain], repeatGameIds: [...repeatGameIds] });
+    }
+  });
 
   await batch.commit();
 }
