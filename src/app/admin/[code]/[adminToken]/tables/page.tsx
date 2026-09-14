@@ -7,7 +7,7 @@ import { toMinutes } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import type { MeepleEvent, Table, Player, Game } from '@/lib/types';
 
-const STATUS_OPTIONS: Table['status'][] = ['proposed', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+const STATUS_OPTIONS: Table['status'][] = ['recommended', 'confirmed', 'in-progress', 'completed', 'cancelled'];
 
 interface EditDraft {
   startTime: string;
@@ -48,10 +48,10 @@ export default function TablesPage() {
   function isIdealTable(t: Table): boolean {
     const game = gameMap.get(t.gameId);
     if (!game || t.playerIds.length === 0 || t.playerIds.length < game.maxPlayers) return false;
-    const allHearts = t.playerIds.every((pid) => playerMap.get(pid)?.interests[t.gameId] === 'must');
-    if (!allHearts) return false;
+    const allYes = t.playerIds.every((pid) => playerMap.get(pid)?.interests[t.gameId] === 'yes');
+    if (!allYes) return false;
     if (t.explainerIsPlaying === false) {
-      return playerMap.get(t.explainerId)?.interests[t.gameId] === 'must';
+      return playerMap.get(t.explainerId)?.interests[t.gameId] === 'yes';
     }
     return true;
   }
@@ -104,7 +104,7 @@ export default function TablesPage() {
     setAddPlayerId('');
   }
 
-  // Ranks candidates for a table's open seat: interested (must/casual) & free first, then
+  // Ranks candidates for a table's open seat: interested (yes) & free first, then
   // interested-but-busy, then everyone else — so the admin doesn't have to guess who fits.
   function candidatesFor(t: Table, currentIds: string[]) {
     return players
@@ -115,8 +115,8 @@ export default function TablesPage() {
           other.id !== t.id && other.status !== 'cancelled' && other.playerIds.includes(p.id) &&
           toMinutes(other.startTime) < toMinutes(t.endTime) && toMinutes(other.endTime) > toMinutes(t.startTime)
         );
-        const rank = (vote === 'must' ? 0 : vote === 'casual' ? 1 : 2) + (busy ? 10 : 0);
-        const label = (vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '') + p.name + (busy ? ' (ocupado)' : '') + (p.noAutoSchedule ? ' 🚫' : '');
+        const rank = (vote === 'yes' ? 0 : 1) + (busy ? 10 : 0);
+        const label = (vote === 'yes' ? '👍 ' : '') + p.name + (busy ? ' (ocupado)' : '');
         return { player: p, rank, label };
       })
       .sort((a, b) => a.rank - b.rank);
@@ -146,7 +146,7 @@ export default function TablesPage() {
                       <div className='flex justify-between items-start gap-2'>
                         <div>
                           {t.isManuallyEdited && <span className='mr-2 text-xs bg-orange-900 text-orange-300 px-1.5 rounded'>editada</span>}
-                          {t.status === 'proposed' && isIdealTable(t) && (
+                          {t.status === 'recommended' && isIdealTable(t) && (
                             <span className='mr-2 text-xs bg-green-900 text-green-300 px-1.5 rounded'>✅ ideal</span>
                           )}
                           <p className='font-medium'>{t.gameName}</p>
@@ -172,7 +172,7 @@ export default function TablesPage() {
                           >
                             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
-                          {!isEditing && t.status === 'proposed' && isIdealTable(t) && (
+                          {!isEditing && t.status === 'recommended' && isIdealTable(t) && (
                             <button onClick={() => updateTableStatus(code, t.id, 'confirmed', true)}
                               className='text-sm border border-green-700 text-green-300 rounded-lg px-2 py-1 hover:bg-green-900'>
                               ✅ Confirmar
@@ -191,7 +191,7 @@ export default function TablesPage() {
                         {currentIds.map((pid) => {
                           const p = playerMap.get(pid);
                           const vote = p?.interests[t.gameId];
-                          const voteIcon = vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '';
+                          const voteIcon = vote === 'yes' ? '👍 ' : '';
                           return (
                             <div key={pid} className='flex items-center justify-between text-sm'>
                               <span className='flex items-center gap-2'>

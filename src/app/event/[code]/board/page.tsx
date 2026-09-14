@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { getEvent, subscribeTables, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
-import { findNearMissGames, computeIdleGaps, type NearMissGame } from '@/lib/tableAlgorithm';
+import { computeIdleGaps } from '@/lib/tableAlgorithm';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import type { MeepleEvent, Table, Player, ScheduledBreak, Game } from '@/lib/types';
 
 const STATUS_LABEL: Record<Table['status'], string> = {
-  proposed: 'Propuesta',
+  recommended: 'Recomendada',
   confirmed: 'Confirmada',
   'in-progress': 'En curso',
   completed: 'Finalizada',
@@ -18,7 +18,7 @@ const STATUS_LABEL: Record<Table['status'], string> = {
 };
 
 const STATUS_COLOR: Record<Table['status'], string> = {
-  proposed: 'bg-yellow-900 text-yellow-300',
+  recommended: 'bg-yellow-900 text-yellow-300',
   confirmed: 'bg-green-900 text-green-300',
   'in-progress': 'bg-blue-900 text-blue-300',
   completed: 'bg-gray-700 text-gray-300',
@@ -96,6 +96,11 @@ export default function BoardPage() {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const nowStr = toTimeString(nowMinutes);
 
+  // Only real (confirmed+) tables ever show up in the visual schedule — a 'recommended' table
+  // is still just a candidate pool waiting on accept/reject, nothing to project on the board yet.
+  const scheduledTables = useMemo(() => tables.filter((t) => t.status !== 'recommended'), [tables]);
+  const recommendedTables = useMemo(() => tables.filter((t) => t.status === 'recommended'), [tables]);
+
   // The schedule only reflects "now" when the event is actually happening today —
   // otherwise every table looked "finished" just because the clock was later in the day.
   const today = todayStr();
@@ -109,7 +114,7 @@ export default function BoardPage() {
     const soon: Table[] = [];
     const upcoming: Table[] = [];
     const finished: Table[] = [];
-    for (const t of tables) {
+    for (const t of scheduledTables) {
       const start = toMinutes(t.startTime);
       const end = toMinutes(t.endTime);
       if (t.status === 'completed' || eventIsPast || (eventIsToday && nowMinutes >= end)) {
@@ -131,34 +136,30 @@ export default function BoardPage() {
       upcoming: upcoming.sort(byStart),
       finished: finished.sort(byStart),
     };
-  }, [tables, nowMinutes, eventIsToday, eventIsPast, eventIsFuture]);
+  }, [scheduledTables, nowMinutes, eventIsToday, eventIsPast, eventIsFuture]);
 
   // Physical table number (not the sequential session id) — same assignment used by the grid,
   // so "Mesa #N" means the same thing in both views.
   const physicalSlotByTableId = useMemo(() => {
-    const { assignments } = assignPhysicalSlots(tables, event?.settings.bufferMinutes ?? 0);
+    const { assignments } = assignPhysicalSlots(scheduledTables, event?.settings.bufferMinutes ?? 0);
     return new Map(assignments.map((a) => [a.table.id, a.slot + 1]));
-  }, [tables, event]);
+  }, [scheduledTables, event]);
 
-  // Games with enough votes to justify a table (must + casual >= minPlayers) that still don't
-  // have one — usually because no shared time window exists yet given everyone's schedules.
+  // Games with enough votes to justify a table (yes >= minPlayers) that still don't have one —
+  // usually because no shared time window exists yet given everyone's schedules.
   const unscheduledDemand = useMemo(() => {
     const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
     const scheduledGameIds = new Set(tables.map((t) => t.gameId));
     return primaryGames
       .filter((g) => !scheduledGameIds.has(g.id))
       .map((g) => {
-        const mustVoters = players.filter((p) => p.interests[g.id] === 'must');
-        const casualVoters = players.filter((p) => p.interests[g.id] === 'casual');
+        const yesVoters = players.filter((p) => p.interests[g.id] === 'yes');
         const ownerLabel = games.filter((m) => (m.groupId ?? m.id) === g.id).map((m) => m.ownerName).filter(Boolean).join(', ');
         const hasExplainer = players.some((p) => p.canExplain.includes(g.id));
-        return {
-          game: g, must: mustVoters.length, casual: casualVoters.length, total: mustVoters.length + casualVoters.length,
-          voters: [...mustVoters, ...casualVoters], ownerLabel, hasExplainer,
-        };
+        return { game: g, total: yesVoters.length, voters: yesVoters, ownerLabel, hasExplainer };
       })
       .filter((row) => row.total >= row.game.minPlayers)
-      .sort((a, b) => b.must - a.must);
+      .sort((a, b) => b.total - a.total);
   }, [games, players, tables]);
 
   // Each voter's free windows (arrival→departure minus their other tables/breaks) — lets the
@@ -173,15 +174,6 @@ export default function BoardPage() {
     }
     return map;
   }, [players, tables, event]);
-
-  // Games exactly one player short of their minimum that already have a valid shared window and
-  // an explainer lined up — shown dimmed in the grid as "join here and this happens" suggestions
-  // for walk-ins/improvisers who didn't vote.
-  const nearMissGames = useMemo(() => {
-    if (!event) return [];
-    const activeTables = tables.filter((t) => t.status !== 'cancelled');
-    return findNearMissGames(players, games, activeTables, event.settings.bufferMinutes, event.settings.physicalTables, event.settings.breaks);
-  }, [players, games, tables, event]);
 
   return (
     <main className='min-h-screen bg-gray-900 text-white p-6'>
@@ -239,11 +231,11 @@ export default function BoardPage() {
 
           {view === 'grid' ? (
             <ScheduleGrid
-              tables={tables} nowMinutes={eventIsToday ? nowMinutes : null}
+              tables={scheduledTables} nowMinutes={eventIsToday ? nowMinutes : null}
               physicalTables={event?.settings.physicalTables ?? null}
               eventStartTime={event?.startTime ?? null} eventEndTime={event?.endTime ?? null}
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
-              nearMiss={nearMissGames} games={games}
+              games={games}
             />
           ) : (
             <div className='space-y-10'>
@@ -275,7 +267,7 @@ export default function BoardPage() {
                 Alcanzan los votos para armar mesa, pero todavía no encontraron un horario en común libre para todos.
               </p>
               <div className='space-y-2'>
-                {unscheduledDemand.map(({ game, must, casual, total, voters, ownerLabel, hasExplainer }) => (
+                {unscheduledDemand.map(({ game, total, voters, ownerLabel, hasExplainer }) => (
                   <div key={game.id} className='border border-amber-800 rounded-xl p-3 bg-gray-800'>
                     <div className='flex justify-between items-start'>
                       <div>
@@ -286,8 +278,7 @@ export default function BoardPage() {
                       <span className='text-xs text-amber-400 shrink-0'>{total}/{game.minPlayers} necesarios</span>
                     </div>
                     <div className='flex gap-3 mt-2 text-sm items-center'>
-                      <span className='text-red-300'>❤️ {must}</span>
-                      <span className='text-blue-300'>👍 {casual}</span>
+                      <span className='text-blue-300'>👍 {total}</span>
                       <span className={'text-xs ' + (hasExplainer ? 'text-green-400' : 'text-red-400')}>
                         {hasExplainer ? '🎓 hay quien explique' : '🎓 sin explicador'}
                       </span>
@@ -299,12 +290,11 @@ export default function BoardPage() {
                     {expandedDemandId === game.id && (
                       <div className='mt-2 space-y-1.5 border-t border-gray-700 pt-2'>
                         {voters.map((p) => {
-                          const vote = p.interests[game.id];
                           const slots = idleGapsByPlayer.get(p.id) ?? [];
                           return (
                             <div key={p.id} className='text-xs flex justify-between gap-2'>
                               <span className='text-gray-300 shrink-0'>
-                                {vote === 'must' ? '❤️' : '👍'} {p.name}
+                                👍 {p.name}
                                 {p.canExplain.includes(game.id) && <span className='ml-1 text-purple-300'>🎓</span>}
                               </span>
                               <span className='text-gray-500 text-right'>
@@ -321,22 +311,28 @@ export default function BoardPage() {
             </section>
           )}
 
-          {nearMissGames.length > 0 && (
+          {recommendedTables.length > 0 && (
             <section>
-              <h2 className='text-xl font-semibold mb-3 text-gray-200'>🔶 Casi se arman — falta 1 jugador</h2>
+              <h2 className='text-xl font-semibold mb-3 text-gray-200'>🟡 Mesas recomendadas — esperando confirmación</h2>
               <p className='text-sm text-gray-500 mb-3'>
-                Ya tienen horario en común y explicador — solo falta que alguien más se sume.
+                El algoritmo ya encontró un horario en común — falta que los candidatos acepten para agendarse.
               </p>
               <div className='space-y-2'>
-                {nearMissGames.map((nm) => (
-                  <div key={nm.gameId} className='border border-amber-700 rounded-xl p-3 bg-amber-950/20'>
-                    <div className='flex justify-between items-start'>
-                      <p className='font-semibold text-amber-300'>{nm.gameName}</p>
-                      <span className='text-xs text-amber-400 shrink-0'>{nm.startTime}–{nm.endTime}</span>
+                {recommendedTables.map((t) => {
+                  const game = games.find((g) => g.id === t.gameId);
+                  const minPlayers = game?.minPlayers ?? '?';
+                  return (
+                    <div key={t.id} className='border border-amber-700 rounded-xl p-3 bg-amber-950/20'>
+                      <div className='flex justify-between items-start'>
+                        <p className='font-semibold text-amber-300'>{t.gameName}</p>
+                        <span className='text-xs text-amber-400 shrink-0'>{t.startTime}–{t.endTime}</span>
+                      </div>
+                      <p className='text-xs text-gray-400 mt-1'>
+                        👥 {t.playerIds.length}/{minPlayers} aceptaron · {(t.candidateIds ?? []).length} candidatos en total
+                      </p>
                     </div>
-                    <p className='text-xs text-gray-400 mt-1'>Ya confirmados: {nm.playerNames.join(', ')}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           )}
@@ -373,7 +369,6 @@ interface GridEntry {
   startTime: string;
   endTime: string;
   gameName: string;
-  nearMiss?: NearMissGame;
   seatsFilled?: number;
   seatsMax?: number;
 }
@@ -406,7 +401,7 @@ function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: Sched
 }
 
 function ScheduleGrid({
-  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, nearMiss, games,
+  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, games,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -415,7 +410,6 @@ function ScheduleGrid({
   eventEndTime: string | null;
   breaks: ScheduledBreak[];
   bufferMinutes: number;
-  nearMiss: NearMissGame[];
   games: Game[];
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
@@ -423,28 +417,6 @@ function ScheduleGrid({
   const buckets = useMemo(() => buildBuckets(activeTables, eventStartTime, eventEndTime), [activeTables, eventStartTime, eventEndTime]);
   const rowCount = Math.max(slotCount, physicalTables ?? 0, 1);
   const maxPlayersByGameId = useMemo(() => new Map(games.map((g) => [g.id, g.maxPlayers])), [games]);
-
-  // Near-miss ghosts never open a new row — each one slots into the first existing physical
-  // table row that's actually free (no real session) during its whole suggested window. If none
-  // of the rowCount rows has room for it, it's dropped rather than adding a table that isn't there.
-  const nearMissByRow = useMemo(() => {
-    const byRow = new Map<number, NearMissGame[]>();
-    for (const nm of nearMiss) {
-      const nmStart = toMinutes(nm.startTime);
-      const nmEnd = toMinutes(nm.endTime);
-      for (let rowIdx = 0; rowIdx < rowCount; rowIdx++) {
-        const rowTables = assignments.filter((a) => a.slot === rowIdx).map((a) => a.table);
-        const alreadyPlaced = byRow.get(rowIdx) ?? [];
-        const busy = [...rowTables, ...alreadyPlaced];
-        const overlapsSomething = busy.some((t) => toMinutes(t.startTime) < nmEnd && toMinutes(t.endTime) > nmStart);
-        if (!overlapsSomething) {
-          byRow.set(rowIdx, [...alreadyPlaced, nm]);
-          break;
-        }
-      }
-    }
-    return byRow;
-  }, [nearMiss, assignments, rowCount]);
 
   if (buckets.length === 0) return null;
 
@@ -469,13 +441,10 @@ function ScheduleGrid({
           <tbody>
             {Array.from({ length: rowCount }, (_, slotIdx) => {
               const rowTables = assignments.filter((a) => a.slot === slotIdx).map((a) => a.table);
-              const rowEntries: GridEntry[] = [
-                ...rowTables.map((t) => ({
-                  startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
-                  seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId),
-                })),
-                ...(nearMissByRow.get(slotIdx) ?? []).map((nm) => ({ startTime: nm.startTime, endTime: nm.endTime, gameName: nm.gameName, nearMiss: nm })),
-              ];
+              const rowEntries: GridEntry[] = rowTables.map((t) => ({
+                startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
+                seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId),
+              }));
               const cells = buildRowCells(rowEntries, buckets, breaks);
               return (
                 <tr key={slotIdx} className='border-t border-gray-800'>
@@ -486,20 +455,13 @@ function ScheduleGrid({
                     <td key={ci} colSpan={cell.span}
                       className={'p-1.5 text-center align-middle border-l border-gray-800'}>
                       {cell.entry ? (
-                        cell.entry.nearMiss ? (
-                          <div className='rounded-lg border border-dashed border-amber-700 bg-amber-950/40 text-amber-300 px-2 py-1.5 opacity-70'>
-                            <div className='font-medium text-xs'>🔶 {cell.entry.gameName} · falta {cell.entry.nearMiss.missing}</div>
-                            <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
-                          </div>
-                        ) : (
-                          <div className={'rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName)}>
-                            <div className='font-medium text-xs'>{cell.entry.gameName}</div>
-                            <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
-                            {cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
-                              <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
-                            )}
-                          </div>
-                        )
+                        <div className={'rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName)}>
+                          <div className='font-medium text-xs'>{cell.entry.gameName}</div>
+                          <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
+                          {cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
+                            <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
+                          )}
+                        </div>
                       ) : cell.breakLabel && (
                         <div className='rounded-lg border border-dashed border-gray-600 bg-gray-800/60 text-gray-400 px-2 py-1.5'>
                           <div className='text-xs'>🍽️ {cell.breakLabel}</div>
@@ -561,7 +523,7 @@ function TableSection({
               {t.playerIds.map((pid) => {
                 const p = playerMap.get(pid);
                 const vote = p?.interests[t.gameId];
-                const voteIcon = vote === 'must' ? '❤️ ' : vote === 'casual' ? '👍 ' : '';
+                const voteIcon = vote === 'yes' ? '👍 ' : '';
                 return (
                   <div key={pid} className='flex items-center gap-2 text-sm'>
                     <span className='text-gray-300'>{voteIcon}{p?.name ?? pid}</span>

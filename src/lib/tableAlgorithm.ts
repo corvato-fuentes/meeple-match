@@ -1,4 +1,4 @@
-import type { Player, Game, Table, TableStatus } from './types';
+import type { Player, Game, Table } from './types';
 import { toMinutes, toTimeString, windowDuration } from './timeUtils';
 
 interface TableProposal {
@@ -8,11 +8,23 @@ interface TableProposal {
   endTime: string;
   explainerId: string;
   explainerIsPlaying: boolean;
-  playerIds: string[];
-  status: TableStatus;
+  playerIds: string[]; // always empty at creation — nobody has accepted a recommended table yet
+  candidateIds: string[];
+  rejectedIds: string[];
+  status: 'recommended';
   isManuallyEdited: boolean;
   batchNumber: number;
   tableNumber: number;
+}
+
+export interface CandidateUpdate {
+  tableId: string;
+  candidateIds: string[]; // full updated list (existing + newly added)
+}
+
+export interface GenerateTablesResult {
+  proposals: TableProposal[];
+  candidateUpdates: CandidateUpdate[];
 }
 
 function getBusyWindows(playerId: string, tables: Table[]) {
@@ -126,6 +138,20 @@ function findEarliestWindow(
   return null;
 }
 
+/**
+ * Builds the set of "recommended" tables the algorithm can offer right now, from every player's
+ * simple 👍/👎 vote. A recommended table isn't real yet — it's a candidate pool + a fixed window;
+ * players accept or reject individually (see respondToRecommendation in firestore.ts), and only
+ * once enough have accepted does it become 'confirmed'.
+ *
+ * Two things can happen per game:
+ * 1. An already-open recommended table (candidates still being gathered) gets NEW candidates
+ *    added if a fresh voter fits its already-fixed window — this never changes an existing
+ *    table's time once people have started responding to it.
+ * 2. Voters not absorbed by any open table (none exists yet, or all are full) get grouped into
+ *    brand new recommended table(s), same greedy window-search as before, just without any
+ *    must/casual tiering now that there's only one vote level.
+ */
 export function generateTables(
   players: Player[],
   games: Game[],
@@ -134,7 +160,7 @@ export function generateTables(
   physicalTables: number | null,
   batchNumber: number,
   breaks: { start: string; end: string }[] = []
-): TableProposal[] {
+): GenerateTablesResult {
   const busyMap = new Map<string, { start: string; end: string }[]>();
   players.forEach((p) => {
     const busy = getBusyWindows(p.id, existingTables);
@@ -146,22 +172,29 @@ export function generateTables(
     .filter((t) => t.status !== 'cancelled')
     .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
 
-  const seatedByGame = new Map<string, Set<string>>();
+  // Everyone already offered a seat (candidate, accepted, or rejected) on ANY non-cancelled table
+  // for a game — a fresh proposal never re-offers these people unless they opted into a repeat.
+  const offeredByGame = new Map<string, Set<string>>();
   existingTables.forEach((t) => {
     if (t.status === 'cancelled') return;
-    const seated = seatedByGame.get(t.gameId) ?? new Set<string>();
-    t.playerIds.forEach((id) => seated.add(id));
-    seatedByGame.set(t.gameId, seated);
+    const offered = offeredByGame.get(t.gameId) ?? new Set<string>();
+    t.playerIds.forEach((id) => offered.add(id));
+    (t.candidateIds ?? []).forEach((id) => offered.add(id));
+    (t.rejectedIds ?? []).forEach((id) => offered.add(id));
+    offeredByGame.set(t.gameId, offered);
   });
+
+  const proposals: TableProposal[] = [];
+  const candidateUpdates: CandidateUpdate[] = [];
 
   // A game that only has enough demand left through repeat-flagged voters (no fresh voters
   // remain to justify it on its own) is treated as a last resort — every other viable game gets
   // tried first, so a repeat only fills someone's second table once nothing else fits for them.
   function isRepeatFallbackOnly(game: Game): boolean {
-    const seated = seatedByGame.get(game.id);
-    if (!seated || seated.size === 0) return false;
-    const voters = players.filter((p) => !p.noAutoSchedule && (p.interests[game.id] === 'must' || p.interests[game.id] === 'casual'));
-    const freshVoters = voters.filter((p) => !seated.has(p.id));
+    const offered = offeredByGame.get(game.id);
+    if (!offered || offered.size === 0) return false;
+    const voters = players.filter((p) => p.interests[game.id] === 'yes');
+    const freshVoters = voters.filter((p) => !offered.has(p.id));
     return freshVoters.length < game.minPlayers;
   }
 
@@ -169,10 +202,8 @@ export function generateTables(
     const fallbackA = isRepeatFallbackOnly(a);
     const fallbackB = isRepeatFallbackOnly(b);
     if (fallbackA !== fallbackB) return fallbackA ? 1 : -1;
-    const mustA = players.filter((p) => !p.noAutoSchedule && p.interests[a.id] === 'must').length;
-    const mustB = players.filter((p) => !p.noAutoSchedule && p.interests[b.id] === 'must').length;
-    const totA = mustA + players.filter((p) => !p.noAutoSchedule && p.interests[a.id] === 'casual').length;
-    const totB = mustB + players.filter((p) => !p.noAutoSchedule && p.interests[b.id] === 'casual').length;
+    const totA = players.filter((p) => p.interests[a.id] === 'yes').length;
+    const totB = players.filter((p) => p.interests[b.id] === 'yes').length;
     // A game with enough voters for only ONE table this pass (not even close to double its
     // minimum) has zero room to recover if it loses just one of them to another game's schedule —
     // it either happens now or never. A game with enough demand for several tables degrades
@@ -186,10 +217,7 @@ export function generateTables(
       const slackB = totB - b.minPlayers;
       if (slackA !== slackB) return slackA - slackB;
     }
-    if (mustB !== mustA) return mustB - mustA;
-    const ratioA = totA > 0 ? mustA / totA : 0;
-    const ratioB = totB > 0 ? mustB / totB : 0;
-    if (ratioB !== ratioA) return ratioB - ratioA;
+    if (totB !== totA) return totB - totA;
     return a.minPlayers - b.minPlayers;
   })
     // Secondary copies of a merged game (admin marked them as duplicates of a primary) never get
@@ -197,7 +225,6 @@ export function generateTables(
     // tables to cover all of them at once.
     .filter((g) => !g.groupId || g.groupId === g.id);
 
-  const proposals: TableProposal[] = [];
   let tableNumber = existingTables.length
     ? Math.max(...existingTables.map((t) => t.tableNumber)) + 1
     : 1;
@@ -216,42 +243,43 @@ export function generateTables(
         return owner ? { start: owner.arrivalTime, end: owner.departureTime, ownerId: owner.id, lendable: !!g.lendable } : null;
       })
       .filter((w): w is { start: string; end: string; ownerId: string; lendable: boolean } => !!w);
-    // Players already seated at a table for this game only count again if they opted into a
-    // replay — otherwise further tables for the same game are built from fresh voters only.
-    // Loops so a single generation pass can seat all of them across as many tables as fit
-    // (e.g. max 5 but 10 different "must" voters → two tables, different players, different times).
-    const seated = new Set(seatedByGame.get(game.id) ?? []);
+
+    const offered = offeredByGame.get(game.id) ?? new Set<string>();
     // Every existing (non-cancelled) window this exact game is already booked into — further
     // tables for it can't overlap beyond the number of physical copies available.
     const gameWindows: { startTime: string; endTime: string }[] = existingTables
       .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
       .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
+
+    // 1. Extend still-open recommended tables (algorithm-generated, not owner-posted) with any
+    // fresh voter who fits the window already fixed for that table — never changes its time.
+    const openTables = existingTables.filter(
+      (t) => t.gameId === game.id && t.status === 'recommended' && !t.postedByOwner && t.playerIds.length < game.maxPlayers
+    );
+    for (const ot of openTables) {
+      const known = new Set([...(ot.candidateIds ?? []), ...ot.playerIds, ...(ot.rejectedIds ?? [])]);
+      const fresh = players.filter((p) =>
+        p.interests[game.id] === 'yes' && !known.has(p.id) &&
+        isAvailable(p, ot.startTime, ot.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
+      );
+      if (fresh.length === 0) continue;
+      candidateUpdates.push({ tableId: ot.id, candidateIds: [...(ot.candidateIds ?? []), ...fresh.map((p) => p.id)] });
+      fresh.forEach((p) => offered.add(p.id));
+    }
+
+    // 2. Group the remaining fresh voters into brand-new recommended table(s).
     while (true) {
-      const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
-      const mustPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
-      const casualPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
-      // Anyone who can explain but isn't getting seated (didn't vote must/casual, or got outranked
-      // by higher-priority voters) can drop in just to teach for a short block, then leave — no
-      // seat consumed, no full-session commitment. Least-committed volunteers are tried first so a
-      // "must" voter's own seat isn't wasted on teaching duty if someone less invested can do it.
-      const teachOnlyCandidates = players
-        .filter((p) => !p.noAutoSchedule && p.canExplain.includes(game.id))
-        .sort((a, b) => {
-          const rank = (p: Player) => (p.interests[game.id] === 'must' ? 2 : p.interests[game.id] === 'casual' ? 1 : 0);
-          return rank(a) - rank(b);
-        });
+      const eligibleForAnotherTable = (p: Player) => !offered.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
+      const interested = players.filter((p) => p.interests[game.id] === 'yes' && eligibleForAnotherTable(p));
+      // Anyone who can explain but wouldn't get a seat can drop in just to teach for a short
+      // block, then leave — no seat consumed, no full-session commitment.
+      const teachOnlyCandidates = players.filter((p) => p.canExplain.includes(game.id));
 
-      // "Me sumo" (casual) voters can help reach the minimum too, not just top up an already-
-      // valid "Quiero" group — otherwise a game with e.g. 3 must + 1 casual (min 4) never gets a table.
-      if (mustPlayers.length + casualPlayers.length < game.minPlayers) break;
+      if (interested.length < game.minPlayers) break;
 
-      // Prioritizes "Quiero" voters for seats first, then within each tier whoever arrives
-      // earliest — so a late arrival doesn't get pulled into a group ahead of someone who's been
-      // free since the morning, which would needlessly push the whole table's start time back.
-      const byFlexibility = [...mustPlayers, ...casualPlayers].sort((a, b) => {
-        const mustA = a.interests[game.id] === 'must' ? 0 : 1;
-        const mustB = b.interests[game.id] === 'must' ? 0 : 1;
-        if (mustA !== mustB) return mustA - mustB;
+      // Whoever arrives earliest goes first — a late arrival shouldn't get pulled ahead of
+      // someone who's been free since the morning, which would needlessly delay the table.
+      const byFlexibility = [...interested].sort((a, b) => {
         const arrivalA = toMinutes(a.arrivalTime);
         const arrivalB = toMinutes(b.arrivalTime);
         if (arrivalA !== arrivalB) return arrivalA - arrivalB;
@@ -292,16 +320,12 @@ export function generateTables(
         return { group, window };
       }
 
-      // Tries seeding the greedy build with each candidate explainer in turn (playing-and-"Quiero"
-      // first), keeping whichever seed grows the biggest compatible group; falls back to building
-      // without an explainer requirement and pairing the result with a free drop-in teacher.
+      // Tries seeding the greedy build with each candidate explainer in turn, keeping whichever
+      // seed grows the biggest compatible group; falls back to building without an explainer
+      // requirement and pairing the result with a free drop-in teacher.
       function tryFindGroup(pool: Player[], minSize: number, maxSize: number): GroupResult | null {
         if (pool.length < minSize) return null;
-        const explainerSeeds = [...pool.filter((p) => p.canExplain.includes(game.id))].sort((a, b) => {
-          const rankA = a.interests[game.id] === 'must' ? 0 : 1;
-          const rankB = b.interests[game.id] === 'must' ? 0 : 1;
-          return rankA - rankB;
-        });
+        const explainerSeeds = pool.filter((p) => p.canExplain.includes(game.id));
 
         let best: GroupResult | null = null;
         for (const seed of explainerSeeds) {
@@ -325,61 +349,13 @@ export function generateTables(
         return teacher ? { group: built.group, window: built.window, teachOnlyExplainer: teacher } : null;
       }
 
-      // Prefers an all-"Quiero" group whenever there are enough must-voters to hit the minimum
-      // on their own — "Me sumo" voters only get mixed in if that's not possible, even if a mixed
-      // group would've found an earlier window (composition beats raw earliest-start here). This
-      // holds even with multiple copies: two pure "Quiero" tables can still run in parallel if
-      // enough distinct must-voters are free at an overlapping time, but a copy is never filled
-      // with "Me sumo" voters just to avoid sitting idle while more hearts wait their turn later.
-      const maxMustOnlySize = Math.min(game.maxPlayers, mustPlayers.length);
-      const mustOnlyPool = byFlexibility.filter((p) => p.interests[game.id] === 'must');
-      let best = maxMustOnlySize >= game.minPlayers ? tryFindGroup(mustOnlyPool, game.minPlayers, maxMustOnlySize) : null;
-      if (!best) best = tryFindGroup(byFlexibility, game.minPlayers, game.maxPlayers);
+      const best = tryFindGroup(byFlexibility, game.minPlayers, game.maxPlayers);
       if (!best) break;
-      const coreGroup = best.group;
-      const window = best.window;
-      const teachOnlyExplainer = best.teachOnlyExplainer;
+      const { group, window, teachOnlyExplainer } = best;
 
-      const group = [...coreGroup];
-      // NOTE: bonus "Me sumo" top-off intentionally keeps the window fixed at coreGroup's size —
-      // extending it per extra seat would require re-validating every already-seated player's
-      // availability against a longer window each time, so duration only scales with the core group.
-      for (const casual of casualPlayers) {
-        if (group.length >= game.maxPlayers) break;
-        if (group.some((p) => p.id === casual.id)) continue;
-        if (teachOnlyExplainer && casual.id === teachOnlyExplainer.id) continue;
-        if (isAvailable(casual, window.start, window.end, busyMap.get(casual.id) ?? [], bufferMinutes))
-          group.push(casual);
-      }
-
-      // Among seated explainers, a "Quiero" beats a "Me sumo" — playing-and-explaining is the ideal,
-      // ranked by how much they wanted to be there in the first place; window width only tiebreaks.
-      const seatedExplainer = group
-        .filter((p) => p.canExplain.includes(game.id))
-        .sort((a, b) => {
-          const rankA = a.interests[game.id] === 'must' ? 0 : 1;
-          const rankB = b.interests[game.id] === 'must' ? 0 : 1;
-          if (rankA !== rankB) return rankA - rankB;
-          return windowDuration(b.arrivalTime, b.departureTime) - windowDuration(a.arrivalTime, a.departureTime);
-        })[0];
+      const seatedExplainer = group.find((p) => p.canExplain.includes(game.id));
       const explainer = seatedExplainer ?? teachOnlyExplainer!;
       const explainerIsPlaying = !!seatedExplainer;
-
-      group.forEach((p) => {
-        const bw = busyMap.get(p.id) ?? [];
-        bw.push(window);
-        busyMap.set(p.id, bw);
-        seated.add(p.id);
-      });
-
-      // The drop-in teacher only blocks their own short teaching window — not the whole session,
-      // and they're never added to `seated`, so they stay eligible to actually play this game later.
-      if (!explainerIsPlaying && teachOnlyExplainer) {
-        const teachEnd = toTimeString(toMinutes(window.start) + TEACH_ONLY_MINUTES);
-        const bw = busyMap.get(teachOnlyExplainer.id) ?? [];
-        bw.push({ start: window.start, end: teachEnd });
-        busyMap.set(teachOnlyExplainer.id, bw);
-      }
 
       proposals.push({
         gameId: game.id,
@@ -388,123 +364,21 @@ export function generateTables(
         endTime: window.end,
         explainerId: explainer.id,
         explainerIsPlaying,
-        playerIds: group.map((p) => p.id),
-        status: 'proposed',
+        playerIds: [],
+        candidateIds: group.map((p) => p.id),
+        rejectedIds: [],
+        status: 'recommended',
         isManuallyEdited: false,
         batchNumber,
         tableNumber: tableNumber++,
       });
       occupiedTables.push({ startTime: window.start, endTime: window.end });
       gameWindows.push({ startTime: window.start, endTime: window.end });
+      group.forEach((p) => offered.add(p.id));
     }
   }
 
-  return proposals;
-}
-
-export interface NearMissGame {
-  gameId: string;
-  gameName: string;
-  startTime: string;
-  endTime: string;
-  missing: number; // how many more players it needs to reach minPlayers — always 1 for now
-  playerNames: string[];
-}
-
-/**
- * Games that are exactly one player short of their minimum, but where the voters who ARE
- * committed already share a valid window (available, buffered, with a real explainer lined up,
- * and an actual free physical table at that time). Surfaced to walk-in/improvising players as
- * "join here and this table happens" suggestions — doesn't reserve anything, just reports it.
- */
-export function findNearMissGames(
-  players: Player[],
-  games: Game[],
-  existingTables: Table[],
-  bufferMinutes: number,
-  physicalTables: number | null,
-  breaks: { start: string; end: string }[] = []
-): NearMissGame[] {
-  const busyMap = new Map<string, { start: string; end: string }[]>();
-  players.forEach((p) => {
-    const busy = getBusyWindows(p.id, existingTables);
-    busy.push(...breaks);
-    busyMap.set(p.id, busy);
-  });
-  const occupiedTables: { startTime: string; endTime: string }[] = existingTables
-    .filter((t) => t.status !== 'cancelled')
-    .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
-  const seatedByGame = new Map<string, Set<string>>();
-  existingTables.forEach((t) => {
-    if (t.status === 'cancelled') return;
-    const seated = seatedByGame.get(t.gameId) ?? new Set<string>();
-    t.playerIds.forEach((id) => seated.add(id));
-    seatedByGame.set(t.gameId, seated);
-  });
-
-  const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
-  const results: NearMissGame[] = [];
-
-  for (const game of primaryGames) {
-    const copies = games.filter((g) => (g.groupId ?? g.id) === game.id).length || 1;
-    const ownerWindows = games
-      .filter((g) => (g.groupId ?? g.id) === game.id)
-      .map((g) => {
-        const owner = players.find((p) => p.id === g.ownerPlayerId);
-        return owner ? { start: owner.arrivalTime, end: owner.departureTime, ownerId: owner.id, lendable: !!g.lendable } : null;
-      })
-      .filter((w): w is { start: string; end: string; ownerId: string; lendable: boolean } => !!w);
-
-    const seated = seatedByGame.get(game.id) ?? new Set<string>();
-    const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
-    const mustPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'must' && eligibleForAnotherTable(p));
-    const casualPlayers = players.filter((p) => !p.noAutoSchedule && p.interests[game.id] === 'casual' && eligibleForAnotherTable(p));
-    const fullGroup = [...mustPlayers, ...casualPlayers];
-    if (fullGroup.length < game.minPlayers - 1) continue;
-
-    const gameWindows: { startTime: string; endTime: string }[] = existingTables
-      .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
-      .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
-
-    const tryWindow = (group: Player[]) =>
-      group.length === 0 ? null : findEarliestWindow(group, game, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
-
-    const hasExplainer = (group: Player[], window: { start: string; end: string }) => {
-      if (group.some((p) => p.canExplain.includes(game.id))) return true;
-      const teachEnd = toTimeString(toMinutes(window.start) + TEACH_ONLY_MINUTES);
-      return players.some(
-        (p) => !p.noAutoSchedule && p.canExplain.includes(game.id) && group.every((g) => g.id !== p.id) &&
-          isAvailable(p, window.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes)
-      );
-    };
-
-    let found: { start: string; end: string } | null = null;
-    let usedGroup: Player[] | null = null;
-
-    if (fullGroup.length === game.minPlayers - 1) {
-      // Exactly one player short — check if the group that IS committed already has a window.
-      const w = tryWindow(fullGroup);
-      if (w && hasExplainer(fullGroup, w)) { found = w; usedGroup = fullGroup; }
-    } else if (fullGroup.length >= game.minPlayers) {
-      // Enough total votes, but no table found yet (schedules didn't line up for everyone) — see
-      // if dropping just the one most schedule-incompatible voter lets the rest fit; a walk-in
-      // could fill that spot instead.
-      for (let i = 0; i < fullGroup.length && !found; i++) {
-        const reduced = fullGroup.filter((_, idx) => idx !== i);
-        const w = tryWindow(reduced);
-        if (w && hasExplainer(reduced, w)) { found = w; usedGroup = reduced; }
-      }
-    }
-
-    if (!found || !usedGroup) continue;
-
-    results.push({
-      gameId: game.id, gameName: game.name, startTime: found.start, endTime: found.end,
-      missing: Math.max(1, game.minPlayers - usedGroup.length), playerNames: usedGroup.map((p) => p.name),
-    });
-  }
-
-  return results;
+  return { proposals, candidateUpdates };
 }
 
 export interface TableFill {
@@ -513,9 +387,9 @@ export interface TableFill {
 }
 
 /**
- * Late joiners never get a seat by re-running generateTables alone, since it only ever proposes
- * brand-new sessions — it never revisits an already-proposed/confirmed table that still has open
- * seats. This fills those gaps first with any new must/casual voters who are free at that time.
+ * Late "yes" voters can directly join an already-CONFIRMED table with open seats — no accept
+ * step needed since the table is already locked in. (Still-`recommended` tables instead grow
+ * their candidate pool via generateTables, and need an explicit accept from each new voter.)
  */
 export function fillExistingTables(players: Player[], games: Game[], existingTables: Table[], bufferMinutes: number): TableFill[] {
   const gameMap = new Map(games.map((g) => [g.id, g]));
@@ -524,7 +398,7 @@ export function fillExistingTables(players: Player[], games: Game[], existingTab
 
   const fills: TableFill[] = [];
   const fillable = existingTables
-    .filter((t) => t.status === 'proposed' || t.status === 'confirmed')
+    .filter((t) => t.status === 'confirmed')
     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
 
   for (const table of fillable) {
@@ -535,13 +409,11 @@ export function fillExistingTables(players: Player[], games: Game[], existingTab
 
     const candidates = players
       .filter((p) =>
-        !p.noAutoSchedule &&
         !table.playerIds.includes(p.id) &&
-        (p.interests[table.gameId] === 'must' || p.interests[table.gameId] === 'casual') &&
+        p.interests[table.gameId] === 'yes' &&
         isAvailable(p, table.startTime, table.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
       )
-      // 'must' voters get priority over 'casual' ones for the remaining seats
-      .sort((a, b) => (a.interests[table.gameId] === 'must' ? 0 : 1) - (b.interests[table.gameId] === 'must' ? 0 : 1));
+      .sort((a, b) => toMinutes(a.arrivalTime) - toMinutes(b.arrivalTime));
 
     const added = candidates.slice(0, seatsLeft);
     if (added.length === 0) continue;

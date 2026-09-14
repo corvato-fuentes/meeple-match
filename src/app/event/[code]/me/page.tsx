@@ -5,11 +5,10 @@ import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames,
   updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame, updatePlayerTimes,
-  updatePlayerNoAutoSchedule, removePlayerFromTable,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { TEACH_ONLY_MINUTES } from '@/lib/tableAlgorithm';
-import { toMinutes, toTimeString, isAutoGenerationLocked } from '@/lib/timeUtils';
+import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { savePlayerEvent } from '@/lib/myEvents';
 import { bggSearchUrl, searchBgg, getBggGameDetails, type BggSearchResult } from '@/lib/bgg';
@@ -17,12 +16,11 @@ import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import VotingHelp from '@/components/ui/VotingHelp';
 import TablesHelp from '@/components/ui/TablesHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
-import NoAutoScheduleHelp from '@/components/ui/NoAutoScheduleHelp';
 import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 
-type InterestLevel = 'must' | 'casual' | 'no';
+type InterestLevel = 'yes' | 'no';
 
 const COMPLEXITY_LABEL: Record<GameComplexity, string> = {
   light: 'Liviano',
@@ -62,9 +60,6 @@ export default function MyTicketPage() {
   const [draftArrival, setDraftArrival] = useState('');
   const [draftDeparture, setDraftDeparture] = useState('');
   const [savingTimes, setSavingTimes] = useState(false);
-  const [savingOptOut, setSavingOptOut] = useState(false);
-  const [pendingOptOut, setPendingOptOut] = useState(false);
-  const [keepTableIds, setKeepTableIds] = useState<Set<string>>(new Set());
   const [bggResults, setBggResults] = useState<BggSearchResult[]>([]);
   const [bggOpen, setBggOpen] = useState(false);
   const [bggLoading, setBggLoading] = useState(false);
@@ -246,46 +241,6 @@ export default function MyTicketPage() {
     setCanExplain((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
   }
 
-  // Locked (confirmed/in-progress) tables survive a full regeneration untouched — only worth
-  // asking which ones to keep once the schedule is actually frozen (close to/at the event); before
-  // that, everything is still fluid so opting out just clears the player from everything outright.
-  function openOptOutFlow() {
-    if (!event) return;
-    const locked = myTables.filter((t) => t.status === 'confirmed' || t.status === 'in-progress');
-    const frozen = isAutoGenerationLocked(event.date, event.settings.autoGenerateFreezeHours);
-    if (locked.length === 0 || !frozen) { applyOptOut(locked.map((t) => t.id)); return; }
-    setKeepTableIds(new Set(locked.map((t) => t.id)));
-    setPendingOptOut(true);
-  }
-
-  async function applyOptOut(leaveTableIds: string[]) {
-    if (!player || !event || savingOptOut) return;
-    setSavingOptOut(true);
-    try {
-      const toLeave = myTables.filter((t) => leaveTableIds.includes(t.id));
-      await Promise.all(toLeave.map((t) => removePlayerFromTable(code, t, player.id)));
-      await updatePlayerNoAutoSchedule(code, player.id, true);
-      setPlayer((p) => p ? { ...p, noAutoSchedule: true } : p);
-      // Forced regardless of the freeze window — an explicit opt-out should take effect right away.
-      await runTableGeneration(code, event, { manual: true }).catch(() => {});
-    } finally {
-      setSavingOptOut(false);
-      setPendingOptOut(false);
-    }
-  }
-
-  async function optBackIn() {
-    if (!player || !event || savingOptOut) return;
-    setSavingOptOut(true);
-    try {
-      await updatePlayerNoAutoSchedule(code, player.id, false);
-      setPlayer((p) => p ? { ...p, noAutoSchedule: false } : p);
-      if (event.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
-    } finally {
-      setSavingOptOut(false);
-    }
-  }
-
   function toggleRepeatInterest(gameId: string) {
     setRepeatGameIds((cur) => cur.includes(gameId) ? cur.filter((id) => id !== gameId) : [...cur, gameId]);
   }
@@ -309,16 +264,13 @@ export default function MyTicketPage() {
   const copiesOf = (g: Game) => games.filter((m) => (m.groupId ?? m.id) === g.id);
   const ownerLabel = (g: Game) => copiesOf(g).map((m) => m.ownerName).join(', ');
   const isOwnGroup = (g: Game) => copiesOf(g).some((m) => m.ownerPlayerId === player.id);
-  // Own games are votable too — the scheduling algorithm only seats players who voted must/casual on a game.
-  const wishlistGames = primaryGames
-    .filter((g) => interests[g.id] === 'must' || interests[g.id] === 'casual')
-    .sort((a, b) => (interests[a.id] === 'must' ? 0 : 1) - (interests[b.id] === 'must' ? 0 : 1));
+  // Own games are votable too — the scheduling algorithm only seats players who voted yes on a game.
+  const wishlistGames = primaryGames.filter((g) => interests[g.id] === 'yes');
   // Unvoted games stay on top; "no"-voted games are collapsed into a separate section below.
-  const availableGames = primaryGames
-    .filter((g) => interests[g.id] !== 'must' && interests[g.id] !== 'casual' && interests[g.id] !== 'no');
+  const availableGames = primaryGames.filter((g) => interests[g.id] !== 'yes' && interests[g.id] !== 'no');
   const dismissedGames = primaryGames.filter((g) => interests[g.id] === 'no');
   const confirmedTables = myTables
-    .filter((t) => ['confirmed', 'in-progress', 'proposed'].includes(t.status))
+    .filter((t) => ['confirmed', 'in-progress', 'recommended'].includes(t.status))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   const statusBadge: Record<string, string> = {
@@ -381,56 +333,6 @@ export default function MyTicketPage() {
             </a>
           )}
         </div>
-
-        <section>
-          {player.noAutoSchedule ? (
-            <div className="flex items-center gap-2">
-              <button onClick={optBackIn} disabled={savingOptOut}
-                className="flex-1 text-left text-xs text-gray-400 border border-gray-700 rounded-xl px-3 py-2 hover:bg-gray-800 disabled:opacity-50">
-                🚫 No te generamos mesas automáticamente — tocá acá para volver a participar del sorteo.
-              </button>
-              <NoAutoScheduleHelp />
-            </div>
-          ) : !pendingOptOut ? (
-            <div className="flex items-center gap-2">
-              <button onClick={openOptOutFlow} disabled={savingOptOut}
-                className="flex-1 text-left text-xs text-gray-400 border border-gray-700 rounded-xl px-3 py-2 hover:bg-gray-800 disabled:opacity-50">
-                🚫 No quiero que se me generen/agenden mesas automáticamente
-              </button>
-              <NoAutoScheduleHelp />
-            </div>
-          ) : (
-            <div className="border border-amber-700 bg-amber-950/30 rounded-xl p-3 space-y-2 text-sm">
-              <p className="font-medium text-amber-300">Ya tenés mesas asignadas — elegí cuáles querés mantener:</p>
-              {myTables.filter((t) => t.status === 'confirmed' || t.status === 'in-progress').map((t) => (
-                <label key={t.id} className="flex items-center gap-2 text-gray-300">
-                  <input type="checkbox" checked={keepTableIds.has(t.id)}
-                    onChange={() => setKeepTableIds((cur) => {
-                      const next = new Set(cur);
-                      if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-                      return next;
-                    })} />
-                  <span>{t.gameName} · {t.startTime}–{t.endTime} {t.status === 'in-progress' ? '(en curso)' : '(confirmada)'}</span>
-                </label>
-              ))}
-              <div className="flex gap-2 pt-1">
-                <button onClick={() => setPendingOptOut(false)}
-                  className="flex-1 border border-gray-700 rounded-lg py-1.5 text-sm font-medium">
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    const lockedIds = myTables.filter((t) => t.status === 'confirmed' || t.status === 'in-progress').map((t) => t.id);
-                    applyOptOut(lockedIds.filter((id) => !keepTableIds.has(id)));
-                  }}
-                  disabled={savingOptOut}
-                  className="flex-1 bg-indigo-600 rounded-lg py-1.5 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-                  {savingOptOut ? 'Guardando...' : 'Confirmar'}
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
 
         <section>
           <h2 className="font-semibold text-gray-200 mb-2">Tus mesas <TablesHelp /></h2>
@@ -735,19 +637,18 @@ function GameVoteCard({
         {game.bggUrl ? '🎲 Ver en BGG' : '🎲 Buscar en BGG'}
       </a>
       <div className="flex gap-1 mt-1">
-        {(['must', 'casual', 'no'] as InterestLevel[]).map((level) => {
+        {(['yes', 'no'] as InterestLevel[]).map((level) => {
           const active = interest === level;
           const cls = active
-            ? level === 'must' ? 'bg-red-900 border-red-600 text-red-300'
-              : level === 'casual' ? 'bg-blue-900 border-blue-600 text-blue-300'
+            ? level === 'yes' ? 'bg-blue-900 border-blue-600 text-blue-300'
               : 'bg-gray-700 border-gray-500 text-gray-300'
             : 'border-gray-700 text-gray-500 hover:bg-gray-800';
           return (
             <button key={level}
               onClick={() => onSetInterest(active ? null : level)}
               className={'flex-1 py-1.5 rounded-lg border transition-colors flex flex-col items-center gap-0.5 leading-tight ' + cls}>
-              <span className="text-sm">{level === 'must' ? '❤️' : level === 'casual' ? '👍' : '👎'}</span>
-              <span className="text-[10px]">{level === 'must' ? 'Sí o sí' : level === 'casual' ? 'Si falta' : 'No me interesa'}</span>
+              <span className="text-sm">{level === 'yes' ? '👍' : '👎'}</span>
+              <span className="text-[10px]">{level === 'yes' ? 'Quiero jugarlo' : 'No me interesa'}</span>
             </button>
           );
         })}
@@ -756,7 +657,7 @@ function GameVoteCard({
         <input type="checkbox" checked={canExplain} onChange={onToggleCanExplain} />
         Sé explicarlo
       </label>
-      {(interest === 'must' || interest === 'casual') && (
+      {interest === 'yes' && (
         <label className="flex items-center gap-1.5 text-xs text-gray-400 mt-1">
           <input type="checkbox" checked={repeatInterest} onChange={onToggleRepeatInterest} />
           Me sumaría a una segunda mesa de este juego

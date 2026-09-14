@@ -29,29 +29,36 @@ const games = (await db.collection('events').doc(eventCode).collection('games').
 const players = (await db.collection('events').doc(eventCode).collection('players').get()).docs.map((d) => ({ id: d.id, ...d.data() })) as any;
 const allTables = (await db.collection('events').doc(eventCode).collection('tables').get()).docs.map((d) => ({ id: d.id, ...d.data() })) as any;
 
-// Mirrors runTableGeneration: only confirmed tables survive a regeneration, everything else is rebuilt fresh.
-const lockedTables = allTables.filter((t: any) => t.status === 'confirmed');
-const batchNumber = lockedTables.length > 0 ? Math.max(...lockedTables.map((t: any) => t.batchNumber)) + 1 : 1;
+// Mirrors runTableGeneration: only non-cancelled tables survive a regeneration as context —
+// 'recommended' ones just get extended with new candidates, never wiped.
+const activeTables = allTables.filter((t: any) => t.status !== 'cancelled');
+const batchNumber = activeTables.length > 0 ? Math.max(...activeTables.map((t: any) => t.batchNumber)) + 1 : 1;
 
-const proposals = generateTables(players, games, lockedTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks ?? []);
+const { proposals, candidateUpdates } = generateTables(players, games, activeTables, event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks ?? []);
 
-console.log(`=== SIMULATED PROPOSALS (${proposals.length}) ===`);
+console.log(`=== NEW RECOMMENDED TABLES (${proposals.length}) ===`);
 for (const t of proposals) {
-  const names = t.playerIds.map((pid: string) => players.find((p: any) => p.id === pid)?.name ?? pid);
-  console.log(`- ${t.gameName} ${t.startTime}-${t.endTime} players=[${names.join(', ')}]`);
+  const names = t.candidateIds.map((pid: string) => players.find((p: any) => p.id === pid)?.name ?? pid);
+  console.log(`- ${t.gameName} ${t.startTime}-${t.endTime} candidates=[${names.join(', ')}]`);
+}
+
+console.log(`\n=== CANDIDATE UPDATES TO EXISTING OPEN TABLES (${candidateUpdates.length}) ===`);
+for (const u of candidateUpdates) {
+  const table = allTables.find((t: any) => t.id === u.tableId);
+  const names = u.candidateIds.map((pid: string) => players.find((p: any) => p.id === pid)?.name ?? pid);
+  console.log(`- ${table?.gameName ?? u.tableId}: candidates now [${names.join(', ')}]`);
 }
 
 // Flags any game with enough total votes to hit its minimum that still ended up with zero table —
 // worth checking by hand, since it means the schedule genuinely has no room for it right now.
-const scheduledGameIds = new Set(proposals.map((t) => t.gameId));
+const scheduledGameIds = new Set([...activeTables.map((t: any) => t.gameId), ...proposals.map((t) => t.gameId)]);
 const primaryGames = games.filter((g: any) => !g.groupId || g.groupId === g.id);
 console.log('\n=== ORPHANED GAMES (enough votes, zero tables) ===');
 for (const g of primaryGames) {
   if (scheduledGameIds.has(g.id)) continue;
-  const must = players.filter((p: any) => p.interests?.[g.id] === 'must').length;
-  const casual = players.filter((p: any) => p.interests?.[g.id] === 'casual').length;
-  if (must + casual >= g.minPlayers) {
-    console.log(`- ${g.name} (${g.minPlayers}-${g.maxPlayers}p, ${g.durationMinutes}min): must=${must} casual=${casual}`);
+  const yes = players.filter((p: any) => p.interests?.[g.id] === 'yes').length;
+  if (yes >= g.minPlayers) {
+    console.log(`- ${g.name} (${g.minPlayers}-${g.maxPlayers}p, ${g.durationMinutes}min): yes=${yes}`);
   }
 }
 

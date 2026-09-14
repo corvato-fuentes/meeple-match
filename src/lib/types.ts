@@ -2,8 +2,11 @@ import { Timestamp } from "firebase/firestore";
 
 export type EventStatus = "setup" | "open" | "live" | "closed";
 export type GameComplexity = "light" | "medium" | "heavy";
-export type InterestLevel = "must" | "casual" | "no";
-export type TableStatus = "proposed" | "confirmed" | "in-progress" | "completed" | "cancelled";
+// "yes" = quiero jugarlo (👍), "no" = no me interesa (👎). Absence of a key means "sin votar".
+export type InterestLevel = "yes" | "no";
+// "recommended" = el algoritmo la armó y está esperando que los candidatos acepten/rechacen
+// (o, si postedByOwner, que se sumen jugadores) hasta llegar al mínimo necesario.
+export type TableStatus = "recommended" | "confirmed" | "in-progress" | "completed" | "cancelled";
 
 export interface ScheduledBreak {
   label: string;
@@ -87,7 +90,6 @@ export interface Player {
   canExplain: string[];
   repeatGameIds: string[]; // gameIds the player is happy to play again in a second table
   paymentProofUrl: string | null; // Cloudinary secure_url; unguessable path, never linked on any public-facing page
-  noAutoSchedule?: boolean; // opted out of automatic table generation — admin can still seat them manually
 }
 
 export interface Table {
@@ -99,10 +101,19 @@ export interface Table {
   endTime: string;
   explainerId: string;
   explainerIsPlaying: boolean; // false = "explica y se va": teaches for a short block, isn't in playerIds and doesn't take a seat
-  playerIds: string[];
+  playerIds: string[]; // accepted/joined players so far — the confirmed roster once status becomes 'confirmed'
   status: TableStatus;
   isManuallyEdited: boolean;
   batchNumber: number;
+  // Only meaningful while status is 'recommended' and postedByOwner is falsy: everyone the
+  // algorithm offered a seat to. Shrinks as people accept (→ playerIds) or reject (→ rejectedIds).
+  candidateIds?: string[];
+  // Players who rejected THIS specific recommended table — their underlying vote isn't touched,
+  // they just won't be re-offered this exact table instance again.
+  rejectedIds?: string[];
+  // True for a table the game's owner posted directly ("I'm bringing this, join me at 4pm")
+  // instead of one the algorithm assembled from votes — players join directly, no candidate pool.
+  postedByOwner?: boolean;
 }
 
 // Derived — never stored in Firestore

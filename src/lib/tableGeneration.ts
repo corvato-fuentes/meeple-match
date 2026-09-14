@@ -1,5 +1,5 @@
 import {
-  getPlayers, getGames, getTables, saveProposedTables, deleteStaleTables, fillTableSeats,
+  getPlayers, getGames, getTables, saveProposedTables, updateTableCandidates, fillTableSeats,
   acquireGenerationLock, releaseGenerationLock,
 } from '@/lib/firestore';
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
@@ -21,10 +21,12 @@ async function acquireLockWithRetry(eventCode: string): Promise<boolean> {
 
 /**
  * Shared by the admin's manual "Generar mesas" button and the auto-generate triggers (player
- * registration / wishlist save). Always does a full regeneration: any table that isn't
- * "confirmed" (proposed, cancelled, in-progress or completed) is discarded and rebuilt from the
- * latest votes, since a player may have registered or changed their mind since it was created.
- * Only confirmed tables are ever left untouched — that's the admin's explicit lock.
+ * registration / wishlist save). Unlike the old must/casual algorithm, nothing gets wiped and
+ * rebuilt from scratch anymore: a 'recommended' table already has candidates responding to it
+ * (accepting/rejecting), so this only ever ADDS to what exists — new candidates on already-open
+ * recommended tables, or brand-new recommended tables for demand nothing existing covers yet.
+ * Only 'cancelled' tables are ignored; everything else (recommended, confirmed, in-progress,
+ * completed) stays untouched as context.
  *
  * Once inside the configured freeze window before the event (by default, midnight of the event
  * day), auto-triggers (manual=false) stop regenerating altogether so the grid freezes into
@@ -51,28 +53,25 @@ export async function runTableGeneration(
     const [allPlayers, allGames, allTables] = await Promise.all([
       getPlayers(eventCode), getGames(eventCode), getTables(eventCode),
     ]);
-    const stale = allTables.filter((t) => t.status !== 'confirmed');
-    // Re-checked per-table inside a transaction — if one of these got confirmed by the admin at
-    // this exact moment, it's kept instead of being wiped out from under them.
-    const keptConfirmed = stale.length > 0 ? await deleteStaleTables(eventCode, stale.map((t) => t.id)) : [];
-    const lockedTables = [
-      ...allTables.filter((t) => t.status === 'confirmed'),
-      ...stale.filter((t) => keptConfirmed.includes(t.id)),
-    ];
+    const activeTables = allTables.filter((t) => t.status !== 'cancelled');
 
-    const fills = fillExistingTables(allPlayers, allGames, lockedTables, event.settings.bufferMinutes);
+    // Late "yes" voters can join an already-confirmed table's open seats directly, no accept needed.
+    const fills = fillExistingTables(allPlayers, allGames, activeTables, event.settings.bufferMinutes);
     for (const fill of fills) await fillTableSeats(eventCode, fill.tableId, fill.playerIds);
-    const currentTables = fills.length > 0 ? await getTables(eventCode) : lockedTables;
+    const currentTables = fills.length > 0 ? (await getTables(eventCode)).filter((t) => t.status !== 'cancelled') : activeTables;
+
     const batchNumber = currentTables.length > 0
       ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
       : 1;
-    const proposals = generateTables(
+    const { proposals, candidateUpdates } = generateTables(
       allPlayers, allGames, currentTables,
       event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks
     );
-    await saveProposedTables(eventCode, proposals as any);
+    if (proposals.length > 0) await saveProposedTables(eventCode, proposals);
+    for (const update of candidateUpdates) await updateTableCandidates(eventCode, update.tableId, update.candidateIds);
+
     const filledSeats = fills.reduce((n, f) => {
-      const before = lockedTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0;
+      const before = activeTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0;
       return n + (f.playerIds.length - before);
     }, 0);
     return { filledSeats, newTables: proposals.length };

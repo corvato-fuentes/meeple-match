@@ -105,7 +105,7 @@ export default function PlayersPage() {
 
   const gameMap = new Map(games.map((g) => [g.id, g]));
 
-  const VOTE_LABEL: Record<string, string> = { must: '❤️ Quiero', casual: '👍 Me sumo', no: '👎 No' };
+  const VOTE_LABEL: Record<string, string> = { yes: '👍 Quiero jugarlo', no: '👎 No me interesa' };
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10'>
@@ -128,8 +128,8 @@ export default function PlayersPage() {
         <div className='space-y-3'>
           {players.map((p) => {
             const myTables = getPlayerTables(p.id, tables);
-            const votedCount = Object.values(p.interests).filter((v) => v === 'must' || v === 'casual' || v === 'no').length;
-            const likedCount = Object.values(p.interests).filter((v) => v === 'must' || v === 'casual').length;
+            const votedCount = Object.values(p.interests).filter((v) => v === 'yes' || v === 'no').length;
+            const likedCount = Object.values(p.interests).filter((v) => v === 'yes').length;
             return (
               <div key={p.id} className='border border-gray-700 rounded-xl p-4 bg-gray-800'>
                 <div className='flex justify-between items-start'>

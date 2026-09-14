@@ -30,12 +30,11 @@ export default function VotesPage() {
   const ownerLabel = (g: Game) => games.filter((m) => (m.groupId ?? m.id) === g.id).map((m) => m.ownerName).join(', ');
 
   const rows = primaryGames.map((g) => {
-    const must = players.filter((p) => p.interests[g.id] === 'must').length;
-    const casual = players.filter((p) => p.interests[g.id] === 'casual').length;
+    const yes = players.filter((p) => p.interests[g.id] === 'yes').length;
     const no = players.filter((p) => p.interests[g.id] === 'no').length;
     const explainers = players.filter((p) => p.canExplain.includes(g.id)).length;
-    return { game: g, must, casual, no, explainers, total: must + casual };
-  }).sort((a, b) => b.must - a.must || b.casual - a.casual);
+    return { game: g, yes, no, explainers, total: yes };
+  }).sort((a, b) => b.yes - a.yes);
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10">
@@ -49,7 +48,7 @@ export default function VotesPage() {
         <p className="text-gray-500 text-center py-12">Todavía no hay juegos cargados.</p>
       ) : (
         <div className="space-y-2">
-          {rows.map(({ game, must, casual, no, explainers, total }) => {
+          {rows.map(({ game, yes, no, explainers, total }) => {
             const notEnough = total < game.minPlayers;
             const label = ownerLabel(game);
             const copyCount = label.split(',').length;
@@ -66,8 +65,7 @@ export default function VotesPage() {
                   {notEnough && <span className="text-xs text-amber-400 shrink-0">⚠️ Faltan votos ({total}/{game.minPlayers})</span>}
                 </div>
                 <div className="flex gap-3 mt-2 text-sm">
-                  <span className="text-red-300">❤️ {must}</span>
-                  <span className="text-blue-300">👍 {casual}</span>
+                  <span className="text-blue-300">👍 {yes}</span>
                   <span className="text-gray-500">👎 {no}</span>
                   <span className="text-purple-300">🎓 {explainers} explica{explainers !== 1 ? 'n' : ''}</span>
                 </div>

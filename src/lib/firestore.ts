@@ -129,7 +129,7 @@ export async function updateGame(
   await updateDoc(doc(db, 'events', eventCode, 'games', gameId), fields);
 }
 
-const INTEREST_RANK: Record<InterestLevel, number> = { must: 3, casual: 2, no: 1 };
+const INTEREST_RANK: Record<InterestLevel, number> = { yes: 2, no: 1 };
 
 /**
  * Marks a set of games as copies of the same physical game (e.g. two players both loaded "The
@@ -352,15 +352,9 @@ export async function updatePlayerTimes(
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { arrivalTime, departureTime });
 }
 
-/** Opts a player in/out of automatic table generation — the admin can still seat them manually either way. */
-export async function updatePlayerNoAutoSchedule(eventCode: string, playerId: string, noAutoSchedule: boolean): Promise<void> {
-  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { noAutoSchedule });
-}
-
 /**
- * Pulls one player out of a single table they're already seated at (or explaining) — used when a
- * player opts out of auto-scheduling but chooses to leave an already-confirmed table instead of
- * keeping their spot. Mirrors the per-table cleanup in deletePlayer.
+ * Pulls one player out of a single table they're already seated at (or explaining) — e.g. leaving
+ * an already-confirmed table. Mirrors the per-table cleanup in deletePlayer.
  */
 export async function removePlayerFromTable(eventCode: string, table: Table, playerId: string): Promise<void> {
   const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
@@ -536,6 +530,11 @@ export async function saveProposedTables(
     batch.set(ref, p);
   }
   await batch.commit();
+}
+
+/** Adds fresh voters to an already-open 'recommended' table's candidate pool (full updated list). */
+export async function updateTableCandidates(eventCode: string, tableId: string, candidateIds: string[]): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), { candidateIds });
 }
 
 /** Deletes a batch of tables — used to clear out stale "proposed" tables before a full regeneration */

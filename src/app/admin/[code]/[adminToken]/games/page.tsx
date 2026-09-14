@@ -59,12 +59,11 @@ export default function GamesPage() {
 
   const rows = [...groups.entries()].map(([canonicalId, copies]) => {
     const primary = copies.find((g) => g.id === canonicalId) ?? copies[0];
-    const must = players.filter((p) => p.interests[primary.id] === 'must').length;
-    const casual = players.filter((p) => p.interests[primary.id] === 'casual').length;
+    const yes = players.filter((p) => p.interests[primary.id] === 'yes').length;
     const no = players.filter((p) => p.interests[primary.id] === 'no').length;
     const explainers = players.filter((p) => p.canExplain.includes(primary.id)).length;
-    return { primary, copies, must, casual, no, explainers, total: must + casual };
-  }).sort((a, b) => b.must - a.must || b.casual - a.casual);
+    return { primary, copies, yes, no, explainers, total: yes };
+  }).sort((a, b) => b.yes - a.yes);
 
   function toggleSelect(id: string) {
     setSelectedIds((cur) => cur.includes(id) ? cur.filter((i) => i !== id) : [...cur, id]);
@@ -153,7 +152,7 @@ export default function GamesPage() {
         <p className='text-gray-500 text-center py-12'>Todavía no hay juegos cargados.</p>
       ) : (
         <div className='space-y-2'>
-          {rows.map(({ primary, copies, must, casual, no, explainers, total }) => {
+          {rows.map(({ primary, copies, yes, no, explainers, total }) => {
             const notEnough = total < primary.minPlayers;
             const isGroup = copies.length > 1;
             return (
@@ -184,8 +183,7 @@ export default function GamesPage() {
                   {notEnough && <span className='text-xs text-amber-400 shrink-0'>⚠️ Faltan votos ({total}/{primary.minPlayers})</span>}
                 </div>
                 <div className='flex gap-3 mt-2 text-sm'>
-                  <span className='text-red-300'>❤️ {must}</span>
-                  <span className='text-blue-300'>👍 {casual}</span>
+                  <span className='text-blue-300'>👍 {yes}</span>
                   <span className='text-gray-500'>👎 {no}</span>
                   <span className='text-purple-300'>🎓 {explainers} explica{explainers !== 1 ? 'n' : ''}</span>
                 </div>

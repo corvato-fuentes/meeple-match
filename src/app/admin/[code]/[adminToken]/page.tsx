@@ -228,7 +228,7 @@ export default function AdminPage() {
   if (!event || !settingsDraft) return <div className='p-8 text-center'>Cargando...</div>;
 
   const confirmedCount = tables.filter((t) => ['confirmed', 'in-progress'].includes(t.status)).length;
-  const proposedCount = tables.filter((t) => t.status === 'proposed').length;
+  const proposedCount = tables.filter((t) => t.status === 'recommended').length;
   const idleGaps = computeIdleGaps(players, tables, event.settings.breaks);
 
   return (
@@ -276,7 +276,7 @@ export default function AdminPage() {
       {/* Stats */}
       <div className='grid grid-cols-3 gap-3'>
         <StatCard label='Inscriptos' value={players.length} sub={event.settings.maxPlayers ? `/ ${event.settings.maxPlayers}` : ''} />
-        <StatCard label='Mesas prop.' value={proposedCount} />
+        <StatCard label='Mesas recom.' value={proposedCount} />
         <StatCard label='Mesas conf.' value={confirmedCount} />
       </div>
 

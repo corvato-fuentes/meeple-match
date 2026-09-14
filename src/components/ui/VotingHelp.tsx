@@ -17,15 +17,14 @@ export default function VotingHelp() {
             onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold text-gray-100">¿Cómo funciona esto?</h3>
             <ul className="space-y-2 text-gray-300">
-              <li><strong>❤️ Sí o sí:</strong> lo querés jugar sí o sí — voto fuerte, el sistema arma mesas priorizando juegos con más "Sí o sí".</li>
-              <li><strong>👍 Si falta:</strong> te sumás si falta gente para completar la mesa, pero solo entrás después de los "Sí o sí".</li>
+              <li><strong>👍 Quiero jugarlo:</strong> el sistema arma una mesa con vos y otros interesados apenas coincidan un horario libre. Vas a poder aceptarla o rechazarla cuando se arme.</li>
               <li><strong>👎 No me interesa:</strong> el juego se oculta de tu lista.</li>
-              <li><strong>🎓 Sé explicarlo:</strong> marcalo si conocés las reglas — sin al menos un explicador, esa mesa no se arma. Si marcás esto pero no votás ❤️ ni 👍 en ese juego, no ocupás un lugar en la mesa: solo vas a explicarlo un rato y después quedás libre para jugar otra cosa.</li>
+              <li><strong>🎓 Sé explicarlo:</strong> marcalo si conocés las reglas — sin al menos un explicador, esa mesa no se arma. Si marcás esto pero no votás 👍 en ese juego, no ocupás un lugar en la mesa: solo vas a explicarlo un rato y después quedás libre para jugar otra cosa.</li>
               <li><strong>🔁 Repetir:</strong> si ya te tocó jugarlo, marcalo para poder entrar a una segunda mesa del mismo juego más tarde.</li>
             </ul>
             <p className="text-gray-400">
-              Las mesas se recalculan solas cada vez que alguien se inscribe o vota, así que pueden cambiar hasta que el
-              organizador confirme una. Una vez confirmada, ya no se toca.
+              Cuando el sistema encuentra un horario en común para suficiente gente, te va a proponer esa mesa como
+              "recomendada" — ahí la aceptás o la rechazás. Una vez que llega al mínimo de aceptados, se confirma.
             </p>
             <button onClick={() => setOpen(false)}
               className="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-indigo-700">
