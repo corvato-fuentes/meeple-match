@@ -123,7 +123,7 @@ export async function updateGame(
   gameId: string,
   fields: Partial<Pick<Game,
     'name' | 'bggUrl' | 'minPlayers' | 'maxPlayers' | 'durationMinutes' | 'complexity' |
-    'perPlayerMinutes' | 'setupMinutes' | 'explanationMinutes'
+    'perPlayerMinutes' | 'setupMinutes' | 'explanationMinutes' | 'lendable'
   >>
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'games', gameId), fields);

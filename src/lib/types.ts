@@ -61,6 +61,11 @@ export interface Game {
   perPlayerMinutes?: number | null;
   setupMinutes?: number | null;
   explanationMinutes?: number | null;
+  // If false (default), the algorithm only schedules tables for this game where the owner is
+  // actually seated — the owner must be there to hand over the physical copy. If true, the owner
+  // opted to lend it out: any table can run during the owner's arrival\u2192departure window even
+  // without them playing.
+  lendable?: boolean;
 }
 
 export type DraftGame = Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>;

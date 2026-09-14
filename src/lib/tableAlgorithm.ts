@@ -57,17 +57,32 @@ function roundUpToGrid(minutes: number): number {
   return Math.ceil(minutes / ROUND_MIN) * ROUND_MIN;
 }
 
+/**
+ * A game's actual playing time depends on how many people are at the table, once the admin/owner
+ * fills in per-player/setup/explanation minutes. Falls back to the flat `durationMinutes` when
+ * none of those are set, so existing games with only a flat duration keep working unchanged.
+ */
+function estimatedDuration(game: Game, playerCount: number): number {
+  if (game.perPlayerMinutes == null && game.setupMinutes == null && game.explanationMinutes == null) {
+    return game.durationMinutes;
+  }
+  return (game.setupMinutes ?? 0) + (game.explanationMinutes ?? 0) + (game.perPlayerMinutes ?? 0) * playerCount;
+}
+
 function findEarliestWindow(
   players: Player[],
-  durationMinutes: number,
+  game: Game,
   bufferMinutes: number,
   busyMap: Map<string, { start: string; end: string }[]>,
   physicalTables: number | null,
   occupiedTables: { startTime: string; endTime: string }[],
   sameGameWindows: { startTime: string; endTime: string }[],
   gameCopies: number,
-  ownerWindows: { start: string; end: string }[]
+  ownerWindows: { start: string; end: string; ownerId: string; lendable: boolean }[]
 ): { start: string; end: string } | null {
+  // Recomputed from the size of THIS tentative group — every time the incremental group-builder
+  // (buildGreedy) tries adding one more candidate, the required playing time grows accordingly.
+  const durationMinutes = estimatedDuration(game, players.length);
   const candidates = new Set<number>();
   players.forEach((p) => {
     // Buffer applies after arrival too — nobody sits down and starts playing the instant they walk in
@@ -99,9 +114,13 @@ function findEarliestWindow(
     if (!players.every((p) => isAvailable(p, start, end, busyMap.get(p.id) ?? [], bufferMinutes))) continue;
     if (physicalTables != null && concurrentTableCount(occupiedTables, start, end) >= physicalTables) continue;
     if (concurrentTableCount(paddedSameGameWindows, start, end) >= gameCopies) continue;
-    // The game can only be scheduled while at least one of its owners is actually at the venue
-    // to have brought the physical copy — not necessarily seated at this specific table.
-    if (ownerWindows.length > 0 && !ownerWindows.some((w) => toMinutes(w.start) <= startMin && startMin + durationMinutes <= toMinutes(w.end))) continue;
+    // The game can only be scheduled while at least one of its owners is actually at the venue to
+    // have brought the physical copy. If that owner didn't opt in to lend it out, they also need
+    // to be one of the seated players — otherwise their copy can't leave their hands.
+    if (ownerWindows.length > 0 && !ownerWindows.some((w) =>
+      toMinutes(w.start) <= startMin && startMin + durationMinutes <= toMinutes(w.end) &&
+      (w.lendable || players.some((p) => p.id === w.ownerId))
+    )) continue;
     return { start, end };
   }
   return null;
@@ -189,11 +208,14 @@ export function generateTables(
     const copies = games.filter((g) => (g.groupId ?? g.id) === game.id).length || 1;
     // The game can't be played before its owner has brought the physical copy to the venue, nor
     // after they've left with it — one window per copy/owner in the group (usually just one).
+    // `lendable` carries whether that owner is OK with a table running without them seated.
     const ownerWindows = games
       .filter((g) => (g.groupId ?? g.id) === game.id)
-      .map((g) => players.find((p) => p.id === g.ownerPlayerId))
-      .filter((p): p is Player => !!p)
-      .map((owner) => ({ start: owner.arrivalTime, end: owner.departureTime }));
+      .map((g) => {
+        const owner = players.find((p) => p.id === g.ownerPlayerId);
+        return owner ? { start: owner.arrivalTime, end: owner.departureTime, ownerId: owner.id, lendable: !!g.lendable } : null;
+      })
+      .filter((w): w is { start: string; end: string; ownerId: string; lendable: boolean } => !!w);
     // Players already seated at a table for this game only count again if they opted into a
     // replay — otherwise further tables for the same game are built from fresh voters only.
     // Loops so a single generation pass can seat all of them across as many tables as fit
@@ -253,14 +275,14 @@ export function generateTables(
         let group = [...seed];
         let window: { start: string; end: string } | null = null;
         if (group.length) {
-          window = findEarliestWindow(group, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
+          window = findEarliestWindow(group, game, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
           if (!window) return null;
         }
         for (const candidate of pool) {
           if (group.length >= maxSize) break;
           if (group.some((p) => p.id === candidate.id)) continue;
           const tentative = [...group, candidate];
-          const found = findEarliestWindow(tentative, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
+          const found = findEarliestWindow(tentative, game, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
           if (found) {
             group = tentative;
             window = found;
@@ -319,6 +341,9 @@ export function generateTables(
       const teachOnlyExplainer = best.teachOnlyExplainer;
 
       const group = [...coreGroup];
+      // NOTE: bonus "Me sumo" top-off intentionally keeps the window fixed at coreGroup's size —
+      // extending it per extra seat would require re-validating every already-seated player's
+      // availability against a longer window each time, so duration only scales with the core group.
       for (const casual of casualPlayers) {
         if (group.length >= game.maxPlayers) break;
         if (group.some((p) => p.id === casual.id)) continue;
@@ -424,9 +449,11 @@ export function findNearMissGames(
     const copies = games.filter((g) => (g.groupId ?? g.id) === game.id).length || 1;
     const ownerWindows = games
       .filter((g) => (g.groupId ?? g.id) === game.id)
-      .map((g) => players.find((p) => p.id === g.ownerPlayerId))
-      .filter((p): p is Player => !!p)
-      .map((owner) => ({ start: owner.arrivalTime, end: owner.departureTime }));
+      .map((g) => {
+        const owner = players.find((p) => p.id === g.ownerPlayerId);
+        return owner ? { start: owner.arrivalTime, end: owner.departureTime, ownerId: owner.id, lendable: !!g.lendable } : null;
+      })
+      .filter((w): w is { start: string; end: string; ownerId: string; lendable: boolean } => !!w);
 
     const seated = seatedByGame.get(game.id) ?? new Set<string>();
     const eligibleForAnotherTable = (p: Player) => !seated.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
@@ -440,7 +467,7 @@ export function findNearMissGames(
       .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
 
     const tryWindow = (group: Player[]) =>
-      group.length === 0 ? null : findEarliestWindow(group, game.durationMinutes, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
+      group.length === 0 ? null : findEarliestWindow(group, game, bufferMinutes, busyMap, physicalTables, occupiedTables, gameWindows, copies, ownerWindows);
 
     const hasExplainer = (group: Player[], window: { start: string; end: string }) => {
       if (group.some((p) => p.canExplain.includes(game.id))) return true;

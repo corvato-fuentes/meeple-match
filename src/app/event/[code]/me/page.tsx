@@ -25,13 +25,14 @@ const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 type InterestLevel = 'must' | 'casual' | 'no';
 
 const COMPLEXITY_LABEL: Record<GameComplexity, string> = {
-  light: 'Ligero',
-  medium: 'Medio',
-  heavy: 'Complejo',
+  light: 'Liviano',
+  medium: 'Intermedio',
+  heavy: 'Pesado',
 };
 
 const EMPTY_DRAFT_GAME: DraftGame = {
   name: '', bggUrl: null, minPlayers: 2, maxPlayers: 4, durationMinutes: 60, complexity: 'medium',
+  perPlayerMinutes: null, setupMinutes: null, explanationMinutes: null,
 };
 
 export default function MyTicketPage() {
@@ -53,7 +54,7 @@ export default function MyTicketPage() {
   const [showDismissed, setShowDismissed] = useState(false);
   const [showAddGame, setShowAddGame] = useState(false);
   const [newGame, setNewGame] = useState<DraftGame>(EMPTY_DRAFT_GAME);
-  const [canExplainNew, setCanExplainNew] = useState(false);
+  const [canExplainNew, setCanExplainNew] = useState<boolean | null>(null);
   const [addingGame, setAddingGame] = useState(false);
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [removingGameId, setRemovingGameId] = useState<string | null>(null);
@@ -141,17 +142,21 @@ export default function MyTicketPage() {
     if (!player || !newGame.name.trim() || addingGame) return;
     setAddingGame(true);
     try {
+      // No flat duration input anymore — falls back to a pessimistic estimate (setup + explanation +
+      // per-player time × max players) so the game still has a usable durationMinutes for display/legacy code.
+      const estimatedDurationMinutes = (newGame.setupMinutes ?? 0) + (newGame.explanationMinutes ?? 0) + (newGame.perPlayerMinutes ?? 0) * newGame.maxPlayers;
+      const gameToSave: DraftGame = { ...newGame, durationMinutes: estimatedDurationMinutes || newGame.durationMinutes };
       if (editingGameId) {
-        await updateGame(code, editingGameId, newGame);
-        setGames((gs) => gs.map((g) => (g.id === editingGameId ? { ...g, ...newGame } : g)));
+        await updateGame(code, editingGameId, gameToSave);
+        setGames((gs) => gs.map((g) => (g.id === editingGameId ? { ...g, ...gameToSave } : g)));
         const updatedCanExplain = canExplainNew
           ? [...new Set([...canExplain, editingGameId])]
           : canExplain.filter((id) => id !== editingGameId);
         setCanExplain(updatedCanExplain);
         await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain, repeatGameIds });
       } else {
-        const gameId = await addPlayerGame(code, player.id, player.name, player.bringGameIds, newGame);
-        const createdGame: Game = { id: gameId, ...newGame, ownerPlayerId: player.id, ownerName: player.name };
+        const gameId = await addPlayerGame(code, player.id, player.name, player.bringGameIds, gameToSave);
+        const createdGame: Game = { id: gameId, ...gameToSave, ownerPlayerId: player.id, ownerName: player.name };
         const updatedCanExplain = canExplainNew ? [...canExplain, gameId] : canExplain;
         setGames((gs) => [...gs, createdGame]);
         setPlayer((p) => p ? { ...p, bringGameIds: [...p.bringGameIds, gameId] } : p);
@@ -159,7 +164,7 @@ export default function MyTicketPage() {
         await updatePlayerWishlist(code, player.id, { interests, canExplain: updatedCanExplain, repeatGameIds });
       }
       setNewGame(EMPTY_DRAFT_GAME);
-      setCanExplainNew(false);
+      setCanExplainNew(null);
       setEditingGameId(null);
       setShowAddGame(false);
     } finally {
@@ -172,6 +177,8 @@ export default function MyTicketPage() {
     setNewGame({
       name: game.name, bggUrl: game.bggUrl, minPlayers: game.minPlayers,
       maxPlayers: game.maxPlayers, durationMinutes: game.durationMinutes, complexity: game.complexity,
+      lendable: !!game.lendable,
+      perPlayerMinutes: game.perPlayerMinutes ?? null, setupMinutes: game.setupMinutes ?? null, explanationMinutes: game.explanationMinutes ?? null,
     });
     setCanExplainNew(canExplain.includes(game.id));
     setShowAddGame(true);
@@ -180,7 +187,7 @@ export default function MyTicketPage() {
   function cancelEditGame() {
     setEditingGameId(null);
     setNewGame(EMPTY_DRAFT_GAME);
-    setCanExplainNew(false);
+    setCanExplainNew(null);
     setShowAddGame(false);
   }
 
@@ -534,45 +541,88 @@ export default function MyTicketPage() {
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <input className="w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-2 text-sm" placeholder="Link BGG (opcional)"
+                value={newGame.bggUrl ?? ''} onChange={(e) => setNewGame({ ...newGame, bggUrl: e.target.value || null })} />
+              <div className="space-y-3">
                 <div>
-                  <label className="text-xs text-gray-400">Mín. jugadores</label>
+                  <label className="text-xs text-gray-400">🧑‍🤝‍🧑 ¿Cuánto creés vos que es el mínimo recomendado de jugadores?</label>
                   <input type="number" min={1} max={20} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
                     value={newGame.minPlayers} onFocus={(e) => e.target.select()}
+                    onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
                     onChange={(e) => setNewGame({ ...newGame, minPlayers: +e.target.value })} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400">Máx. jugadores</label>
+                  <label className="text-xs text-gray-400">🧑‍🤝‍🧑 ¿Cuánto creés vos que es el máximo recomendado?</label>
                   <input type="number" min={1} max={20} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
                     value={newGame.maxPlayers} onFocus={(e) => e.target.select()}
+                    onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
                     onChange={(e) => setNewGame({ ...newGame, maxPlayers: +e.target.value })} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400">Duración (min)</label>
-                  <input type="number" min={10} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
-                    value={newGame.durationMinutes} onFocus={(e) => e.target.select()}
-                    onChange={(e) => setNewGame({ ...newGame, durationMinutes: +e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">Complejidad</label>
+                  <label className="text-xs text-gray-400">🧩 ¿Qué tan complejo es?</label>
                   <select className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm" value={newGame.complexity}
                     onChange={(e) => setNewGame({ ...newGame, complexity: e.target.value as GameComplexity })}>
-                    <option value="light">Light</option>
-                    <option value="medium">Medium</option>
-                    <option value="heavy">Heavy</option>
+                    {(['light', 'medium', 'heavy'] as GameComplexity[]).map((c) => (
+                      <option key={c} value={c}>{COMPLEXITY_LABEL[c]}</option>
+                    ))}
                   </select>
                 </div>
+                <div>
+                  <label className="text-xs text-gray-400">⏱️ ¿Cuánto tiempo por jugador? (min)</label>
+                  <input type="number" min={0} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                    value={newGame.perPlayerMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder="—"
+                    onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
+                    onChange={(e) => setNewGame({ ...newGame, perPlayerMinutes: e.target.value ? +e.target.value : null })} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">🛠️ ¿Cuánto tiempo de armado? (min)</label>
+                  <input type="number" min={0} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                    value={newGame.setupMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder="—"
+                    onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
+                    onChange={(e) => setNewGame({ ...newGame, setupMinutes: e.target.value ? +e.target.value : null })} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">📚 ¿Cuánto tiempo de explicación? (min)</label>
+                  <input type="number" min={0} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                    value={newGame.explanationMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder="—"
+                    onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
+                    onChange={(e) => setNewGame({ ...newGame, explanationMinutes: e.target.value ? +e.target.value : null })} />
+                </div>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={canExplainNew} onChange={(e) => setCanExplainNew(e.target.checked)} />
-                Sé explicarlo
-              </label>
+              <p className="text-[11px] text-gray-500">* Todos los campos son obligatorios, salvo el link de BGG.</p>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">🎓 ¿Sabés explicarlo?</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setCanExplainNew(true)}
+                    className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (canExplainNew === true ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+                    Sí
+                  </button>
+                  <button type="button" onClick={() => setCanExplainNew(false)}
+                    className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (canExplainNew === false ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+                    No
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">🤝 ¿Prestás tu copia aunque no juegues esa mesa?</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setNewGame({ ...newGame, lendable: true })}
+                    className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (newGame.lendable === true ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+                    Sí
+                  </button>
+                  <button type="button" onClick={() => setNewGame({ ...newGame, lendable: false })}
+                    className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (newGame.lendable === false ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+                    No
+                  </button>
+                </div>
+              </div>
               <div className="flex gap-2">
                 <button onClick={cancelEditGame}
                   className="flex-1 border border-gray-700 rounded-lg py-2 text-sm font-medium">
                   Cancelar
                 </button>
-                <button onClick={handleAddGame} disabled={!newGame.name.trim() || addingGame}
+                <button onClick={handleAddGame}
+                  disabled={!newGame.name.trim() || newGame.perPlayerMinutes == null || newGame.setupMinutes == null || newGame.explanationMinutes == null || canExplainNew == null || newGame.lendable == null || addingGame}
                   className="flex-1 bg-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-600 disabled:opacity-40">
                   {addingGame ? 'Guardando...' : editingGameId ? '💾 Guardar juego' : '+ Agregar juego'}
                 </button>

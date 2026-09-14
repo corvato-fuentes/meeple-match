@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { getEvent, verifyAdminToken, subscribeGames, subscribePlayers, mergeGames, ungroupGame, updateGame } from '@/lib/firestore';
 import type { MeepleEvent, Game, Player, GameComplexity } from '@/lib/types';
 
-const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Ligero', medium: 'Medio', heavy: 'Complejo' };
+const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
 
 interface EditDraft {
   name: string;
@@ -16,6 +16,7 @@ interface EditDraft {
   perPlayerMinutes: number | null;
   setupMinutes: number | null;
   explanationMinutes: number | null;
+  lendable: boolean;
 }
 
 export default function GamesPage() {
@@ -89,6 +90,7 @@ export default function GamesPage() {
       perPlayerMinutes: g.perPlayerMinutes ?? null,
       setupMinutes: g.setupMinutes ?? null,
       explanationMinutes: g.explanationMinutes ?? null,
+      lendable: !!g.lendable,
     });
   }
 
@@ -101,7 +103,10 @@ export default function GamesPage() {
     if (!editDraft || savingEdit) return;
     setSavingEdit(true);
     try {
-      await updateGame(code, gameId, editDraft);
+      // durationMinutes has no direct input anymore — kept as a pessimistic fallback estimate
+      // (setup + explanation + per-player time × max players) for display/legacy code.
+      const estimatedDurationMinutes = (editDraft.setupMinutes ?? 0) + (editDraft.explanationMinutes ?? 0) + (editDraft.perPlayerMinutes ?? 0) * editDraft.maxPlayers;
+      await updateGame(code, gameId, { ...editDraft, durationMinutes: estimatedDurationMinutes || editDraft.durationMinutes });
       cancelEdit();
     } finally {
       setSavingEdit(false);
@@ -240,22 +245,38 @@ function GameEditForm({
         <p className='text-xs font-semibold text-gray-300'>Cantidad de jugadores</p>
         <div className='grid grid-cols-2 gap-2'>
           <div>
-            <label className='text-xs text-gray-400'>Mínimo</label>
+            <label className='text-xs text-gray-400'>🧑‍🤝‍🧑 ¿Cuánto creés vos que es el mínimo recomendado?</label>
             <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
               value={draft.minPlayers} onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
               onChange={(e) => onChange({ ...draft, minPlayers: +e.target.value })} />
           </div>
           <div>
-            <label className='text-xs text-gray-400'>Máximo</label>
+            <label className='text-xs text-gray-400'>🧑‍🤝‍🧑 ¿Cuánto creés vos que es el máximo recomendado?</label>
             <input type='number' min={1} max={20} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
               value={draft.maxPlayers} onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
               onChange={(e) => onChange({ ...draft, maxPlayers: +e.target.value })} />
           </div>
         </div>
       </div>
 
+      <div className='px-1'>
+        <label className='text-xs text-gray-400 block mb-1'>🤝 ¿El dueño presta esta copia aunque no juegue esa mesa?</label>
+        <div className='flex gap-2'>
+          <button type='button' onClick={() => onChange({ ...draft, lendable: true })}
+            className={'flex-1 py-1 rounded-lg border text-xs font-medium ' + (draft.lendable ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+            Sí
+          </button>
+          <button type='button' onClick={() => onChange({ ...draft, lendable: false })}
+            className={'flex-1 py-1 rounded-lg border text-xs font-medium ' + (!draft.lendable ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+            No
+          </button>
+        </div>
+      </div>
+
       <div className='border border-gray-800 rounded-lg p-2 space-y-2'>
-        <p className='text-xs font-semibold text-gray-300'>Complejidad</p>
+        <p className='text-xs font-semibold text-gray-300'>🧩 ¿Qué tan complejo es?</p>
         <select className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
           value={draft.complexity}
           onChange={(e) => onChange({ ...draft, complexity: e.target.value as GameComplexity })}>
@@ -267,40 +288,39 @@ function GameEditForm({
 
       <div className='border border-gray-800 rounded-lg p-2 space-y-2'>
         <p className='text-xs font-semibold text-gray-300'>Tiempo</p>
-        <div>
-          <label className='text-xs text-gray-400'>Duración total (min)</label>
-          <input type='number' min={5} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
-            value={draft.durationMinutes} onFocus={(e) => e.target.select()}
-            onChange={(e) => onChange({ ...draft, durationMinutes: +e.target.value })} />
-        </div>
-        <p className='text-xs text-gray-500 pt-1'>Datos extra (opcional, todavía no afectan el agendamiento):</p>
+        <p className='text-xs text-gray-500'>La duración real que usa el algoritmo se calcula sola según cuántos jugadores termine teniendo cada mesa.</p>
         <div className='grid grid-cols-2 gap-2'>
           <div>
-            <label className='text-xs text-gray-400'>Minutos de juego por cada jugador</label>
+            <label className='text-xs text-gray-400'>⏱️ ¿Cuánto tiempo por jugador? (min)</label>
             <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
               value={draft.perPlayerMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+              onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
               onChange={(e) => onChange({ ...draft, perPlayerMinutes: e.target.value ? +e.target.value : null })} />
           </div>
           <div>
-            <label className='text-xs text-gray-400'>Minutos para armar el juego (seteo)</label>
+            <label className='text-xs text-gray-400'>🛠️ ¿Cuánto tiempo de armado? (min)</label>
             <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
               value={draft.setupMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+              onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
               onChange={(e) => onChange({ ...draft, setupMinutes: e.target.value ? +e.target.value : null })} />
           </div>
           <div>
-            <label className='text-xs text-gray-400'>Minutos para explicar las reglas</label>
+            <label className='text-xs text-gray-400'>📚 ¿Cuánto tiempo de explicación? (min)</label>
             <input type='number' min={0} className='w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm'
               value={draft.explanationMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder='—'
+              onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
               onChange={(e) => onChange({ ...draft, explanationMinutes: e.target.value ? +e.target.value : null })} />
           </div>
         </div>
+        <p className='text-[11px] text-gray-500'>* Todos los campos de tiempo son obligatorios.</p>
       </div>
 
       <div className='flex gap-2'>
         <button onClick={onCancel} className='flex-1 border border-gray-700 rounded-lg py-1 text-xs font-medium'>
           Cancelar
         </button>
-        <button onClick={onSave} disabled={saving}
+        <button onClick={onSave}
+          disabled={saving || !draft.name.trim() || draft.perPlayerMinutes == null || draft.setupMinutes == null || draft.explanationMinutes == null}
           className='flex-1 bg-indigo-600 rounded-lg py-1 text-xs font-medium hover:bg-indigo-700 disabled:opacity-50'>
           {saving ? 'Guardando...' : 'Guardar'}
         </button>
