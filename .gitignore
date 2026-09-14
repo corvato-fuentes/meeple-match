@@ -42,3 +42,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# event data backups/exports — contain player PII (names, phone, email), never commit
+/backups
