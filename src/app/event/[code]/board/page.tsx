@@ -8,7 +8,7 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
-import { estimatedDurationRange } from '@/lib/tableAlgorithm';
+import { estimatedDuration } from '@/lib/tableAlgorithm';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
@@ -408,14 +408,11 @@ export default function BoardPage() {
                           : <> · ya se confirma</>)}
                         {seatsLeft != null && <><br />🪑 {Math.max(0, seatsLeft)} lugar{seatsLeft === 1 ? '' : 'es'} libre{seatsLeft === 1 ? '' : 's'} de {maxPlayers}</>}
                       </p>
-                      {game && (() => {
-                        const [min, max] = estimatedDurationRange(game);
-                        return (
-                          <p className='text-xs text-gray-500 mt-0.5'>
-                            {COMPLEXITY_LABEL[game.complexity]} · ~{min === max ? `${min}` : `${min}–${max}`}min
-                          </p>
-                        );
-                      })()}
+                      {game && (
+                        <p className='text-xs text-gray-500 mt-0.5'>
+                          {COMPLEXITY_LABEL[game.complexity]} · ~{estimatedDuration(game, game.maxPlayers)}min
+                        </p>
+                      )}
                       <p className='text-xs text-gray-500 mt-0.5'>
                         Lo trae {playerMap.get(t.explainerId)?.name ?? 'alguien'}
                       </p>

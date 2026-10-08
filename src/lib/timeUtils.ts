@@ -39,3 +39,8 @@ export function computeEventStatus(date: string, startTime: string, endTime: str
   if (now < new Date(`${date}T${endTime}:00`)) return "live";
   return "closed";
 }
+
+/** Rounds a duration up to the next multiple of 5 minutes (38 → 40, 23 → 25, 40 stays 40). */
+export function roundUp5(minutes: number): number {
+  return Math.ceil(minutes / 5) * 5;
+}

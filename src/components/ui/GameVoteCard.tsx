@@ -1,5 +1,6 @@
 'use client';
 import { bggSearchUrl } from '@/lib/bgg';
+import { roundUp5 } from '@/lib/timeUtils';
 import type { KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import type { Game, GameComplexity, InterestLevel } from '@/lib/types';
 
@@ -43,7 +44,7 @@ export default function GameVoteCard({
         className="w-full h-44 mt-2 rounded-md object-contain bg-gray-900 border border-gray-700" />
       <div className="mt-2 text-center">
         <p className="text-xs text-gray-400">
-          {game.minPlayers}–{game.maxPlayers}p · {game.durationMinutes}min · {COMPLEXITY_LABEL[game.complexity]}
+          {game.minPlayers}–{game.maxPlayers}p · {roundUp5(game.durationMinutes)}min ·{COMPLEXITY_LABEL[game.complexity]}
           {copyCount > 1 && <span className="ml-1.5 text-[10px] bg-indigo-900 text-indigo-300 px-1 rounded">🧩 {copyCount} copias</span>}
         </p>
         {!isOwn && <p className="text-[11px] text-gray-500 mt-0.5">Trae: {ownerLabel}</p>}

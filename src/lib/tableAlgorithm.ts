@@ -1,5 +1,5 @@
 import type { Player, Game, Table } from './types';
-import { toMinutes, toTimeString, windowDuration } from './timeUtils';
+import { toMinutes, toTimeString, windowDuration, roundUp5 } from './timeUtils';
 
 interface TableProposal {
   gameId: string;
@@ -92,10 +92,11 @@ function roundUpToGrid(minutes: number): number {
  * none of those are set, so existing games with only a flat duration keep working unchanged.
  */
 export function estimatedDuration(game: Game, playerCount: number): number {
+  // Always rounded up to a multiple of 5 so every estimate reads "40min", never "38min".
   if (game.perPlayerMinutes == null && game.setupMinutes == null && game.explanationMinutes == null) {
-    return game.durationMinutes;
+    return roundUp5(game.durationMinutes);
   }
-  return (game.setupMinutes ?? 0) + (game.explanationMinutes ?? 0) + (game.perPlayerMinutes ?? 0) * playerCount;
+  return roundUp5((game.setupMinutes ?? 0) + (game.explanationMinutes ?? 0) + (game.perPlayerMinutes ?? 0) * playerCount);
 }
 
 /** The game's full min↔max duration span — shortest at minPlayers, longest at maxPlayers seated. */

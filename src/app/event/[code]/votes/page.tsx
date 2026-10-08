@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, getGames, getPlayers } from '@/lib/firestore';
+import { roundUp5 } from '@/lib/timeUtils';
 import type { MeepleEvent, Game, Player } from '@/lib/types';
 
 /** Public, read-only view of every game and its vote totals — anyone with the event link can see it. */
@@ -60,7 +61,7 @@ export default function VotesPage() {
                       {game.name}
                       {copyCount > 1 && <span className="ml-2 text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded">🧩 {copyCount} copias</span>}
                     </p>
-                    <p className="text-xs text-gray-500">Trae: {label} · {game.minPlayers}–{game.maxPlayers}p · {game.durationMinutes}min</p>
+                    <p className="text-xs text-gray-500">Trae: {label} · {game.minPlayers}–{game.maxPlayers}p · {roundUp5(game.durationMinutes)}min</p>
                   </div>
                   {notEnough && <span className="text-xs text-amber-400 shrink-0">⚠️ Faltan votos ({total}/{game.minPlayers})</span>}
                 </div>

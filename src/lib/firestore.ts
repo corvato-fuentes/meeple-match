@@ -709,6 +709,38 @@ export async function leaveRecommendedTable(eventCode: string, tableId: string, 
   });
 }
 
+/**
+ * Leaves an owner-posted table, whether it's still waiting for players or already confirmed. A
+ * confirmed table that drops back under the game's minimum returns to 'recommended' (waiting for
+ * players again) instead of staying confirmed with too few people. The poster can't "leave" their
+ * own table — it only makes sense for them to cancel it, which this does. Tables already underway
+ * or finished are left alone.
+ */
+export async function leavePostedTable(
+  eventCode: string,
+  tableId: string,
+  playerId: string,
+  minPlayers: number
+): Promise<void> {
+  const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    const table = snap.data() as Table;
+    if (table.status !== 'recommended' && table.status !== 'confirmed') return;
+    if (table.explainerId === playerId) {
+      tx.update(ref, { status: 'cancelled' as const });
+      return;
+    }
+    if (!table.playerIds.includes(playerId)) return;
+    const playerIds = table.playerIds.filter((id) => id !== playerId);
+    tx.update(ref, {
+      playerIds,
+      ...(table.status === 'confirmed' && playerIds.length < minPlayers && { status: 'recommended' as const }),
+    });
+  });
+}
+
 /** Deletes a batch of tables — used to clear out stale "proposed" tables before a full regeneration */
 export async function deleteTables(eventCode: string, tableIds: string[]): Promise<void> {
   if (tableIds.length === 0) return;
@@ -882,15 +914,16 @@ export async function seedFakePlayers(eventCode: string, drafts: FakePlayerDraft
     departureTime: draft.departureTime,
     interests: interestsByPlayer[i],
   }));
+  // Same rule as real posting: only someone who can explain the game may post a table for it.
   const fakeGamesForTables: FakeGameForTables[] = drafts.flatMap((draft, i) =>
-    draft.games.map((g, gi) => ({
+    draft.games.flatMap((g, gi) => g.canExplain ? [{
       id: newGameIdsByPlayer[i][gi],
       name: g.name,
       ownerPlayerId: playerRefs[i].id,
       minPlayers: g.minPlayers,
       maxPlayers: g.maxPlayers,
       durationMinutes: g.durationMinutes,
-    }))
+    }] : [])
   );
   const postulatedDrafts = generateFakePostulatedTables(fakePlayersForTables, fakeGamesForTables, event);
   if (postulatedDrafts.length > 0) {

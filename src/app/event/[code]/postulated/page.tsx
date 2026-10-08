@@ -4,9 +4,9 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables, getPlayerTables,
-  joinPostedTable, leaveRecommendedTable,
+  joinPostedTable, leavePostedTable,
 } from '@/lib/firestore';
-import { estimatedDurationRange } from '@/lib/tableAlgorithm';
+import { estimatedDuration } from '@/lib/tableAlgorithm';
 import { toMinutes } from '@/lib/timeUtils';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
@@ -65,11 +65,13 @@ export default function PostulatedTablesPage() {
   const otherPlayerMap = new Map(otherPlayers.map((p) => [p.id, p]));
   const myId = player.id;
 
-  function gameMetaLine(gameId: string): string | null {
+  // Until the table is confirmed, show the full worst-case estimate (everyone seated, e.g. ~135min);
+  // once confirmed it shrinks to the real roster and updates if someone else joins.
+  function gameMetaLine(gameId: string, t: Table): string | null {
     const game = gameMap.get(gameId);
     if (!game) return null;
-    const [min, max] = estimatedDurationRange(game);
-    return `${COMPLEXITY_LABEL[game.complexity]} · ~${min === max ? `${min}` : `${min}–${max}`}min`;
+    const players = t.status === 'confirmed' ? Math.max(t.playerIds.length, game.minPlayers) : game.maxPlayers;
+    return `${COMPLEXITY_LABEL[game.complexity]} · ~${estimatedDuration(game, players)}min`;
   }
 
   const nameOf = (id: string) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? 'alguien');
@@ -112,6 +114,14 @@ export default function PostulatedTablesPage() {
       className="w-9 h-11 rounded object-cover border border-gray-700 bg-gray-900 shrink-0" />
   );
 
+  // The poster can't leave their own table (they bring the game) — for them it means cancelling it.
+  const leaveBtn = (t: Table) => (
+    <button onClick={() => setLeavingTable(t)} disabled={leavingTableId === t.id}
+      className="mt-2 w-full text-xs border border-gray-700 text-gray-400 rounded-lg px-2.5 py-1.5 font-medium hover:bg-gray-800 disabled:opacity-50">
+      {leavingTableId === t.id ? 'Saliendo...' : t.explainerId === myId ? '🚫 Cancelar mesa' : '🚪 Salirme de la mesa'}
+    </button>
+  );
+
   const viewBtn = (t: Table) => (
     <button onClick={() => setViewingTableId(t.id)} className="text-xs text-purple-300 hover:underline shrink-0">
       👀 Ver inscriptos
@@ -135,7 +145,7 @@ export default function PostulatedTablesPage() {
     if (!t || !player || leavingTableId) return;
     setLeavingTableId(t.id);
     try {
-      await leaveRecommendedTable(code, t.id, player.id);
+      await leavePostedTable(code, t.id, player.id, gameMap.get(t.gameId)?.minPlayers ?? 1);
     } finally {
       setLeavingTableId(null);
     }
@@ -208,14 +218,15 @@ export default function PostulatedTablesPage() {
                       <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
                       <span className="text-xs text-purple-400 shrink-0">{t.startTime}–{t.endTime}</span>
                     </div>
-                    {gameMetaLine(t.gameId) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId)}</p>
+                    {gameMetaLine(t.gameId, t) && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                     )}
                     {whoLines(t)}
                     <div className="space-y-0.5 mt-1">
                       {seatLines(t)}
                       {viewBtn(t)}
                     </div>
+                    {leaveBtn(t)}
                   </div>
                 );
               })}
@@ -239,8 +250,8 @@ export default function PostulatedTablesPage() {
                       <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
                       <span className="text-xs text-indigo-300 shrink-0">{t.startTime}–{t.endTime}</span>
                     </div>
-                    {gameMetaLine(t.gameId) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId)}</p>
+                    {gameMetaLine(t.gameId, t) && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                     )}
                     {whoLines(t)}
                     <div className="space-y-0.5">
@@ -274,18 +285,15 @@ export default function PostulatedTablesPage() {
                       <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
                       <span className="text-xs text-purple-400 shrink-0">{t.startTime}–{t.endTime}</span>
                     </div>
-                    {gameMetaLine(t.gameId) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId)}</p>
+                    {gameMetaLine(t.gameId, t) && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                     )}
                     {whoLines(t)}
                     <div className="space-y-0.5">
                       {seatLines(t)}
                       {viewBtn(t)}
                     </div>
-                    <button onClick={() => setLeavingTable(t)} disabled={leavingTableId === t.id}
-                      className="mt-2 w-full text-xs border border-gray-700 text-gray-400 rounded-lg px-2.5 py-1.5 font-medium hover:bg-gray-800 disabled:opacity-50">
-                      {leavingTableId === t.id ? 'Saliendo...' : '🚪 Salirme de la mesa'}
-                    </button>
+                    {leaveBtn(t)}
                   </div>
                 );
               })}
@@ -308,14 +316,15 @@ export default function PostulatedTablesPage() {
                     <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
                     <span className="text-xs text-green-400 shrink-0">{t.startTime}–{t.endTime}</span>
                   </div>
-                  {gameMetaLine(t.gameId) && (
-                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId)}</p>
+                  {gameMetaLine(t.gameId, t) && (
+                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                   )}
                   {whoLines(t)}
                   <div className="space-y-0.5 mt-1">
                     <p className="text-xs text-gray-400">✅ {t.playerIds.length} jugadores</p>
                     {viewBtn(t)}
                   </div>
+                  {leaveBtn(t)}
                 </div>
               ))}
             </div>
@@ -360,9 +369,13 @@ export default function PostulatedTablesPage() {
       })()}
       <ConfirmModal
         open={!!leavingTable}
-        title="¿Salirte de esta mesa?"
-        message={leavingTable ? `Vas a dejar tu lugar en ${leavingTable.gameName} (${leavingTable.startTime}–${leavingTable.endTime}). Si querés, después podés volver a sumarte mientras haya lugar.` : ''}
-        confirmLabel="Sí, salirme"
+        title={leavingTable?.explainerId === myId ? '¿Cancelar esta mesa?' : '¿Salirte de esta mesa?'}
+        message={!leavingTable ? '' : leavingTable.explainerId === myId
+          ? `Vas a cancelar tu mesa de ${leavingTable.gameName} (${leavingTable.startTime}–${leavingTable.endTime}). Los jugadores anotados la van a dejar de ver.`
+          : leavingTable.status === 'confirmed'
+            ? `Vas a dejar tu lugar en ${leavingTable.gameName} (${leavingTable.startTime}–${leavingTable.endTime}), que ya está confirmada. Si queda por debajo del mínimo vuelve a esperar jugadores.`
+            : `Vas a dejar tu lugar en ${leavingTable.gameName} (${leavingTable.startTime}–${leavingTable.endTime}). Si querés, después podés volver a sumarte mientras haya lugar.`}
+        confirmLabel={leavingTable?.explainerId === myId ? 'Sí, cancelar' : 'Sí, salirme'}
         danger
         onConfirm={handleLeaveTable}
         onCancel={() => setLeavingTable(null)}

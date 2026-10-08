@@ -7,7 +7,7 @@ import {
   autoMergeDuplicates,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { computeEventStatus } from '@/lib/timeUtils';
+import { computeEventStatus, roundUp5 } from '@/lib/timeUtils';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
 import { savePlayerEvent } from '@/lib/myEvents';
@@ -108,7 +108,7 @@ export default function EventPage() {
       const details = await getBggGameDetails(result.id);
       // BGG only gives one lump playtime figure, with no breakdown for setup/explanation — dividing
       // it across max players is just a starting point for "time per player" the organizer can adjust.
-      const suggestedPerPlayer = Math.max(1, Math.ceil(details.durationMinutes / Math.max(1, details.boxMaxPlayers)));
+      const suggestedPerPlayer = Math.max(5, roundUp5(details.durationMinutes / Math.max(1, details.boxMaxPlayers)));
       setNewGame((g) => ({
         ...g,
         name: result.name,
@@ -181,7 +181,7 @@ export default function EventPage() {
     if (!newGame.name) return;
     // No flat duration input anymore — falls back to a pessimistic estimate (setup + explanation +
     // per-player time × max players) so the game still has a usable durationMinutes for display/legacy code.
-    const estimatedDurationMinutes = (newGame.setupMinutes ?? 0) + (newGame.explanationMinutes ?? 0) + (newGame.perPlayerMinutes ?? 0) * newGame.maxPlayers;
+    const estimatedDurationMinutes = roundUp5((newGame.setupMinutes ?? 0) + (newGame.explanationMinutes ?? 0) + (newGame.perPlayerMinutes ?? 0) * newGame.maxPlayers);
     const gameToSave: DraftGame = { ...newGame, durationMinutes: estimatedDurationMinutes || newGame.durationMinutes };
     if (editingGameIndex != null) {
       const idx = editingGameIndex;
@@ -504,7 +504,7 @@ export default function EventPage() {
                 )}
                 <div className="min-w-0">
                   <span className="font-medium">{g.name}</span>
-                  <span className="text-xs text-gray-500 ml-2">{g.minPlayers}–{g.maxPlayers}p · {g.durationMinutes}min · {COMPLEXITY_LABEL[g.complexity]}</span>
+                  <span className="text-xs text-gray-500 ml-2">{g.minPlayers}–{g.maxPlayers}p · {roundUp5(g.durationMinutes)}min · {COMPLEXITY_LABEL[g.complexity]}</span>
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">

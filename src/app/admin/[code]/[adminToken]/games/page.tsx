@@ -7,6 +7,7 @@ import {
   transferGameVotes, discardDeletedGame,
 } from '@/lib/firestore';
 import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
+import { roundUp5 } from '@/lib/timeUtils';
 import type { MeepleEvent, Game, Player, GameComplexity } from '@/lib/types';
 
 const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
@@ -156,7 +157,7 @@ export default function GamesPage() {
     try {
       // durationMinutes has no direct input anymore — kept as a pessimistic fallback estimate
       // (setup + explanation + per-player time × max players) for display/legacy code.
-      const estimatedDurationMinutes = (editDraft.setupMinutes ?? 0) + (editDraft.explanationMinutes ?? 0) + (editDraft.perPlayerMinutes ?? 0) * editDraft.maxPlayers;
+      const estimatedDurationMinutes = roundUp5((editDraft.setupMinutes ?? 0) + (editDraft.explanationMinutes ?? 0) + (editDraft.perPlayerMinutes ?? 0) * editDraft.maxPlayers);
       await updateGame(code, gameId, { ...editDraft, durationMinutes: estimatedDurationMinutes || editDraft.durationMinutes });
       cancelEdit();
     } finally {
@@ -234,7 +235,7 @@ export default function GamesPage() {
                         <GameEditForm draft={editDraft} onChange={setEditDraft} onSave={() => saveEdit(primary.id)} onCancel={cancelEdit} saving={savingEdit} />
                       ) : (
                         <p className='text-xs text-gray-500'>
-                          Trae: {copies.map((c) => c.ownerName).join(', ')} · {primary.minPlayers}–{primary.maxPlayers}p · {primary.durationMinutes}min
+                          Trae: {copies.map((c) => c.ownerName).join(', ')} · {primary.minPlayers}–{primary.maxPlayers}p · {roundUp5(primary.durationMinutes)}min
                         </p>
                       )}
                     </div>

@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     // narrower community "best with" range) since dividing total playtime by a "best with 1-2"
     // range wildly overstates per-player time for a game that can seat up to 4.
     boxMaxPlayers,
-    durationMinutes: Math.max(10, Math.round(num('playingtime', 60))),
+    durationMinutes: Math.max(10, Math.ceil(num('playingtime', 60) / 5) * 5),
     complexity,
   });
 }

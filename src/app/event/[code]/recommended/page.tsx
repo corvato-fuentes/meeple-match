@@ -7,7 +7,7 @@ import {
   respondToRecommendation, updatePlayerWishlist,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { estimatedDurationRange } from '@/lib/tableAlgorithm';
+import { estimatedDuration } from '@/lib/tableAlgorithm';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import GameVoteCard from '@/components/ui/GameVoteCard';
@@ -87,11 +87,13 @@ export default function RecommendedTablesPage() {
   const availableGames = primaryGames.filter((g) => interests[g.id] !== 'yes' && interests[g.id] !== 'no');
   const dismissedGames = primaryGames.filter((g) => interests[g.id] === 'no');
 
-  function gameMetaLine(gameId: string): string | null {
+  // Until the table is confirmed, show the full worst-case estimate (everyone seated, e.g. ~135min);
+  // once confirmed it shrinks to the real roster and updates if someone else joins.
+  function gameMetaLine(gameId: string, t: Table): string | null {
     const game = gameMap.get(gameId);
     if (!game) return null;
-    const [min, max] = estimatedDurationRange(game);
-    return `${COMPLEXITY_LABEL[game.complexity]} · ~${min === max ? `${min}` : `${min}–${max}`}min`;
+    const seated = t.status === 'confirmed' ? Math.max(t.playerIds.length, game.minPlayers) : game.maxPlayers;
+    return `${COMPLEXITY_LABEL[game.complexity]} · ~${estimatedDuration(game, seated)}min`;
   }
 
   function namesFor(ids: string[]): string {
@@ -212,8 +214,8 @@ export default function RecommendedTablesPage() {
                     <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm text-amber-300">{t.gameName}</span></span>
                     <span className="text-xs text-amber-400 shrink-0">{t.startTime}–{t.endTime}</span>
                   </div>
-                  {gameMetaLine(t.gameId) && (
-                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId)}</p>
+                  {gameMetaLine(t.gameId, t) && (
+                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                   )}
                   <p className="text-xs text-gray-400 mt-1 whitespace-nowrap">
                     ✅ {t.playerIds.length} aceptaron · 👥 {stillDeciding.length} candidatos
@@ -257,8 +259,8 @@ export default function RecommendedTablesPage() {
                       <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm text-amber-300">{t.gameName}</span></span>
                       <span className="text-xs text-amber-400 shrink-0">{t.startTime}–{t.endTime}</span>
                     </div>
-                    {gameMetaLine(t.gameId) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId)}</p>
+                    {gameMetaLine(t.gameId, t) && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                     )}
                     <p className="text-xs text-gray-400 mt-1">✅ {t.playerIds.length}/{minPlayers} · esperando que se sumen más candidatos</p>
                     <p className="text-xs text-gray-400">👥 {namesFor(t.playerIds)}</p>
@@ -284,8 +286,8 @@ export default function RecommendedTablesPage() {
                     <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
                     <span className="text-xs text-green-400 shrink-0">{t.startTime}–{t.endTime}</span>
                   </div>
-                  {gameMetaLine(t.gameId) && (
-                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId)}</p>
+                  {gameMetaLine(t.gameId, t) && (
+                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                   )}
                   <p className="text-xs text-gray-400 mt-1">✅ {namesFor(t.playerIds)}</p>
                 </div>

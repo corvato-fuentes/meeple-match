@@ -8,7 +8,7 @@ import {
   postTable,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { toMinutes, toTimeString } from '@/lib/timeUtils';
+import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { savePlayerEvent } from '@/lib/myEvents';
 import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
@@ -126,7 +126,7 @@ export default function MyTicketPage() {
       const details = await getBggGameDetails(result.id);
       // BGG only gives one lump playtime figure, with no breakdown for setup/explanation — dividing
       // it across max players is just a starting point for "time per player" the organizer can adjust.
-      const suggestedPerPlayer = Math.max(1, Math.ceil(details.durationMinutes / Math.max(1, details.boxMaxPlayers)));
+      const suggestedPerPlayer = Math.max(5, roundUp5(details.durationMinutes / Math.max(1, details.boxMaxPlayers)));
       setNewGame((g) => ({
         ...g,
         name: result.name,
@@ -153,7 +153,7 @@ export default function MyTicketPage() {
     try {
       // No flat duration input anymore — falls back to a pessimistic estimate (setup + explanation +
       // per-player time × max players) so the game still has a usable durationMinutes for display/legacy code.
-      const estimatedDurationMinutes = (newGame.setupMinutes ?? 0) + (newGame.explanationMinutes ?? 0) + (newGame.perPlayerMinutes ?? 0) * newGame.maxPlayers;
+      const estimatedDurationMinutes = roundUp5((newGame.setupMinutes ?? 0) + (newGame.explanationMinutes ?? 0) + (newGame.perPlayerMinutes ?? 0) * newGame.maxPlayers);
       const gameToSave: DraftGame = { ...newGame, durationMinutes: estimatedDurationMinutes || newGame.durationMinutes };
       if (editingGameId) {
         await updateGame(code, editingGameId, gameToSave);
@@ -297,8 +297,15 @@ export default function MyTicketPage() {
   // players to join up to the game's minimum), unless the owner alone already meets it.
   async function submitPropose(game: Game) {
     if (!player || !event || !proposeStart || proposingSubmitting) return;
+    // The poster is the table's explainer, so they have to know how to teach the game. Votes and
+    // knowledge live on the primary copy when games are merged.
+    const primaryId = game.groupId ?? game.id;
+    if (!canExplain.includes(primaryId)) {
+      setProposeError('Para proponer una mesa tenés que saber explicar el juego.');
+      return;
+    }
     const start = proposeStart;
-    const end = toTimeString(toMinutes(start) + game.durationMinutes);
+    const end = toTimeString(toMinutes(start) + roundUp5(game.durationMinutes));
     if (!isPlayerFreeFor(start, end)) {
       setProposeError('Ese horario se te superpone con otra mesa tuya (o no entra en tu horario).');
       return;
@@ -309,7 +316,7 @@ export default function MyTicketPage() {
       const nextTableNumber = allTables.length ? Math.max(...allTables.map((t) => t.tableNumber)) + 1 : 1;
       const latestBatch = allTables.length ? Math.max(...allTables.map((t) => t.batchNumber)) : 1;
       await postTable(code, {
-        gameId: game.id, gameName: game.name, startTime: start, endTime: end,
+        gameId: primaryId, gameName: game.name, startTime: start, endTime: end,
         explainerId: player.id, playerIds: [player.id],
         status: game.minPlayers <= 1 ? 'confirmed' : 'recommended', postedByOwner: true,
         isManuallyEdited: false, batchNumber: latestBatch, tableNumber: nextTableNumber,
@@ -517,7 +524,7 @@ export default function MyTicketPage() {
                     {coverFor(g.id)}
                     <div className="min-w-0">
                       <span className="font-medium">{g.name}</span>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{g.minPlayers}–{g.maxPlayers}p · {g.durationMinutes}min · {COMPLEXITY_LABEL[g.complexity]}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{g.minPlayers}–{g.maxPlayers}p · {roundUp5(g.durationMinutes)}min ·{COMPLEXITY_LABEL[g.complexity]}</p>
                     </div>
                   </div>
                   <div className="flex gap-1.5">
@@ -544,20 +551,41 @@ export default function MyTicketPage() {
                   </div>
                   {proposingGameId === g.id && (
                     <div className="mt-2 border-t border-gray-700 pt-2 space-y-2">
-                      <p className="text-xs text-gray-400">Elegí a qué hora arrancás a explicarlo — dura {g.durationMinutes}min.</p>
-                      <TimeWheelPicker value={proposeStart} onChange={setProposeStart}
-                        minTime={player.arrivalTime} maxTime={player.departureTime} />
-                      {proposeError && <p className="text-xs text-red-400">{proposeError}</p>}
-                      <div className="flex gap-2">
-                        <button onClick={() => setProposingGameId(null)}
-                          className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium">
-                          Cancelar
-                        </button>
-                        <button onClick={() => submitPropose(g)} disabled={!proposeStart || proposingSubmitting}
-                          className="flex-1 bg-amber-600 rounded-lg py-1.5 text-xs font-medium hover:bg-amber-700 disabled:opacity-50">
-                          {proposingSubmitting ? 'Publicando...' : 'Publicar mesa'}
-                        </button>
-                      </div>
+                      {!canExplain.includes(g.groupId ?? g.id) ? (
+                        <>
+                          <p className="text-xs text-amber-300">
+                            Para proponer una mesa tenés que saber explicar el juego, porque vos sos quien lo explica en la mesa.
+                            Editalo y elegí “🎓 Sé explicarlo” en “¿Qué tan bien lo conocés?”.
+                          </p>
+                          <div className="flex gap-2">
+                            <button onClick={() => setProposingGameId(null)}
+                              className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium">
+                              Cerrar
+                            </button>
+                            <button onClick={() => { setProposingGameId(null); startEditGame(g); }}
+                              className="flex-1 bg-indigo-600 rounded-lg py-1.5 text-xs font-medium hover:bg-indigo-700">
+                              ✏️ Editar juego
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs text-gray-400">Elegí a qué hora arrancás a explicarlo — dura {roundUp5(g.durationMinutes)}min.</p>
+                          <TimeWheelPicker value={proposeStart} onChange={setProposeStart}
+                            minTime={player.arrivalTime} maxTime={player.departureTime} />
+                          {proposeError && <p className="text-xs text-red-400">{proposeError}</p>}
+                          <div className="flex gap-2">
+                            <button onClick={() => setProposingGameId(null)}
+                              className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium">
+                              Cancelar
+                            </button>
+                            <button onClick={() => submitPropose(g)} disabled={!proposeStart || proposingSubmitting}
+                              className="flex-1 bg-amber-600 rounded-lg py-1.5 text-xs font-medium hover:bg-amber-700 disabled:opacity-50">
+                              {proposingSubmitting ? 'Publicando...' : 'Publicar mesa'}
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
