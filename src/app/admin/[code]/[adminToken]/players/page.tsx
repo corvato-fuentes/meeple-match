@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, getPlayerTables, deletePlayer, updatePlayerTimes } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, getPlayerTables, deletePlayer, updatePlayerTimes, setPlayerOrganizer } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
@@ -49,7 +49,7 @@ export default function PlayersPage() {
       await updatePlayerTimes(code, playerId, draftArrival, draftDeparture);
       setEditingTimesId(null);
       // Fire-and-forget: availability changed, so tables may need to be reshuffled.
-      if (event?.settings.autoGenerate) runTableGeneration(code, event).catch(() => {});
+      if (event) runTableGeneration(code, event).catch(() => {});
     } finally {
       setSavingTimes(false);
     }
@@ -192,6 +192,10 @@ export default function PlayersPage() {
                       {resendingId === p.id ? 'Enviando...' : '✉️ Reenviar código'}
                     </button>
                   )}
+                  <button onClick={() => setPlayerOrganizer(code, p.id, !p.isOrganizer)}
+                    className={'inline-flex items-center gap-1 text-xs hover:underline ' + (p.isOrganizer ? 'text-amber-400' : 'text-gray-500')}>
+                    {p.isOrganizer ? '⭐ Es organizador' : '☆ Marcar como organizador'}
+                  </button>
                   <button onClick={() => handleDeletePlayer(p)} disabled={deletingId === p.id}
                     className='inline-flex items-center gap-1 text-xs text-red-400 hover:underline disabled:opacity-50'>
                     {deletingId === p.id ? 'Eliminando...' : '🗑️ Eliminar jugador'}

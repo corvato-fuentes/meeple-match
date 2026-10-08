@@ -1,13 +1,26 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, subscribeTables, getPlayers, getGames } from '@/lib/firestore';
+import {
+  getEvent, subscribeTables, getPlayers, getGames, getPlayerByTicketCode, updatePlayerWishlist, joinPostedTable,
+} from '@/lib/firestore';
+import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
-import { computeIdleGaps } from '@/lib/tableAlgorithm';
+import { estimatedDurationRange } from '@/lib/tableAlgorithm';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
-import type { MeepleEvent, Table, Player, ScheduledBreak, Game } from '@/lib/types';
+import { useScheduleConflict } from '@/hooks/useScheduleConflict';
+import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
+import GameCover from '@/components/ui/GameCover';
+import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
+import type { MeepleEvent, Table, Player, ScheduledBreak, Game, GameComplexity, InterestLevel } from '@/lib/types';
+
+const COMPLEXITY_LABEL: Record<GameComplexity, string> = {
+  light: 'Liviano',
+  medium: 'Intermedio',
+  heavy: 'Pesado',
+};
 
 const STATUS_LABEL: Record<Table['status'], string> = {
   recommended: 'Recomendada',
@@ -59,17 +72,24 @@ function todayStr(): string {
 
 export default function BoardPage() {
   const { code } = useParams<{ code: string }>();
+  const searchParams = useSearchParams();
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [games, setGames] = useState<Game[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [view, setView] = useState<'grid' | 'cards'>('grid');
-  const [expandedDemandId, setExpandedDemandId] = useState<string | null>(null);
   // Defaults to the public event page; upgraded below (via sessionStorage) if opened from the
   // admin dashboard or a player's ticket page, so "← Volver" returns to where you actually came from.
   // Client-side <Link> navigation never updates document.referrer, so that can't be used here.
   const [backHref, setBackHref] = useState(`/event/${code}`);
+  // Only set when the board is opened with a player's own ticket (e.g. from their /me page) —
+  // enables the "Unirme" quick-join buttons below. A bare/public/TV view of the board has no
+  // ticket and stays fully read-only.
+  const [viewer, setViewer] = useState<Player | null>(null);
+  const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
+  const [joiningTableId, setJoiningTableId] = useState<string | null>(null);
+  const [onlyMine, setOnlyMine] = useState(false);
 
   useEffect(() => {
     getEvent(code).then(setEvent);
@@ -86,6 +106,14 @@ export default function BoardPage() {
     if (stored) setBackHref(stored);
   }, [code]);
 
+  useEffect(() => {
+    const ticket = searchParams.get('ticket');
+    if (!ticket) return;
+    getPlayerByTicketCode(code, ticket).then(setViewer);
+  }, [code, searchParams]);
+
+  const { conflictPrompt, resolveScheduleConflict, handleConflictChoice } = useScheduleConflict(code, viewer, tables);
+
   // Live clock — also drives the now/soon/later grouping below
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -93,13 +121,24 @@ export default function BoardPage() {
   }, []);
 
   const playerMap = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
+  const gameMap = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const nowStr = toTimeString(nowMinutes);
 
   // Only real (confirmed+) tables ever show up in the visual schedule — a 'recommended' table
-  // is still just a candidate pool waiting on accept/reject, nothing to project on the board yet.
+  // is still waiting on confirmation, nothing to project on the board yet. That waiting state
+  // splits in two: algorithm-recommended tables wait on candidates accepting/rejecting, while
+  // owner-posted ones wait on enough players joining to reach the game's minimum.
   const scheduledTables = useMemo(() => tables.filter((t) => t.status !== 'recommended'), [tables]);
-  const recommendedTables = useMemo(() => tables.filter((t) => t.status === 'recommended'), [tables]);
+  const recommendedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !t.postedByOwner), [tables]);
+  const postulatedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !!t.postedByOwner), [tables]);
+
+  // Drives the "Solo mis mesas" toggle for the cards view — the grid view filters separately
+  // (via ScheduleGrid's onlyPlayerId) so its table numbering/timeline stay anchored to the full schedule.
+  const cardTables = useMemo(
+    () => onlyMine && viewer ? scheduledTables.filter((t) => t.playerIds.includes(viewer.id)) : scheduledTables,
+    [scheduledTables, onlyMine, viewer]
+  );
 
   // The schedule only reflects "now" when the event is actually happening today —
   // otherwise every table looked "finished" just because the clock was later in the day.
@@ -114,7 +153,7 @@ export default function BoardPage() {
     const soon: Table[] = [];
     const upcoming: Table[] = [];
     const finished: Table[] = [];
-    for (const t of scheduledTables) {
+    for (const t of cardTables) {
       const start = toMinutes(t.startTime);
       const end = toMinutes(t.endTime);
       if (t.status === 'completed' || eventIsPast || (eventIsToday && nowMinutes >= end)) {
@@ -136,7 +175,7 @@ export default function BoardPage() {
       upcoming: upcoming.sort(byStart),
       finished: finished.sort(byStart),
     };
-  }, [scheduledTables, nowMinutes, eventIsToday, eventIsPast, eventIsFuture]);
+  }, [cardTables, nowMinutes, eventIsToday, eventIsPast, eventIsFuture]);
 
   // Physical table number (not the sequential session id) — same assignment used by the grid,
   // so "Mesa #N" means the same thing in both views.
@@ -145,35 +184,67 @@ export default function BoardPage() {
     return new Map(assignments.map((a) => [a.table.id, a.slot + 1]));
   }, [scheduledTables, event]);
 
-  // Games with enough votes to justify a table (yes >= minPlayers) that still don't have one —
-  // usually because no shared time window exists yet given everyone's schedules.
-  const unscheduledDemand = useMemo(() => {
-    const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
-    const scheduledGameIds = new Set(tables.map((t) => t.gameId));
-    return primaryGames
-      .filter((g) => !scheduledGameIds.has(g.id))
-      .map((g) => {
-        const yesVoters = players.filter((p) => p.interests[g.id] === 'yes');
-        const ownerLabel = games.filter((m) => (m.groupId ?? m.id) === g.id).map((m) => m.ownerName).filter(Boolean).join(', ');
-        const hasExplainer = players.some((p) => p.canExplain.includes(g.id));
-        return { game: g, total: yesVoters.length, voters: yesVoters, ownerLabel, hasExplainer };
-      })
-      .filter((row) => row.total >= row.game.minPlayers)
-      .sort((a, b) => b.total - a.total);
-  }, [games, players, tables]);
+  function knowledgeLevelFor(gameId: string): KnowledgeLevel {
+    if (!viewer) return 'never';
+    if (viewer.canExplain.includes(gameId)) return 'explains';
+    if ((viewer.playedGameIds ?? []).includes(gameId)) return 'knows';
+    return 'never';
+  }
 
-  // Each voter's free windows (arrival→departure minus their other tables/breaks) — lets the
-  // expanded voter list explain exactly why a game with "enough" votes still has no shared slot.
-  // Only windows of at least 30min are worth surfacing — anything shorter isn't really "free time".
-  const idleGapsByPlayer = useMemo(() => {
-    const map = new Map<string, { start: string; end: string }[]>();
-    for (const g of computeIdleGaps(players, tables, event?.settings.breaks ?? [], 30)) {
-      const arr = map.get(g.playerId) ?? [];
-      arr.push({ start: g.start, end: g.end });
-      map.set(g.playerId, arr);
+  async function handleKnowledgeLevelChosen(gameId: string, level: KnowledgeLevel) {
+    if (!viewer) return;
+    const canExplain = level === 'explains'
+      ? [...viewer.canExplain.filter((id) => id !== gameId), gameId]
+      : viewer.canExplain.filter((id) => id !== gameId);
+    const playedGameIds = level === 'knows'
+      ? [...(viewer.playedGameIds ?? []).filter((id) => id !== gameId), gameId]
+      : (viewer.playedGameIds ?? []).filter((id) => id !== gameId);
+    setViewer({ ...viewer, canExplain, playedGameIds });
+    setKnowledgePromptGameId(null);
+    await updatePlayerWishlist(code, viewer.id, {
+      interests: viewer.interests, canExplain, playedGameIds, repeatGameIds: viewer.repeatGameIds ?? [],
+    });
+  }
+
+  function closeKnowledgePrompt() {
+    setKnowledgePromptGameId(null);
+  }
+
+  // "Unirme" on a recommended card just votes yes — a future regeneration pass will actually seat
+  // the viewer once it finds a shared window, same as voting from the wishlist normally would.
+  async function handleQuickVoteYes(gameId: string) {
+    if (!viewer || viewer.interests[gameId] === 'yes') return;
+    const nextInterests = { ...viewer.interests, [gameId]: 'yes' as InterestLevel };
+    setViewer({ ...viewer, interests: nextInterests });
+    await updatePlayerWishlist(code, viewer.id, {
+      interests: nextInterests, canExplain: viewer.canExplain, playedGameIds: viewer.playedGameIds ?? [],
+      repeatGameIds: viewer.repeatGameIds ?? [],
+    });
+    if (event) runTableGeneration(code, event).catch(() => {});
+    setKnowledgePromptGameId(gameId);
+  }
+
+  // "Unirme" on a postulated card actually seats the viewer right away (same join flow as the
+  // dedicated Mesas postuladas page), and also records a yes vote for consistency.
+  async function handleQuickJoinPostulated(t: Table) {
+    if (!viewer || joiningTableId) return;
+    const game = games.find((g) => g.id === t.gameId);
+    if (!game) return;
+    if (!(await resolveScheduleConflict(t))) return;
+    setJoiningTableId(t.id);
+    try {
+      await joinPostedTable(code, t.id, viewer.id, game.minPlayers, game.maxPlayers);
+      const nextInterests = { ...viewer.interests, [t.gameId]: 'yes' as InterestLevel };
+      setViewer({ ...viewer, interests: nextInterests });
+      await updatePlayerWishlist(code, viewer.id, {
+        interests: nextInterests, canExplain: viewer.canExplain, playedGameIds: viewer.playedGameIds ?? [],
+        repeatGameIds: viewer.repeatGameIds ?? [],
+      });
+      setKnowledgePromptGameId(t.gameId);
+    } finally {
+      setJoiningTableId(null);
     }
-    return map;
-  }, [players, tables, event]);
+  }
 
   return (
     <main className='min-h-screen bg-gray-900 text-white p-6'>
@@ -227,6 +298,12 @@ export default function BoardPage() {
               className={'px-4 py-1.5 rounded-full text-sm font-medium border ' + (view === 'cards' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
               🎯 Tarjetas
             </button>
+            {viewer && (
+              <button onClick={() => setOnlyMine((v) => !v)}
+                className={'px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+                🎫 Solo mis mesas
+              </button>
+            )}
           </div>
 
           {view === 'grid' ? (
@@ -236,81 +313,34 @@ export default function BoardPage() {
               eventStartTime={event?.startTime ?? null} eventEndTime={event?.endTime ?? null}
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
               games={games}
+              onlyPlayerId={onlyMine ? viewer?.id ?? null : null}
             />
           ) : (
             <div className='space-y-10'>
               <BreaksBanner breaks={event?.settings.breaks ?? []} />
+              {onlyMine && cardTables.length === 0 && (
+                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
+              )}
               <TableSection
-                title='🟢 En curso ahora' tables={active} playerMap={playerMap} slotMap={physicalSlotByTableId}
+                title='🟢 En curso ahora' tables={active} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
                 cardClass='border-green-600 bg-gray-800'
               />
               <TableSection
-                title='🟡 Arrancan pronto' tables={soon} playerMap={playerMap} slotMap={physicalSlotByTableId}
+                title='🟡 Arrancan pronto' tables={soon} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
                 cardClass='border-yellow-600 bg-gray-800'
               />
               <TableSection
-                title='⚪ Más tarde' tables={upcoming} playerMap={playerMap} slotMap={physicalSlotByTableId}
+                title='⚪ Más tarde' tables={upcoming} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
                 cardClass='border-gray-700 bg-gray-800'
               />
               <TableSection
-                title='✅ Finalizadas' tables={finished} playerMap={playerMap} slotMap={physicalSlotByTableId}
+                title='✅ Finalizadas' tables={finished} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
                 cardClass='border-gray-800 bg-gray-900' dim
               />
             </div>
           )}
 
           <div className='grid grid-cols-1 md:grid-cols-2 gap-6 items-start'>
-          {unscheduledDemand.length > 0 && (
-            <section>
-              <h2 className='text-xl font-semibold mb-3 text-gray-200'>⏳ Con votos suficientes, sin mesa todavía</h2>
-              <p className='text-sm text-gray-500 mb-3'>
-                Alcanzan los votos para armar mesa, pero todavía no encontraron un horario en común libre para todos.
-              </p>
-              <div className='space-y-2'>
-                {unscheduledDemand.map(({ game, total, voters, ownerLabel, hasExplainer }) => (
-                  <div key={game.id} className='border border-amber-800 rounded-xl p-3 bg-gray-800'>
-                    <div className='flex justify-between items-start'>
-                      <div>
-                        <p className='font-semibold'>{game.name}</p>
-                        <p className='text-xs text-gray-500'>{game.minPlayers}–{game.maxPlayers}p · {game.durationMinutes}min</p>
-                        {ownerLabel && <p className='text-xs text-gray-500'>Trae: {ownerLabel}</p>}
-                      </div>
-                      <span className='text-xs text-amber-400 shrink-0'>{total}/{game.minPlayers} necesarios</span>
-                    </div>
-                    <div className='flex gap-3 mt-2 text-sm items-center'>
-                      <span className='text-blue-300'>👍 {total}</span>
-                      <span className={'text-xs ' + (hasExplainer ? 'text-green-400' : 'text-red-400')}>
-                        {hasExplainer ? '🎓 hay quien explique' : '🎓 sin explicador'}
-                      </span>
-                    </div>
-                    <button onClick={() => setExpandedDemandId((cur) => cur === game.id ? null : game.id)}
-                      className='text-xs text-gray-400 hover:text-gray-200 mt-2'>
-                      {expandedDemandId === game.id ? '▾' : '▸'} Ver votantes y su disponibilidad
-                    </button>
-                    {expandedDemandId === game.id && (
-                      <div className='mt-2 space-y-1.5 border-t border-gray-700 pt-2'>
-                        {voters.map((p) => {
-                          const slots = idleGapsByPlayer.get(p.id) ?? [];
-                          return (
-                            <div key={p.id} className='text-xs flex justify-between gap-2'>
-                              <span className='text-gray-300 shrink-0'>
-                                👍 {p.name}
-                                {p.canExplain.includes(game.id) && <span className='ml-1 text-purple-300'>🎓</span>}
-                              </span>
-                              <span className='text-gray-500 text-right'>
-                                {slots.length > 0 ? slots.map((s) => `${s.start}–${s.end}`).join(', ') : 'sin horario libre'}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
           {recommendedTables.length > 0 && (
             <section>
               <h2 className='text-xl font-semibold mb-3 text-gray-200'>🟡 Mesas recomendadas — esperando confirmación</h2>
@@ -323,13 +353,82 @@ export default function BoardPage() {
                   const minPlayers = game?.minPlayers ?? '?';
                   return (
                     <div key={t.id} className='border border-amber-700 rounded-xl p-3 bg-amber-950/20'>
-                      <div className='flex justify-between items-start'>
-                        <p className='font-semibold text-amber-300'>{t.gameName}</p>
+                      <div className='flex justify-between items-start gap-2'>
+                        <span className='flex items-center gap-2 min-w-0'>
+                          <GameCover imageUrl={game?.imageUrl} />
+                          <p className='font-semibold text-amber-300'>{t.gameName}</p>
+                        </span>
                         <span className='text-xs text-amber-400 shrink-0'>{t.startTime}–{t.endTime}</span>
                       </div>
                       <p className='text-xs text-gray-400 mt-1'>
                         👥 {t.playerIds.length}/{minPlayers} aceptaron · {(t.candidateIds ?? []).length} candidatos en total
                       </p>
+                      {viewer && (
+                        viewer.interests[t.gameId] === 'yes' ? (
+                          <p className='text-xs text-green-400 mt-2'>✅ Ya votaste que sí</p>
+                        ) : (
+                          <button onClick={() => handleQuickVoteYes(t.gameId)}
+                            className='text-xs bg-amber-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-amber-700 mt-2'>
+                            🙋 Unirme
+                          </button>
+                        )
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {postulatedTables.length > 0 && (
+            <section>
+              <h2 className='text-xl font-semibold mb-3 text-gray-200'>📣 Mesas postuladas — esperando jugadores</h2>
+              <p className='text-sm text-gray-500 mb-3'>
+                Alguien ya propuso este horario para jugarlo — falta que se sumen jugadores hasta el mínimo para que se agende sola.
+              </p>
+              <div className='space-y-2'>
+                {postulatedTables.map((t) => {
+                  const game = games.find((g) => g.id === t.gameId);
+                  const minPlayers = game?.minPlayers ?? '?';
+                  const maxPlayers = game?.maxPlayers;
+                  const seatsLeft = maxPlayers != null ? maxPlayers - t.playerIds.length : null;
+                  return (
+                    <div key={t.id} className='border border-indigo-700 rounded-xl p-3 bg-indigo-950/20'>
+                      <div className='flex justify-between items-start gap-2'>
+                        <span className='flex items-center gap-2 min-w-0'>
+                          <GameCover imageUrl={game?.imageUrl} />
+                          <p className='font-semibold text-indigo-300'>{t.gameName}</p>
+                        </span>
+                        <span className='text-xs text-indigo-400 shrink-0'>{t.startTime}–{t.endTime}</span>
+                      </div>
+                      <p className='text-xs text-gray-400 mt-1'>
+                        👥 {t.playerIds.length} anotado{t.playerIds.length === 1 ? '' : 's'}
+                        {typeof minPlayers === 'number' && (minPlayers > t.playerIds.length
+                          ? <> · faltan {minPlayers - t.playerIds.length} para confirmar</>
+                          : <> · ya se confirma</>)}
+                        {seatsLeft != null && <><br />🪑 {Math.max(0, seatsLeft)} lugar{seatsLeft === 1 ? '' : 'es'} libre{seatsLeft === 1 ? '' : 's'} de {maxPlayers}</>}
+                      </p>
+                      {game && (() => {
+                        const [min, max] = estimatedDurationRange(game);
+                        return (
+                          <p className='text-xs text-gray-500 mt-0.5'>
+                            {COMPLEXITY_LABEL[game.complexity]} · ~{min === max ? `${min}` : `${min}–${max}`}min
+                          </p>
+                        );
+                      })()}
+                      <p className='text-xs text-gray-500 mt-0.5'>
+                        Lo trae {playerMap.get(t.explainerId)?.name ?? 'alguien'}
+                      </p>
+                      {viewer && (
+                        t.playerIds.includes(viewer.id) ? (
+                          <p className='text-xs text-green-400 mt-2'>✅ Ya estás anotado</p>
+                        ) : seatsLeft != null && seatsLeft <= 0 ? null : (
+                          <button onClick={() => handleQuickJoinPostulated(t)} disabled={joiningTableId === t.id}
+                            className='text-xs bg-indigo-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-indigo-700 disabled:opacity-50 mt-2'>
+                            {joiningTableId === t.id ? 'Sumando...' : '🙋 Unirme'}
+                          </button>
+                        )
+                      )}
                     </div>
                   );
                 })}
@@ -339,6 +438,26 @@ export default function BoardPage() {
           </div>
         </div>
       )}
+
+      {knowledgePromptGameId && viewer && (() => {
+        const game = games.find((g) => g.id === knowledgePromptGameId);
+        if (!game) return null;
+        return (
+          <div className='fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50' onClick={closeKnowledgePrompt}>
+            <div className='max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm'
+              onClick={(e) => e.stopPropagation()}>
+              <h3 className='font-semibold text-gray-100'>¿Qué tan bien conocés {game.name}?</h3>
+              <KnowledgeLevelPicker value={knowledgeLevelFor(game.id)}
+                onChange={(level) => handleKnowledgeLevelChosen(game.id, level)} />
+              <button onClick={closeKnowledgePrompt} className='w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800'>
+                Ahora no
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} />
     </main>
   );
 }
@@ -401,7 +520,7 @@ function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: Sched
 }
 
 function ScheduleGrid({
-  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, games,
+  tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, games, onlyPlayerId,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -411,8 +530,12 @@ function ScheduleGrid({
   breaks: ScheduledBreak[];
   bufferMinutes: number;
   games: Game[];
+  onlyPlayerId?: string | null;
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
+  // Slot assignment and time columns always come from the FULL schedule, so "Mesa #N" and the
+  // header times stay identical to the unfiltered grid — filtering only hides other people's
+  // entries, it never renumbers tables or reshapes the timeline.
   const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes), [activeTables, bufferMinutes]);
   const buckets = useMemo(() => buildBuckets(activeTables, eventStartTime, eventEndTime), [activeTables, eventStartTime, eventEndTime]);
   const rowCount = Math.max(slotCount, physicalTables ?? 0, 1);
@@ -420,9 +543,14 @@ function ScheduleGrid({
 
   if (buckets.length === 0) return null;
 
+  const hasOwnTables = !onlyPlayerId || activeTables.some((t) => t.playerIds.includes(onlyPlayerId));
+
   return (
     <section>
       <h2 className='text-xl font-semibold mb-3 text-gray-200'>🗓️ Grilla de mesas</h2>
+      {!hasOwnTables ? (
+        <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
+      ) : (
       <div className='overflow-x-auto border border-gray-700 rounded-2xl'>
         <table className='w-full text-sm border-collapse min-w-max'>
           <thead>
@@ -440,7 +568,10 @@ function ScheduleGrid({
           </thead>
           <tbody>
             {Array.from({ length: rowCount }, (_, slotIdx) => {
-              const rowTables = assignments.filter((a) => a.slot === slotIdx).map((a) => a.table);
+              const rowTables = assignments
+                .filter((a) => a.slot === slotIdx && (!onlyPlayerId || a.table.playerIds.includes(onlyPlayerId)))
+                .map((a) => a.table);
+              if (onlyPlayerId && rowTables.length === 0) return null;
               const rowEntries: GridEntry[] = rowTables.map((t) => ({
                 startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
                 seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId),
@@ -475,6 +606,7 @@ function ScheduleGrid({
           </tbody>
         </table>
       </div>
+      )}
     </section>
   );
 }
@@ -493,11 +625,12 @@ function BreaksBanner({ breaks }: { breaks: ScheduledBreak[] }) {
 }
 
 function TableSection({
-  title, tables, playerMap, slotMap, cardClass, dim,
+  title, tables, playerMap, gameMap, slotMap, cardClass, dim,
 }: {
   title: string;
   tables: Table[];
   playerMap: Map<string, Player>;
+  gameMap: Map<string, Game>;
   slotMap: Map<string, number>;
   cardClass: string;
   dim?: boolean;
@@ -517,8 +650,13 @@ function TableSection({
                 {STATUS_LABEL[t.status]}
               </span>
             </div>
-            <p className='text-xl font-semibold mb-1'>{t.gameName}</p>
-            <p className='text-gray-400 text-sm mb-3'>{t.startTime} – {t.endTime}</p>
+            <div className='flex items-center gap-3 mb-3'>
+              <GameCover imageUrl={gameMap.get(t.gameId)?.imageUrl} size='md' />
+              <div className='min-w-0'>
+                <p className='text-xl font-semibold mb-0.5'>{t.gameName}</p>
+                <p className='text-gray-400 text-sm'>{t.startTime} – {t.endTime}</p>
+              </div>
+            </div>
             <div className='space-y-1'>
               {t.playerIds.map((pid) => {
                 const p = playerMap.get(pid);
@@ -533,12 +671,6 @@ function TableSection({
                   </div>
                 );
               })}
-              {t.explainerIsPlaying === false && (
-                <div className='flex items-center gap-2 text-sm text-gray-500'>
-                  <span>{playerMap.get(t.explainerId)?.name ?? t.explainerId}</span>
-                  <span className='text-xs bg-purple-950 text-purple-300 px-1.5 rounded'>explica y se va</span>
-                </div>
-              )}
             </div>
           </div>
         ))}

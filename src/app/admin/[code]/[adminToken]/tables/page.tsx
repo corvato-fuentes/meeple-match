@@ -8,6 +8,13 @@ import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import type { MeepleEvent, Table, Player, Game } from '@/lib/types';
 
 const STATUS_OPTIONS: Table['status'][] = ['recommended', 'confirmed', 'in-progress', 'completed', 'cancelled'];
+const STATUS_LABEL: Record<Table['status'], string> = {
+  recommended: 'recomendada',
+  confirmed: 'confirmada',
+  'in-progress': 'en curso',
+  completed: 'completada',
+  cancelled: 'cancelada',
+};
 
 interface EditDraft {
   startTime: string;
@@ -48,12 +55,7 @@ export default function TablesPage() {
   function isIdealTable(t: Table): boolean {
     const game = gameMap.get(t.gameId);
     if (!game || t.playerIds.length === 0 || t.playerIds.length < game.maxPlayers) return false;
-    const allYes = t.playerIds.every((pid) => playerMap.get(pid)?.interests[t.gameId] === 'yes');
-    if (!allYes) return false;
-    if (t.explainerIsPlaying === false) {
-      return playerMap.get(t.explainerId)?.interests[t.gameId] === 'yes';
-    }
-    return true;
+    return t.playerIds.every((pid) => playerMap.get(pid)?.interests[t.gameId] === 'yes');
   }
 
   // Groups sessions by physical table slot so numbering matches the public board exactly
@@ -89,7 +91,6 @@ export default function TablesPage() {
       endTime: draft.endTime,
       playerIds: draft.playerIds,
       explainerId: explainerStillIn ? t.explainerId : (draft.playerIds[0] ?? ''),
-      explainerIsPlaying: true,
     });
     cancelEdit();
   }
@@ -170,7 +171,7 @@ export default function TablesPage() {
                             onChange={(e) => updateTableStatus(code, t.id, e.target.value as Table['status'], true)}
                             className='text-sm border border-gray-700 bg-gray-900 rounded-lg px-2 py-1'
                           >
-                            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                           </select>
                           {!isEditing && t.status === 'recommended' && isIdealTable(t) && (
                             <button onClick={() => updateTableStatus(code, t.id, 'confirmed', true)}
@@ -204,12 +205,6 @@ export default function TablesPage() {
                             </div>
                           );
                         })}
-                        {t.explainerIsPlaying === false && !isEditing && (
-                          <div className='flex items-center gap-2 text-sm text-gray-400'>
-                            <span>{playerMap.get(t.explainerId)?.name ?? t.explainerId}</span>
-                            <span className='text-xs bg-purple-950 text-purple-300 px-1.5 rounded'>explica y se va</span>
-                          </div>
-                        )}
                       </div>
 
                       {isEditing && (

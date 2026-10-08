@@ -7,7 +7,6 @@ interface TableProposal {
   startTime: string;
   endTime: string;
   explainerId: string;
-  explainerIsPlaying: boolean;
   playerIds: string[]; // always empty at creation — nobody has accepted a recommended table yet
   candidateIds: string[];
   rejectedIds: string[];
@@ -50,11 +49,29 @@ function isAvailable(
   return busy.every((bw) => toMinutes(bw.end) + bufferMinutes <= ws || we + bufferMinutes <= toMinutes(bw.start));
 }
 
-// A drop-in teacher (not seated, not playing) only ties up ~30 min explaining before they're free again
-export const TEACH_ONLY_MINUTES = 30;
-
-function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+export function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
   return toMinutes(aStart) < toMinutes(bEnd) && toMinutes(aEnd) > toMinutes(bStart);
+}
+
+/**
+ * The player's own table, if any, whose time window overlaps the given one — used to catch
+ * scheduling conflicts (e.g. accepting a recommended table while already seated at a posted one
+ * that overlaps) before writing the new commitment. Ignores cancelled tables and `excludeTableId`
+ * (the table being joined/accepted itself, in case it's already reflected in the list).
+ */
+export function findConflictingTable(
+  playerId: string,
+  start: string,
+  end: string,
+  tables: Table[],
+  excludeTableId?: string
+): Table | null {
+  return tables.find((t) =>
+    t.id !== excludeTableId &&
+    t.status !== 'cancelled' &&
+    t.playerIds.includes(playerId) &&
+    overlaps(t.startTime, t.endTime, start, end)
+  ) ?? null;
 }
 
 /** How many of the given tables are physically occupying a seat during [start, end) */
@@ -74,11 +91,16 @@ function roundUpToGrid(minutes: number): number {
  * fills in per-player/setup/explanation minutes. Falls back to the flat `durationMinutes` when
  * none of those are set, so existing games with only a flat duration keep working unchanged.
  */
-function estimatedDuration(game: Game, playerCount: number): number {
+export function estimatedDuration(game: Game, playerCount: number): number {
   if (game.perPlayerMinutes == null && game.setupMinutes == null && game.explanationMinutes == null) {
     return game.durationMinutes;
   }
   return (game.setupMinutes ?? 0) + (game.explanationMinutes ?? 0) + (game.perPlayerMinutes ?? 0) * playerCount;
+}
+
+/** The game's full min↔max duration span — shortest at minPlayers, longest at maxPlayers seated. */
+export function estimatedDurationRange(game: Game): [number, number] {
+  return [estimatedDuration(game, game.minPlayers), estimatedDuration(game, game.maxPlayers)];
 }
 
 function findEarliestWindow(
@@ -271,10 +293,6 @@ export function generateTables(
     while (true) {
       const eligibleForAnotherTable = (p: Player) => !offered.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
       const interested = players.filter((p) => p.interests[game.id] === 'yes' && eligibleForAnotherTable(p));
-      // Anyone who can explain but wouldn't get a seat can drop in just to teach for a short
-      // block, then leave — no seat consumed, no full-session commitment.
-      const teachOnlyCandidates = players.filter((p) => p.canExplain.includes(game.id));
-
       if (interested.length < game.minPlayers) break;
 
       // Whoever arrives earliest goes first — a late arrival shouldn't get pulled ahead of
@@ -292,7 +310,7 @@ export function generateTables(
       interface GroupResult {
         group: Player[];
         window: { start: string; end: string };
-        teachOnlyExplainer: Player | null;
+        explainer: Player;
       }
 
       // Builds a group by adding candidates one at a time in priority order, skipping anyone
@@ -320,9 +338,8 @@ export function generateTables(
         return { group, window };
       }
 
-      // Tries seeding the greedy build with each candidate explainer in turn, keeping whichever
-      // seed grows the biggest compatible group; falls back to building without an explainer
-      // requirement and pairing the result with a free drop-in teacher.
+      // The explainer always sits at the table, so every group is seeded with someone who can
+      // explain the game; keeps whichever seed grows the biggest compatible group.
       function tryFindGroup(pool: Player[], minSize: number, maxSize: number): GroupResult | null {
         if (pool.length < minSize) return null;
         const explainerSeeds = pool.filter((p) => p.canExplain.includes(game.id));
@@ -333,29 +350,15 @@ export function generateTables(
           if (!built) continue;
           if (!best || built.group.length > best.group.length ||
             (built.group.length === best.group.length && toMinutes(built.window.start) < toMinutes(best.window.start))) {
-            best = { group: built.group, window: built.window, teachOnlyExplainer: null };
+            best = { group: built.group, window: built.window, explainer: seed };
           }
         }
-        if (best) return best;
-
-        // Nobody who'd take a seat can explain — build the group on availability alone, then see
-        // if a drop-in teacher (no seat needed) is free during that window.
-        const built = buildGreedy(pool, [], minSize, maxSize);
-        if (!built) return null;
-        const teachEnd = toTimeString(toMinutes(built.window.start) + TEACH_ONLY_MINUTES);
-        const teacher = teachOnlyCandidates.find(
-          (p) => built.group.every((c) => c.id !== p.id) && isAvailable(p, built.window.start, teachEnd, busyMap.get(p.id) ?? [], bufferMinutes)
-        );
-        return teacher ? { group: built.group, window: built.window, teachOnlyExplainer: teacher } : null;
+        return best;
       }
 
       const best = tryFindGroup(byFlexibility, game.minPlayers, game.maxPlayers);
       if (!best) break;
-      const { group, window, teachOnlyExplainer } = best;
-
-      const seatedExplainer = group.find((p) => p.canExplain.includes(game.id));
-      const explainer = seatedExplainer ?? teachOnlyExplainer!;
-      const explainerIsPlaying = !!seatedExplainer;
+      const { group, window, explainer } = best;
 
       proposals.push({
         gameId: game.id,
@@ -363,7 +366,6 @@ export function generateTables(
         startTime: window.start,
         endTime: window.end,
         explainerId: explainer.id,
-        explainerIsPlaying,
         playerIds: [],
         candidateIds: group.map((p) => p.id),
         rejectedIds: [],

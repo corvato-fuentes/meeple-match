@@ -3,7 +3,7 @@ import {
   acquireGenerationLock, releaseGenerationLock,
 } from '@/lib/firestore';
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
-import { isAutoGenerationLocked } from '@/lib/timeUtils';
+import { isEventOver } from '@/lib/timeUtils';
 import type { MeepleEvent } from '@/lib/types';
 
 export interface TableGenerationResult {
@@ -28,16 +28,16 @@ async function acquireLockWithRetry(eventCode: string): Promise<boolean> {
  * Only 'cancelled' tables are ignored; everything else (recommended, confirmed, in-progress,
  * completed) stays untouched as context.
  *
- * Once inside the configured freeze window before the event (by default, midnight of the event
- * day), auto-triggers (manual=false) stop regenerating altogether so the grid freezes into
- * something stable; the admin can still force a rebuild.
+ * Once the event's scheduled end time has passed, auto-triggers (manual=false) stop regenerating
+ * — there's no reason to keep reshuffling recommendations for an event that's already over. The
+ * admin's manual button still works regardless, in case something needs patching after the fact.
  */
 export async function runTableGeneration(
   eventCode: string,
   event: MeepleEvent,
   opts: { manual?: boolean } = {}
 ): Promise<TableGenerationResult> {
-  if (!opts.manual && isAutoGenerationLocked(event.date, event.settings.autoGenerateFreezeHours)) {
+  if (!opts.manual && isEventOver(event.date, event.endTime)) {
     return { filledSeats: 0, newTables: 0 };
   }
 

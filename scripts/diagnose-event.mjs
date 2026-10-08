@@ -65,8 +65,7 @@ for (const p of players) {
 console.log('\n=== TABLES (' + tables.length + ') ===');
 for (const t of tables.sort((a, b) => (a.startTime > b.startTime ? 1 : -1))) {
   const names = t.playerIds.map((pid) => playerMap.get(pid)?.name ?? pid);
-  const explainerNote = t.explainerIsPlaying === false ? ` explainerOnly=${playerMap.get(t.explainerId)?.name ?? t.explainerId}` : '';
-  console.log(`- [${t.status}] ${t.gameName} ${t.startTime}-${t.endTime} tableNum=${t.tableNumber} batch=${t.batchNumber} players=[${names.join(', ')}]${explainerNote}`);
+  console.log(`- [${t.status}] ${t.gameName} ${t.startTime}-${t.endTime} tableNum=${t.tableNumber} batch=${t.batchNumber} players=[${names.join(', ')}]`);
 }
 
 console.log('\n=== PER-PLAYER SCHEDULE + IDLE GAPS ===');

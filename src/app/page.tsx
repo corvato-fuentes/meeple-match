@@ -64,15 +64,12 @@ export default function LandingPage() {
         mapUrl: form.mapUrl.trim() || null,
         settings: {
           bufferMinutes: 15,
-          autoGenerate: true,
           maxPlayers: null,
           maxGamesPerPlayer: null,
-          phoneRequired: false,
           physicalTables: null,
           breaks: [],
           paymentRequired: false,
           paymentInfo: null,
-          autoGenerateFreezeHours: 0,
           registrationBannerUrl: null,
         },
       });

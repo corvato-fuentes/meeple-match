@@ -5,16 +5,27 @@ export function bggSearchUrl(gameName: string): string {
   return `https://boardgamegeek.com/geeksearch.php?action=search&objecttype=boardgame&q=${encodeURIComponent(gameName)}`;
 }
 
+// The manual "Link BGG" field is free text with no format enforcement — guards against rendering
+// a stray non-URL value (e.g. a game name typed into the wrong box) as a clickable link.
+export function isBggUrl(url: string | null | undefined): url is string {
+  return !!url && /^https?:\/\//.test(url);
+}
+
 export interface BggSearchResult {
   id: string;
   name: string;
   year: string | null;
+  imageUrl: string | null;
 }
 
 export interface BggGameDetails {
   bggUrl: string;
+  imageUrl: string | null;
   minPlayers: number;
   maxPlayers: number;
+  // The box's actual max capacity — maxPlayers above may be narrower (BGG's community "best with"
+  // range). Use this one for anything computed off the game's full player range, e.g. per-player time.
+  boxMaxPlayers: number;
   durationMinutes: number;
   complexity: GameComplexity;
 }

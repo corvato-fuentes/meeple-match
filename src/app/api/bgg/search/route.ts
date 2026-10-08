@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   if (!res.ok) return NextResponse.json({ results: [] }, { status: 502 });
   const xml = await res.text();
 
-  const results: { id: string; name: string; year: string | null }[] = [];
+  const results: { id: string; name: string; year: string | null; imageUrl: string | null }[] = [];
   const itemRegex = /<item[^>]*\bid="(\d+)"[^>]*>([\s\S]*?)<\/item>/g;
   let match: RegExpExecArray | null;
   while ((match = itemRegex.exec(xml)) && results.length < 8) {
@@ -31,8 +31,29 @@ export async function GET(request: NextRequest) {
     const nameMatch = /<name[^>]*\bvalue="([^"]*)"/.exec(body);
     const yearMatch = /<yearpublished[^>]*\bvalue="([^"]*)"/.exec(body);
     if (nameMatch) {
-      results.push({ id, name: decodeXmlEntities(nameMatch[1]), year: yearMatch?.[1] ?? null });
+      results.push({ id, name: decodeXmlEntities(nameMatch[1]), year: yearMatch?.[1] ?? null, imageUrl: null });
     }
   }
+
+  // The search endpoint doesn't return images — one batch call to `thing` (comma-separated ids)
+  // fetches thumbnails for every result at once instead of one request per row.
+  if (results.length > 0) {
+    const thingRes = await fetch(`https://boardgamegeek.com/xmlapi2/thing?id=${results.map((r) => r.id).join(',')}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (thingRes.ok) {
+      const thingXml = await thingRes.text();
+      const thumbById = new Map<string, string>();
+      const thingItemRegex = /<item[^>]*\bid="(\d+)"[^>]*>([\s\S]*?)<\/item>/g;
+      let thingMatch: RegExpExecArray | null;
+      while ((thingMatch = thingItemRegex.exec(thingXml))) {
+        const [, id, body] = thingMatch;
+        const thumbMatch = /<thumbnail>([^<]*)<\/thumbnail>/.exec(body);
+        if (thumbMatch?.[1]) thumbById.set(id, thumbMatch[1].trim());
+      }
+      for (const r of results) r.imageUrl = thumbById.get(r.id) ?? null;
+    }
+  }
+
   return NextResponse.json({ results });
 }

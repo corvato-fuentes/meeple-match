@@ -19,8 +19,8 @@ export default function VotingHelp() {
             <ul className="space-y-2 text-gray-300">
               <li><strong>👍 Quiero jugarlo:</strong> el sistema arma una mesa con vos y otros interesados apenas coincidan un horario libre. Vas a poder aceptarla o rechazarla cuando se arme.</li>
               <li><strong>👎 No me interesa:</strong> el juego se oculta de tu lista.</li>
-              <li><strong>🎓 Sé explicarlo:</strong> marcalo si conocés las reglas — sin al menos un explicador, esa mesa no se arma. Si marcás esto pero no votás 👍 en ese juego, no ocupás un lugar en la mesa: solo vas a explicarlo un rato y después quedás libre para jugar otra cosa.</li>
-              <li><strong>🔁 Repetir:</strong> si ya te tocó jugarlo, marcalo para poder entrar a una segunda mesa del mismo juego más tarde.</li>
+              <li><strong>🎓 Sé explicarlo / 👍 Sé jugarlo / 🆕 Nunca lo jugué:</strong> tu nivel de conocimiento del juego. Sin al menos un explicador, esa mesa no se arma. Si marcás “Sé explicarlo” pero no votás 👍 en ese juego, no ocupás un lugar en la mesa: solo vas a explicarlo un rato y después quedás libre para jugar otra cosa.</li>
+              <li><strong>🔁 ¿Otra mesa?:</strong> cuando aceptes una mesa recomendada, te va a preguntar ahí mismo si querés sumarte también a una segunda mesa del mismo juego más adelante.</li>
             </ul>
             <p className="text-gray-400">
               Cuando el sistema encuentra un horario en común para suficiente gente, te va a proponer esa mesa como

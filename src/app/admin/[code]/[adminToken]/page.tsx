@@ -2,14 +2,17 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, updateEventStatus, updateEventSettings, updateEventDetails, subscribePlayers, subscribeTables, getPlayers, getGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, subscribePlayers, subscribeTables, getPlayers, getGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
 import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { computeIdleGaps } from '@/lib/tableAlgorithm';
+import { computeEventStatus } from '@/lib/timeUtils';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
+import ConfirmModal from '@/components/ui/ConfirmModal';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
+
+const EVENT_STATUS_LABEL = { open: 'Abierto', live: 'En vivo', closed: 'Cerrado' } as const;
 
 export default function AdminPage() {
   const { code, adminToken } = useParams<{ code: string; adminToken: string }>();
@@ -30,8 +33,10 @@ export default function AdminPage() {
   const [showQr, setShowQr] = useState(false);
   const [seedPromptOpen, setSeedPromptOpen] = useState(false);
   const [seedCountInput, setSeedCountInput] = useState('');
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
   const [settingsDraft, setSettingsDraft] = useState<MeepleEvent['settings'] | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
   const [mapUrlDraft, setMapUrlDraft] = useState('');
   const [locationDraft, setLocationDraft] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
@@ -44,7 +49,6 @@ export default function AdminPage() {
   const [gmailAppPasswordDraft, setGmailAppPasswordDraft] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
   const [emailMsg, setEmailMsg] = useState<string | null>(null);
-  const [showIdleGaps, setShowIdleGaps] = useState(false);
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -54,6 +58,7 @@ export default function AdminPage() {
       setEvent(ev);
       if (ev) {
         setSettingsDraft(ev.settings);
+        setNameDraft(ev.name);
         setMapUrlDraft(ev.mapUrl ?? '');
         setLocationDraft(ev.location ?? '');
         saveMyEvent({ code, adminToken, name: ev.name, date: ev.date });
@@ -110,33 +115,40 @@ export default function AdminPage() {
     setSeedPromptOpen(false);
     setSeeding(true);
     setGenerateMsg(null);
-    const drafts = generateFakePlayers(count, event);
-    await seedFakePlayers(code, drafts);
-    const { newTables } = await runTableGeneration(code, event, { manual: true });
-    setSeeding(false);
-    setGenerateMsg(newTables > 0
-      ? `✓ Se agregaron ${count} jugadores de prueba y se generaron ${newTables} mesa${newTables === 1 ? '' : 's'} nueva${newTables === 1 ? '' : 's'}.`
-      : `✓ Se agregaron ${count} jugadores de prueba, pero no se generaron mesas nuevas.`);
+    try {
+      const drafts = generateFakePlayers(count, event);
+      await seedFakePlayers(code, drafts, event);
+      const { newTables } = await runTableGeneration(code, event, { manual: true });
+      setGenerateMsg(newTables > 0
+        ? `✓ Se agregaron ${count} jugadores de prueba y se generaron ${newTables} mesa${newTables === 1 ? '' : 's'} nueva${newTables === 1 ? '' : 's'}.`
+        : `✓ Se agregaron ${count} jugadores de prueba, pero no se generaron mesas nuevas.`);
+    } catch (err) {
+      console.error(err);
+      setGenerateMsg('✕ Algo falló generando los datos de prueba — revisá la consola. Puede que se hayan creado jugadores sin mesas; probá "Resetear y regenerar" para dejarlo consistente.');
+    } finally {
+      setSeeding(false);
+    }
   }
 
 
   async function handleResetAndSeed() {
+    setConfirmResetOpen(false);
     if (!event) return;
-    if (!confirm('Esto va a BORRAR todos los jugadores, juegos y mesas actuales del evento, y crear datos de prueba nuevos desde cero. Esta acción no se puede deshacer. ¿Continuar?')) return;
     setResetting(true);
     setGenerateMsg(null);
-    await resetEventData(code);
-    const count = event.settings.maxPlayers ?? 40;
-    const drafts = generateFakePlayers(count, event);
-    await seedFakePlayers(code, drafts);
-    const { newTables } = await runTableGeneration(code, event, { manual: true });
-    setResetting(false);
-    setGenerateMsg(`✓ Se reseteó el evento y se crearon ${count} jugadores de prueba nuevos con ${newTables} mesa${newTables === 1 ? '' : 's'}.`);
-  }
-
-  async function handleStatusChange(status: MeepleEvent['status']) {
-    await updateEventStatus(code, status);
-    setEvent((ev) => ev ? { ...ev, status } : ev);
+    try {
+      const removed = await resetEventData(code);
+      const count = event.settings.maxPlayers ?? 40;
+      const drafts = generateFakePlayers(count, event);
+      await seedFakePlayers(code, drafts, event);
+      const { newTables } = await runTableGeneration(code, event, { manual: true });
+      setGenerateMsg(`✓ Se borraron ${removed} jugador${removed === 1 ? '' : 'es'} de prueba anteriores y se crearon ${count} nuevos, con ${newTables} mesa${newTables === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error(err);
+      setGenerateMsg('✕ Algo falló reseteando/regenerando — revisá la consola y probá de nuevo.');
+    } finally {
+      setResetting(false);
+    }
   }
 
   function handleDraftChange(key: keyof MeepleEvent['settings'], value: unknown) {
@@ -146,13 +158,16 @@ export default function AdminPage() {
   async function handleSaveSettings() {
     if (!event || !settingsDraft) return;
     setSavingSettings(true);
+    const name = nameDraft.trim() || event.name;
     const mapUrl = mapUrlDraft.trim() || null;
     const location = locationDraft.trim();
     await Promise.all([
       updateEventSettings(code, settingsDraft),
-      updateEventDetails(code, { mapUrl, location }),
+      updateEventDetails(code, { name, mapUrl, location }),
     ]);
-    setEvent((ev) => ev ? { ...ev, settings: settingsDraft, mapUrl, location } : ev);
+    setEvent((ev) => ev ? { ...ev, settings: settingsDraft, name, mapUrl, location } : ev);
+    setNameDraft(name);
+    saveMyEvent({ code, adminToken, name, date: event.date });
     setSavingSettings(false);
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 2000);
@@ -228,8 +243,9 @@ export default function AdminPage() {
   if (!event || !settingsDraft) return <div className='p-8 text-center'>Cargando...</div>;
 
   const confirmedCount = tables.filter((t) => ['confirmed', 'in-progress'].includes(t.status)).length;
-  const proposedCount = tables.filter((t) => t.status === 'recommended').length;
-  const idleGaps = computeIdleGaps(players, tables, event.settings.breaks);
+  const recommendedCount = tables.filter((t) => t.status === 'recommended' && !t.postedByOwner).length;
+  const postulatedCount = tables.filter((t) => t.status === 'recommended' && t.postedByOwner).length;
+  const eventStatus = computeEventStatus(event.date, event.startTime, event.endTime);
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10 space-y-6'>
@@ -274,44 +290,36 @@ export default function AdminPage() {
       </section>
 
       {/* Stats */}
-      <div className='grid grid-cols-3 gap-3'>
+      <div className='grid grid-cols-2 gap-3'>
         <StatCard label='Inscriptos' value={players.length} sub={event.settings.maxPlayers ? `/ ${event.settings.maxPlayers}` : ''} />
-        <StatCard label='Mesas recom.' value={proposedCount} />
-        <StatCard label='Mesas conf.' value={confirmedCount} />
+        <StatCard label='Mesas recomendadas' value={recommendedCount} />
+        <StatCard label='Mesas postuladas' value={postulatedCount} />
+        <StatCard label='Mesas confirmadas' value={confirmedCount} />
       </div>
 
-      {idleGaps.length > 0 && (
-        <section className='border border-amber-800 bg-amber-950/20 rounded-xl p-4'>
-          <button onClick={() => setShowIdleGaps((v) => !v)} className='w-full flex justify-between items-center text-sm font-semibold text-amber-300'>
-            <span>⚠️ {idleGaps.length} hueco{idleGaps.length !== 1 ? 's' : ''} libre{idleGaps.length !== 1 ? 's' : ''} sin mesa</span>
-            <span>{showIdleGaps ? '▾' : '▸'}</span>
-          </button>
-          {showIdleGaps && (
-            <div className='mt-2 space-y-1'>
-              {idleGaps.map((g, i) => (
-                <p key={i} className='text-xs text-gray-300'>{g.playerName}: libre {g.start}–{g.end}</p>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Status */}
+      {/* Status — always derived from the event's own schedule, never picked manually */}
       <section className='border border-gray-700 rounded-xl p-4 space-y-2'>
         <h2 className='font-semibold'>Estado del evento</h2>
         <div className='flex gap-2 flex-wrap'>
-          {(['setup', 'open', 'live', 'closed'] as MeepleEvent['status'][]).map((s) => (
-            <button key={s} onClick={() => handleStatusChange(s)}
-              className={`px-3 py-1 rounded-full text-sm border ${event.status === s ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800'}`}>
-              {s}
-            </button>
+          {(['open', 'live', 'closed'] as const).map((s) => (
+            <span key={s}
+              className={`px-3 py-1 rounded-full text-sm border ${eventStatus === s ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-500'}`}>
+              {EVENT_STATUS_LABEL[s]}
+            </span>
           ))}
         </div>
+        <p className='text-xs text-gray-500'>Se calcula solo según la fecha y horario del evento — abierto antes de empezar, en vivo durante, cerrado después.</p>
       </section>
 
       {/* Settings */}
       <section className='border border-gray-700 rounded-xl p-4 space-y-3'>
         <h2 className='font-semibold'>Configuración</h2>
+        <div>
+          <label className='text-xs text-gray-400 block mb-1'>Nombre del evento</label>
+          <input placeholder='Nombre del evento'
+            className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+            value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
+        </div>
         <div>
           <label className='text-xs text-gray-400 block mb-1'>Lugar</label>
           <input placeholder='Club, domicilio...'
@@ -370,28 +378,11 @@ export default function AdminPage() {
               value={settingsDraft.physicalTables ?? ''} onFocus={(e) => e.target.select()}
               onChange={(e) => handleDraftChange('physicalTables', e.target.value ? +e.target.value : null)} />
           </div>
-          <div>
-            <label className='text-xs text-gray-400 block mb-1'>Congelar auto-generación (hs antes de la medianoche del evento)</label>
-            <input type='number' min={0}
-              className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
-              value={settingsDraft.autoGenerateFreezeHours} onFocus={(e) => e.target.select()}
-              onChange={(e) => handleDraftChange('autoGenerateFreezeHours', +e.target.value)} />
-          </div>
-          <div className='flex items-center gap-2 pt-4'>
-            <input type='checkbox' id='autoGen' checked={settingsDraft.autoGenerate}
-              onChange={(e) => handleDraftChange('autoGenerate', e.target.checked)} />
-            <label htmlFor='autoGen' className='text-sm'>Auto-generar mesas</label>
-          </div>
-          <div className='flex items-center gap-2 pt-4'>
-            <input type='checkbox' id='phoneReq' checked={settingsDraft.phoneRequired}
-              onChange={(e) => handleDraftChange('phoneRequired', e.target.checked)} />
-            <label htmlFor='phoneReq' className='text-sm'>Teléfono obligatorio</label>
-          </div>
-          <div className='flex items-center gap-2 pt-4'>
-            <input type='checkbox' id='paymentReq' checked={settingsDraft.paymentRequired}
-              onChange={(e) => handleDraftChange('paymentRequired', e.target.checked)} />
-            <label htmlFor='paymentReq' className='text-sm'>Requerir comprobante de pago</label>
-          </div>
+        </div>
+        <div className='flex items-center gap-2'>
+          <input type='checkbox' id='paymentReq' checked={settingsDraft.paymentRequired}
+            onChange={(e) => handleDraftChange('paymentRequired', e.target.checked)} />
+          <label htmlFor='paymentReq' className='text-sm'>Requerir comprobante de pago</label>
         </div>
 
         {settingsDraft.paymentRequired && (
@@ -490,23 +481,23 @@ export default function AdminPage() {
       </section>
 
       {/* Actions */}
-      <div className='flex gap-3 flex-wrap items-center'>
-        <button onClick={handleGenerate} disabled={generating}
-          className='bg-indigo-600 text-white rounded-xl px-5 py-2 font-semibold hover:bg-indigo-700 disabled:opacity-50'>
-          {generating ? 'Generando...' : '⚡ Generar mesas'}
-        </button>
-        <Link href={`/admin/${code}/${adminToken}/tables`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
-          🛠️ Gestionar mesas →
-        </Link>
-        <Link href={`/admin/${code}/${adminToken}/players`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
+      <div className='flex flex-col gap-3'>
+        <Link href={`/admin/${code}/${adminToken}/players`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800 text-center'>
           Ver jugadores →
         </Link>
-        <Link href={`/admin/${code}/${adminToken}/games`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
+        <Link href={`/admin/${code}/${adminToken}/games`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800 text-center'>
           Ver juegos →
         </Link>
+        <Link href={`/admin/${code}/${adminToken}/tables`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800 text-center'>
+          🛠️ Gestionar mesas →
+        </Link>
+        <button onClick={handleGenerate} disabled={generating}
+          className='bg-indigo-600 text-white rounded-xl px-5 py-2 font-semibold hover:bg-indigo-700 disabled:opacity-50'>
+          {generating ? 'Generando...' : '⚡ Regenerar recomendaciones'}
+        </button>
         <Link href={`/event/${code}/board`}
           onClick={() => sessionStorage.setItem(BOARD_RETURN_KEY(code), adminUrl)}
-          className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800'>
+          className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800 text-center'>
           Tablero 📺
         </Link>
         <button onClick={() => setShowQr((v) => !v)}
@@ -539,7 +530,7 @@ export default function AdminPage() {
       {/* Debug / demo */}
       <section className='border border-dashed border-amber-700 rounded-xl p-4'>
         <h2 className='font-semibold text-amber-400 text-sm mb-1'>🧪 Modo demo</h2>
-        <p className='text-xs text-gray-500 mb-3'>Te pregunta cuántos jugadores de prueba crear (sin superar la capacidad máxima configurada), genera sus juegos y votos al azar, y propone mesas.</p>
+        <p className='text-xs text-gray-500 mb-3'>Te pregunta cuántos jugadores de prueba crear (sin superar la capacidad máxima configurada), genera sus juegos y votos al azar, arma mesas postuladas (algunos las postulan, otros se suman) y propone mesas por algoritmo. "Resetear y regenerar" solo borra jugadores/juegos/mesas de prueba generados antes — las inscripciones reales quedan intactas.</p>
         {seedPromptOpen && (
           <div className='flex items-end gap-3 mb-3 flex-wrap'>
             <div>
@@ -570,12 +561,22 @@ export default function AdminPage() {
               🧪 Generar jugadores de prueba
             </button>
           )}
-          <button onClick={handleResetAndSeed} disabled={seeding || resetting}
+          <button onClick={() => setConfirmResetOpen(true)} disabled={seeding || resetting}
             className='border border-red-700 text-red-400 rounded-xl px-5 py-2 font-semibold hover:bg-red-950 disabled:opacity-50'>
             {resetting ? 'Reseteando...' : '🔄 Resetear y regenerar'}
           </button>
         </div>
       </section>
+
+      <ConfirmModal
+        open={confirmResetOpen}
+        title='¿Resetear los datos de prueba?'
+        message='Esto borra solamente los jugadores, juegos y mesas generados por "Modo demo" en runs anteriores — las inscripciones y juegos reales no se tocan — y crea datos de prueba nuevos desde cero. No se puede deshacer.'
+        confirmLabel='Sí, resetear'
+        danger
+        onConfirm={handleResetAndSeed}
+        onCancel={() => setConfirmResetOpen(false)}
+      />
     </main>
   );
 }

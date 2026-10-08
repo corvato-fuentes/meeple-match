@@ -25,13 +25,17 @@ export function windowDuration(start: string, end: string): number {
   return toMinutes(end) - toMinutes(start);
 }
 
-/**
- * Once inside this window, player registrations/votes stop auto-triggering full regenerations —
- * the grid freezes so only the admin can still adjust it. By default the window starts at
- * midnight of the event day; freezeHours shifts that point earlier (configurable per event).
- */
-export function isAutoGenerationLocked(date: string, freezeHours: number): boolean {
-  const midnightEventDay = new Date(`${date}T00:00:00`);
-  const lockAt = new Date(midnightEventDay.getTime() - freezeHours * 60 * 60 * 1000);
-  return new Date() >= lockAt;
+/** True once the event's scheduled end (date + endTime) has passed. */
+export function isEventOver(date: string, endTime: string): boolean {
+  return new Date() >= new Date(`${date}T${endTime}:00`);
+}
+
+// Always derived from the event's own schedule, never stored or admin-picked — before the event's
+// start it's "open" (registration ongoing), between start and end it's "live", after end it's
+// "closed" (also gates new registrations, see event/[code]/page.tsx).
+export function computeEventStatus(date: string, startTime: string, endTime: string): "open" | "live" | "closed" {
+  const now = new Date();
+  if (now < new Date(`${date}T${startTime}:00`)) return "open";
+  if (now < new Date(`${date}T${endTime}:00`)) return "live";
+  return "closed";
 }

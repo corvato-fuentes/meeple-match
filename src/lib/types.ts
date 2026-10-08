@@ -1,6 +1,7 @@
 import { Timestamp } from "firebase/firestore";
 
-export type EventStatus = "setup" | "open" | "live" | "closed";
+// Derived from date/startTime/endTime — never stored, see computeEventStatus in timeUtils.ts.
+export type EventStatus = "open" | "live" | "closed";
 export type GameComplexity = "light" | "medium" | "heavy";
 // "yes" = quiero jugarlo (👍), "no" = no me interesa (👎). Absence of a key means "sin votar".
 export type InterestLevel = "yes" | "no";
@@ -16,15 +17,12 @@ export interface ScheduledBreak {
 
 export interface EventSettings {
   bufferMinutes: number;
-  autoGenerate: boolean;
   maxPlayers: number | null;
   maxGamesPerPlayer: number | null;
-  phoneRequired: boolean;
   physicalTables: number | null;
   breaks: ScheduledBreak[];
   paymentRequired: boolean;
   paymentInfo: string | null; // account/transfer info shown to players when paymentRequired is true
-  autoGenerateFreezeHours: number; // hours before midnight of the event day that auto-triggers stop regenerating; 0 = freeze at midnight
   registrationBannerUrl: string | null; // custom banner image shown to players on the registration screen
 }
 
@@ -35,7 +33,6 @@ export interface MeepleEvent {
   endTime: string;
   location: string;
   mapUrl: string | null;
-  status: EventStatus;
   settings: EventSettings;
 }
 
@@ -48,6 +45,7 @@ export interface Game {
   id: string;
   name: string;
   bggUrl: string | null;
+  imageUrl?: string | null; // BGG box-art thumbnail, set when the game was picked from a BGG search
   minPlayers: number;
   maxPlayers: number;
   durationMinutes: number;
@@ -69,6 +67,10 @@ export interface Game {
   // opted to lend it out: any table can run during the owner's arrival\u2192departure window even
   // without them playing.
   lendable?: boolean;
+  // Soft-delete: its owner removed it from "Tus juegos", but players had already voted/known it,
+  // so the doc (and everyone's votes on it) stays around for the admin to transfer elsewhere
+  // instead of losing that data outright. Hidden from every player-facing list and the algorithm.
+  deleted?: boolean;
 }
 
 export type DraftGame = Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>;
@@ -88,8 +90,15 @@ export interface Player {
   bringGameIds: string[];
   interests: Record<string, InterestLevel>;
   canExplain: string[];
+  playedGameIds: string[]; // gameIds the player already knows how to play, even if they can't teach it
   repeatGameIds: string[]; // gameIds the player is happy to play again in a second table
   paymentProofUrl: string | null; // Cloudinary secure_url; unguessable path, never linked on any public-facing page
+  // Admin-flagged event organizer/staff — surfaced (with contact info) on the ticket-gated
+  // Organizadores page so players know who to reach out to, unlike the public roster.
+  isOrganizer?: boolean;
+  // True only for players created by the "Modo demo" seeder — lets resetEventData wipe just the
+  // generated test data and leave real registrations (and the games/tables tied to them) alone.
+  isDemoData?: boolean;
 }
 
 export interface Table {
@@ -99,8 +108,7 @@ export interface Table {
   gameName: string;
   startTime: string;
   endTime: string;
-  explainerId: string;
-  explainerIsPlaying: boolean; // false = "explica y se va": teaches for a short block, isn't in playerIds and doesn't take a seat
+  explainerId: string; // the explainer always plays at the table — there are no drop-in teachers
   playerIds: string[]; // accepted/joined players so far — the confirmed roster once status becomes 'confirmed'
   status: TableStatus;
   isManuallyEdited: boolean;
