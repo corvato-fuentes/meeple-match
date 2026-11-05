@@ -1,10 +1,32 @@
 import {
   getPlayers, getGames, getTables, saveProposedTables, updateTableCandidates, fillTableSeats,
-  acquireGenerationLock, releaseGenerationLock,
+  acquireGenerationLock, releaseGenerationLock, deleteStaleTables,
 } from '@/lib/firestore';
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
-import { isEventOver } from '@/lib/timeUtils';
-import type { MeepleEvent } from '@/lib/types';
+import { isEventOver, toMinutes } from '@/lib/timeUtils';
+import type { MeepleEvent, Table } from '@/lib/types';
+
+/** True when the table's time slot isn't fully inside the event's current schedule. */
+export function isOutsideEventWindow(t: Table, startTime: string, endTime: string): boolean {
+  return toMinutes(t.startTime) < toMinutes(startTime) || toMinutes(t.endTime) > toMinutes(endTime);
+}
+
+/**
+ * Right after the admin changes the event's schedule: removes unconfirmed algorithm-recommended
+ * tables that no longer fit it, and reports how many confirmed / owner-posted tables now fall
+ * outside (those are left alone for the admin to review).
+ */
+export async function pruneOutOfWindowTables(
+  eventCode: string, startTime: string, endTime: string
+): Promise<{ removed: number; flagged: number }> {
+  const outside = (await getTables(eventCode)).filter(
+    (t) => t.status !== 'cancelled' && isOutsideEventWindow(t, startTime, endTime)
+  );
+  const stale = outside.filter((t) => t.status === 'recommended' && !t.postedByOwner);
+  const keptConfirmed = stale.length > 0 ? await deleteStaleTables(eventCode, stale.map((t) => t.id)) : [];
+  const removed = stale.length - keptConfirmed.length;
+  return { removed, flagged: outside.length - removed };
+}
 
 export interface TableGenerationResult {
   filledSeats: number;
@@ -53,7 +75,16 @@ export async function runTableGeneration(
     const [allPlayers, allGames, allTables] = await Promise.all([
       getPlayers(eventCode), getGames(eventCode), getTables(eventCode),
     ]);
-    const activeTables = allTables.filter((t) => t.status !== 'cancelled');
+    // An algorithm-recommended table nobody has confirmed that no longer fits the event's schedule
+    // (e.g. the admin shortened the day after it was proposed) is just stale demand — drop it so the
+    // pass below can propose a fresh one inside the window. Confirmed and owner-posted tables are
+    // never touched here; the admin sees those flagged instead.
+    const stale = allTables.filter(
+      (t) => t.status === 'recommended' && !t.postedByOwner && isOutsideEventWindow(t, event.startTime, event.endTime)
+    );
+    const keptConfirmed = stale.length > 0 ? await deleteStaleTables(eventCode, stale.map((t) => t.id)) : [];
+    const removedIds = new Set(stale.map((t) => t.id).filter((id) => !keptConfirmed.includes(id)));
+    const activeTables = allTables.filter((t) => t.status !== 'cancelled' && !removedIds.has(t.id));
 
     // Late "yes" voters can join an already-confirmed table's open seats directly, no accept needed.
     const fills = fillExistingTables(allPlayers, allGames, activeTables, event.settings.bufferMinutes);

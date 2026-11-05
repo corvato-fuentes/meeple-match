@@ -6,7 +6,7 @@ import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, cl
 import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
-import { runTableGeneration } from '@/lib/tableGeneration';
+import { runTableGeneration, pruneOutOfWindowTables } from '@/lib/tableGeneration';
 import { computeEventStatus, toMinutes } from '@/lib/timeUtils';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
@@ -203,7 +203,14 @@ export default function AdminPage() {
     ]);
     // Players who signed up outside the new window get their arrival/departure pulled to its edges.
     const adjusted = scheduleChanged ? await clampPlayerTimesToEvent(code, startTime, endTime) : 0;
-    if (adjusted > 0) setScheduleNotice(`Se ajustó el horario de ${adjusted} jugador${adjusted === 1 ? '' : 'es'} para que entre en el nuevo horario del evento.`);
+    // Recommended tables proposed under the old schedule that no longer fit are dropped; confirmed or
+    // owner-posted ones outside the new window are only flagged.
+    const pruned = scheduleChanged ? await pruneOutOfWindowTables(code, startTime, endTime) : { removed: 0, flagged: 0 };
+    const notes: string[] = [];
+    if (adjusted > 0) notes.push(`Se ajustó el horario de ${adjusted} jugador${adjusted === 1 ? '' : 'es'} para que entre en el nuevo horario del evento.`);
+    if (pruned.removed > 0) notes.push(`Se quitaron ${pruned.removed} mesa${pruned.removed === 1 ? '' : 's'} recomendada${pruned.removed === 1 ? '' : 's'} que quedaban fuera del horario.`);
+    if (pruned.flagged > 0) notes.push(`⚠️ ${pruned.flagged} mesa${pruned.flagged === 1 ? '' : 's'} confirmada${pruned.flagged === 1 ? '' : 's'} o postulada${pruned.flagged === 1 ? '' : 's'} quedan fuera del nuevo horario: revisalas en “Gestionar mesas”.`);
+    if (notes.length > 0) setScheduleNotice(notes.join(' '));
     setEvent((ev) => ev ? { ...ev, settings: settingsDraft, name, mapUrl, location, date, startTime, endTime } : ev);
     setNameDraft(name);
     saveMyEvent({ code, adminToken, name, date });
