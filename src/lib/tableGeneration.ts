@@ -3,12 +3,24 @@ import {
   acquireGenerationLock, releaseGenerationLock, deleteStaleTables,
 } from '@/lib/firestore';
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
-import { isEventOver, toMinutes } from '@/lib/timeUtils';
-import type { MeepleEvent, Table } from '@/lib/types';
+import { isEventOver, toMinutes, toTimeString } from '@/lib/timeUtils';
+import type { MeepleEvent, Player, Table } from '@/lib/types';
 
 /** True when the table's time slot isn't fully inside the event's current schedule. */
 export function isOutsideEventWindow(t: Table, startTime: string, endTime: string): boolean {
   return toMinutes(t.startTime) < toMinutes(startTime) || toMinutes(t.endTime) > toMinutes(endTime);
+}
+
+/**
+ * A player's availability trimmed to the event's schedule, or null if they don't overlap it at all.
+ * Players saved under an older schedule can still carry times outside the current window; without
+ * this the algorithm would happily propose tables in hours the event no longer covers.
+ */
+function withinEventWindow(p: Player, startTime: string, endTime: string): Player | null {
+  const arrival = Math.max(toMinutes(p.arrivalTime), toMinutes(startTime));
+  const departure = Math.min(toMinutes(p.departureTime), toMinutes(endTime));
+  if (arrival >= departure) return null;
+  return { ...p, arrivalTime: toTimeString(arrival), departureTime: toTimeString(departure) };
 }
 
 /**
@@ -72,13 +84,16 @@ export async function runTableGeneration(
   }
 
   try {
-    const [allPlayers, allGames, allTables] = await Promise.all([
+    const [rawPlayers, allGames, allTables] = await Promise.all([
       getPlayers(eventCode), getGames(eventCode), getTables(eventCode),
     ]);
     // An algorithm-recommended table nobody has confirmed that no longer fits the event's schedule
     // (e.g. the admin shortened the day after it was proposed) is just stale demand — drop it so the
     // pass below can propose a fresh one inside the window. Confirmed and owner-posted tables are
     // never touched here; the admin sees those flagged instead.
+    const allPlayers = rawPlayers
+      .map((p) => withinEventWindow(p, event.startTime, event.endTime))
+      .filter((p): p is Player => p !== null);
     const stale = allTables.filter(
       (t) => t.status === 'recommended' && !t.postedByOwner && isOutsideEventWindow(t, event.startTime, event.endTime)
     );
