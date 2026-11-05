@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, subscribePlayers, subscribeTables, getPlayers, getGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, clampPlayerTimesToEvent, subscribePlayers, subscribeTables, getPlayers, getGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
 import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
@@ -44,6 +44,7 @@ export default function AdminPage() {
   const [startDraft, setStartDraft] = useState('');
   const [endDraft, setEndDraft] = useState('');
   const [scheduleError, setScheduleError] = useState('');
+  const [scheduleNotice, setScheduleNotice] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [deletingProofs, setDeletingProofs] = useState(false);
@@ -173,14 +174,19 @@ export default function AdminPage() {
       return;
     }
     setScheduleError('');
+    setScheduleNotice('');
     setSavingSettings(true);
     const name = nameDraft.trim() || event.name;
     const mapUrl = mapUrlDraft.trim() || null;
     const location = locationDraft.trim();
+    const scheduleChanged = startTime !== event.startTime || endTime !== event.endTime;
     await Promise.all([
       updateEventSettings(code, settingsDraft),
       updateEventDetails(code, { name, mapUrl, location, date, startTime, endTime }),
     ]);
+    // Players who signed up outside the new window get their arrival/departure pulled to its edges.
+    const adjusted = scheduleChanged ? await clampPlayerTimesToEvent(code, startTime, endTime) : 0;
+    if (adjusted > 0) setScheduleNotice(`Se ajustó el horario de ${adjusted} jugador${adjusted === 1 ? '' : 'es'} para que entre en el nuevo horario del evento.`);
     setEvent((ev) => ev ? { ...ev, settings: settingsDraft, name, mapUrl, location, date, startTime, endTime } : ev);
     setNameDraft(name);
     saveMyEvent({ code, adminToken, name, date });
@@ -353,8 +359,10 @@ export default function AdminPage() {
           </div>
         </div>
         {scheduleError && <p className='text-xs text-red-400'>{scheduleError}</p>}
+        {scheduleNotice && <p className='text-xs text-green-400'>{scheduleNotice}</p>}
         <p className='text-xs text-gray-500'>
-          Cambiar el horario no mueve las mesas ya armadas ni los horarios que cada jugador cargó; después podés usar “Regenerar recomendaciones”.
+          Si cambiás el horario, a los jugadores que llegaban antes del inicio o se iban después del fin se les ajusta la entrada o la salida al nuevo horario.
+          Las mesas ya armadas no se mueven; después podés usar “Regenerar recomendaciones”.
         </p>
         <div>
           <label className='text-xs text-gray-400 block mb-1'>Lugar</label>

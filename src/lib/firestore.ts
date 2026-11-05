@@ -8,6 +8,7 @@ import type { MeepleEvent, EventAdminConfig, Game, Player, Table, InterestLevel 
 import type { FakePlayerDraft, FakePlayerForTables, FakeGameForTables } from './fakeData';
 import { randomInterest, randomOwnGameInterest, generateFakePostulatedTables } from './fakeData';
 import { generateTicketCodeCandidate } from './ticketCode';
+import { toMinutes, toTimeString } from './timeUtils';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -428,6 +429,32 @@ export async function updatePlayerTimes(
   departureTime: string
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { arrivalTime, departureTime });
+}
+
+/**
+ * After the event's schedule changes, pulls every player's arrival/departure inside the new
+ * window: anyone arriving before the new start now arrives at the start, anyone leaving after
+ * the new end now leaves at the end. A player whose whole window falls outside the new one gets
+ * the full new window. Returns how many players were adjusted.
+ */
+export async function clampPlayerTimesToEvent(eventCode: string, startTime: string, endTime: string): Promise<number> {
+  const players = await getPlayers(eventCode);
+  const start = toMinutes(startTime);
+  const end = toMinutes(endTime);
+  const batch = writeBatch(db);
+  let changed = 0;
+  for (const p of players) {
+    let arrival = Math.max(toMinutes(p.arrivalTime), start);
+    let departure = Math.min(toMinutes(p.departureTime), end);
+    if (arrival >= departure) { arrival = start; departure = end; }
+    const arrivalTime = toTimeString(arrival);
+    const departureTime = toTimeString(departure);
+    if (arrivalTime === p.arrivalTime && departureTime === p.departureTime) continue;
+    batch.update(doc(db, 'events', eventCode, 'players', p.id), { arrivalTime, departureTime });
+    changed++;
+  }
+  if (changed > 0) await batch.commit();
+  return changed;
 }
 
 /** Admin-only flag — marks a player as event staff/organizer, surfaced on the Organizadores page. */
