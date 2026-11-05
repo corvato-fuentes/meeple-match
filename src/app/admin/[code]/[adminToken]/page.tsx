@@ -13,6 +13,12 @@ import { uploadRegistrationBanner } from '@/lib/paymentProof';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
+/** "2026-11-15" → "15/11/2026" */
+function formatDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return y && m && d ? `${d}/${m}/${y}` : iso;
+}
+
 const EVENT_STATUS_LABEL = { open: 'Abierto', live: 'En vivo', closed: 'Cerrado' } as const;
 
 export default function AdminPage() {
@@ -43,6 +49,7 @@ export default function AdminPage() {
   const [dateDraft, setDateDraft] = useState('');
   const [startDraft, setStartDraft] = useState('');
   const [endDraft, setEndDraft] = useState('');
+  const [editingSchedule, setEditingSchedule] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
   const [scheduleNotice, setScheduleNotice] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
@@ -343,20 +350,37 @@ export default function AdminPage() {
             value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
         </div>
         <div>
-          <label className='text-xs text-gray-400 block mb-1'>Fecha</label>
-          <input type='date'
-            className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
-            value={dateDraft} onChange={(e) => setDateDraft(e.target.value)} />
-        </div>
-        <div className='grid grid-cols-2 gap-3'>
-          <div>
-            <label className='text-xs text-gray-400 block mb-1'>Desde</label>
-            <TimeWheelPicker value={startDraft || '10:00'} onChange={setStartDraft} />
+          <div className='flex items-center justify-between gap-2 mb-1'>
+            <label className='text-xs text-gray-400'>Fecha y horario</label>
+            <button type='button' onClick={() => setEditingSchedule((v) => !v)}
+              className='text-xs text-indigo-400 hover:underline'>
+              {editingSchedule ? 'Listo' : '✏️ Editar'}
+            </button>
           </div>
-          <div>
-            <label className='text-xs text-gray-400 block mb-1'>Hasta</label>
-            <TimeWheelPicker value={endDraft || '18:00'} onChange={setEndDraft} />
-          </div>
+          {editingSchedule ? (
+            <div className='space-y-3'>
+              <input type='date'
+                className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+                value={dateDraft} onChange={(e) => setDateDraft(e.target.value)} />
+              <div className='grid grid-cols-2 gap-3'>
+                <div>
+                  <label className='text-xs text-gray-400 block mb-1'>Desde</label>
+                  <TimeWheelPicker value={startDraft} onChange={setStartDraft} />
+                </div>
+                <div>
+                  <label className='text-xs text-gray-400 block mb-1'>Hasta</label>
+                  <TimeWheelPicker value={endDraft} onChange={setEndDraft} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className='border border-gray-700 bg-gray-900 rounded-lg px-3 py-2 text-sm'>
+              📅 {formatDate(dateDraft)} · 🕒 {startDraft}–{endDraft}
+              {(dateDraft !== event.date || startDraft !== event.startTime || endDraft !== event.endTime) && (
+                <span className='ml-2 text-xs text-amber-400'>sin guardar</span>
+              )}
+            </p>
+          )}
         </div>
         {scheduleError && <p className='text-xs text-red-400'>{scheduleError}</p>}
         {scheduleNotice && <p className='text-xs text-green-400'>{scheduleNotice}</p>}

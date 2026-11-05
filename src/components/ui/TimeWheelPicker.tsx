@@ -15,6 +15,13 @@ function Wheel({ items, index, onChange }: { items: string[]; index: number; onC
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastIndexRef = useRef(index);
 
+  // On mount the wheel starts scrolled to the top, so jump to the current value right away —
+  // otherwise it highlights the right row but shows hour 00 until the user scrolls.
+  useEffect(() => {
+    ref.current?.scrollTo({ top: index * ITEM_HEIGHT, behavior: 'auto' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Keeps the wheel in sync when the value changes from outside (not from the user scrolling it)
   useEffect(() => {
     const el = ref.current;
