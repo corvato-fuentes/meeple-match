@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateTable, getPlayers, getGames } from '@/lib/firestore';
+import { backupBefore } from '@/lib/backupClient';
 import { toMinutes } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import type { MeepleEvent, Table, Player, Game } from '@/lib/types';
@@ -86,13 +87,18 @@ export default function TablesPage() {
   async function saveEdit(t: Table) {
     if (!draft) return;
     const explainerStillIn = draft.playerIds.includes(t.explainerId);
-    await updateTable(code, t.id, {
-      startTime: draft.startTime,
-      endTime: draft.endTime,
-      playerIds: draft.playerIds,
-      explainerId: explainerStillIn ? t.explainerId : (draft.playerIds[0] ?? ''),
-    });
-    cancelEdit();
+    try {
+      await backupBefore(code, 'table-edit');
+      await updateTable(code, t.id, {
+        startTime: draft.startTime,
+        endTime: draft.endTime,
+        playerIds: draft.playerIds,
+        explainerId: explainerStillIn ? t.explainerId : (draft.playerIds[0] ?? ''),
+      });
+      cancelEdit();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Algo falló.');
+    }
   }
 
   function removePlayer(pid: string) {

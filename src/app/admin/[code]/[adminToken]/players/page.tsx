@@ -60,6 +60,8 @@ export default function PlayersPage() {
     setDeletingId(player.id);
     try {
       await deletePlayer(code, player.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Algo falló.');
     } finally {
       setDeletingId(null);
     }

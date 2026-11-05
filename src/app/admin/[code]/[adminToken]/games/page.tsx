@@ -84,6 +84,8 @@ export default function GamesPage() {
     try {
       await transferGameVotes(code, fromId, toId);
       setTransferTargetId((cur) => { const next = { ...cur }; delete next[fromId]; return next; });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Algo falló.');
     } finally {
       setTransferringId(null);
     }
@@ -94,6 +96,8 @@ export default function GamesPage() {
     setDiscardingId(gameId);
     try {
       await discardDeletedGame(code, gameId);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Algo falló.');
     } finally {
       setDiscardingId(null);
     }
@@ -118,6 +122,8 @@ export default function GamesPage() {
       await mergeGames(code, selectedIds, mergePrimaryId);
       setSelectedIds([]);
       setMergePrimaryId('');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Algo falló.');
     } finally {
       setMerging(false);
     }
@@ -127,7 +133,9 @@ export default function GamesPage() {
     if (autoMerging) return;
     setAutoMerging(true);
     try {
-      await autoMergeDuplicates(code, 'bggUrl');
+      await autoMergeDuplicates(code, 'bggUrl', { requireBackup: true });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Algo falló.');
     } finally {
       setAutoMerging(false);
     }

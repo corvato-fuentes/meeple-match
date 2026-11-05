@@ -9,6 +9,7 @@ import type { FakePlayerDraft, FakePlayerForTables, FakeGameForTables } from './
 import { randomInterest, randomOwnGameInterest, generateFakePostulatedTables } from './fakeData';
 import { generateTicketCodeCandidate } from './ticketCode';
 import { toMinutes, toTimeString } from './timeUtils';
+import { backupBefore } from './backupClient';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -131,8 +132,14 @@ const INTEREST_RANK: Record<InterestLevel, number> = { yes: 2, no: 1 };
  * concurrent copies instead of N unrelated games. Any votes/canExplain/repeat already recorded
  * on a secondary copy, and any table already referencing one, are folded into the primary.
  */
-export async function mergeGames(eventCode: string, gameIds: string[], primaryId: string): Promise<void> {
+export async function mergeGames(
+  eventCode: string,
+  gameIds: string[],
+  primaryId: string,
+  opts: { requireBackup?: boolean } = {}
+): Promise<void> {
   if (gameIds.length < 2 || !gameIds.includes(primaryId)) return;
+  await backupBefore(eventCode, 'merge-games', { required: opts.requireBackup ?? true });
   const secondaryIds = gameIds.filter((id) => id !== primaryId);
 
   const [playersSnap, tablesSnap, gameDocs] = await Promise.all([
@@ -192,7 +199,11 @@ export async function mergeGames(eventCode: string, gameIds: string[], primaryId
  * are left alone. Must run AFTER the new game's owner has written their votes, since
  * mergeGames is what folds those votes onto the primary copy.
  */
-export async function autoMergeDuplicates(eventCode: string, key: 'bggUrl' | 'name'): Promise<void> {
+export async function autoMergeDuplicates(
+  eventCode: string,
+  key: 'bggUrl' | 'name',
+  opts: { requireBackup?: boolean } = {}
+): Promise<void> {
   const games = await getGames(eventCode);
   const sets = new Map<string, Game[]>();
   for (const g of games) {
@@ -204,7 +215,7 @@ export async function autoMergeDuplicates(eventCode: string, key: 'bggUrl' | 'na
     if (members.length < 2) continue;
     const primaryId = members.find((g) => g.groupId)?.groupId ?? members[0].id;
     if (members.every((g) => g.groupId === primaryId)) continue;
-    await mergeGames(eventCode, [...new Set([...members.map((g) => g.id), primaryId])], primaryId);
+    await mergeGames(eventCode, [...new Set([...members.map((g) => g.id), primaryId])], primaryId, { requireBackup: opts.requireBackup ?? false });
   }
 }
 
@@ -253,6 +264,8 @@ function migratedVoteFields(p: Player, fromId: string, toId: string): Record<str
  * another game afterward rather than losing them.
  */
 export async function removePlayerGame(eventCode: string, playerId: string, gameId: string): Promise<void> {
+  // A player flow: other people's votes on this game get wiped, so keep a copy, but don't block them if it fails.
+  await backupBefore(eventCode, 'remove-game', { required: false });
   const [gamesSnap, playersSnap, tablesSnap] = await Promise.all([
     getDocs(collection(db, 'events', eventCode, 'games')),
     getDocs(collection(db, 'events', eventCode, 'players')),
@@ -317,6 +330,7 @@ export async function removePlayerGame(eventCode: string, playerId: string, game
  * the now-empty deleted game.
  */
 export async function transferGameVotes(eventCode: string, fromGameId: string, toGameId: string): Promise<void> {
+  await backupBefore(eventCode, 'transfer-votes');
   const toSnap = await getDoc(doc(db, 'events', eventCode, 'games', toGameId));
   if (!toSnap.exists()) return;
   const toGame = { ...(toSnap.data() as Game), id: toGameId };
@@ -341,6 +355,7 @@ export async function transferGameVotes(eventCode: string, fromGameId: string, t
 
 /** Admin action: permanently discards a soft-deleted game and any lingering votes on it, with nowhere for them to go. */
 export async function discardDeletedGame(eventCode: string, gameId: string): Promise<void> {
+  await backupBefore(eventCode, 'discard-game');
   const playersSnap = await getDocs(collection(db, 'events', eventCode, 'players'));
   const batch = writeBatch(db);
   playersSnap.docs.forEach((playerDoc) => {
@@ -501,6 +516,7 @@ export async function addPlayerGame(
  * so deleting this player doesn't erase everyone else's votes for a game still being brought.
  */
 export async function deletePlayer(eventCode: string, playerId: string): Promise<void> {
+  await backupBefore(eventCode, 'delete-player');
   const playerSnap = await getDoc(doc(db, 'events', eventCode, 'players', playerId));
   if (!playerSnap.exists()) return;
   const player = playerSnap.data() as Player;
@@ -838,6 +854,7 @@ export async function fillTableSeats(eventCode: string, tableId: string, playerI
  * reseeding fresh demo data without wiping the actual event.
  */
 export async function resetEventData(eventCode: string): Promise<number> {
+  await backupBefore(eventCode, 'reset');
   const [playersSnap, gamesSnap, tablesSnap] = await Promise.all([
     getDocs(collection(db, 'events', eventCode, 'players')),
     getDocs(collection(db, 'events', eventCode, 'games')),

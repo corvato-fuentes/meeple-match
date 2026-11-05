@@ -7,6 +7,7 @@ import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { runTableGeneration, pruneOutOfWindowTables } from '@/lib/tableGeneration';
+import { backupBefore } from '@/lib/backupClient';
 import { computeEventStatus, toMinutes } from '@/lib/timeUtils';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
@@ -18,6 +19,26 @@ function formatDate(iso: string): string {
   const [y, m, d] = iso.split('-');
   return y && m && d ? `${d}/${m}/${y}` : iso;
 }
+
+interface BackupItem {
+  id: string;
+  createdAt: number;
+  reason: string;
+  counts: { players: number; games: number; tables: number };
+}
+
+const BACKUP_REASON_LABEL: Record<string, string> = {
+  reset: 'Antes de resetear los datos de prueba',
+  'delete-player': 'Antes de eliminar un jugador',
+  'merge-games': 'Antes de unir juegos',
+  'transfer-votes': 'Antes de transferir los votos de un juego',
+  'discard-game': 'Antes de descartar un juego',
+  'remove-game': 'Antes de que un jugador quitara uno de sus juegos',
+  schedule: 'Antes de cambiar el horario del evento',
+  'table-edit': 'Antes de editar una mesa',
+  manual: 'Copia manual',
+  'pre-restore': 'Antes de restaurar otra copia',
+};
 
 const EVENT_STATUS_LABEL = { open: 'Abierto', live: 'En vivo', closed: 'Cerrado' } as const;
 
@@ -41,6 +62,10 @@ export default function AdminPage() {
   const [seedPromptOpen, setSeedPromptOpen] = useState(false);
   const [seedCountInput, setSeedCountInput] = useState('');
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const [backups, setBackups] = useState<BackupItem[] | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMsg, setBackupMsg] = useState<string | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<BackupItem | null>(null);
 
   const [settingsDraft, setSettingsDraft] = useState<MeepleEvent['settings'] | null>(null);
   const [nameDraft, setNameDraft] = useState('');
@@ -84,6 +109,7 @@ export default function AdminPage() {
       .then((r) => r.json())
       .then((data) => { setEmailConfigured(!!data.configured); setGmailUserSaved(data.gmailUser ?? null); })
       .catch(() => {});
+    callBackups('list').catch(() => setBackups([]));
     const unsubP = subscribePlayers(code, setPlayers);
     const unsubT = subscribeTables(code, setTables);
     return () => { unsubP(); unsubT(); };
@@ -171,6 +197,57 @@ export default function AdminPage() {
     setSettingsDraft((d) => d ? { ...d, [key]: value } : d);
   }
 
+  async function callBackups(action: 'list' | 'create' | 'restore', id?: string) {
+    const res = await fetch('/api/admin/backups', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, adminToken, action, id }),
+    });
+    if (!res.ok) throw new Error('No se pudo completar la operación con las copias de seguridad.');
+    const data = await res.json();
+    setBackups(data.backups as BackupItem[]);
+  }
+
+  async function handleCreateBackup() {
+    setBackupBusy(true);
+    setBackupMsg(null);
+    try {
+      await callBackups('create');
+      setBackupMsg('✓ Copia creada.');
+    } catch (err) {
+      setBackupMsg(err instanceof Error ? err.message : 'Algo falló.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handleRestoreBackup() {
+    const target = restoreTarget;
+    setRestoreTarget(null);
+    if (!target) return;
+    setBackupBusy(true);
+    setBackupMsg(null);
+    try {
+      await callBackups('restore', target.id);
+      setBackupMsg('✓ Copia restaurada. Antes se guardó una copia del estado anterior, por si querés volver.');
+      // Name, date, schedule and settings come back too, so reload them into the form.
+      const ev = await getEvent(code);
+      if (ev) {
+        setEvent(ev);
+        setSettingsDraft(ev.settings);
+        setNameDraft(ev.name);
+        setMapUrlDraft(ev.mapUrl ?? '');
+        setLocationDraft(ev.location ?? '');
+        setDateDraft(ev.date);
+        setStartDraft(ev.startTime);
+        setEndDraft(ev.endTime);
+      }
+    } catch (err) {
+      setBackupMsg(err instanceof Error ? err.message : 'Algo falló.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
   function cancelScheduleEdit() {
     if (event) {
       setDateDraft(event.date);
@@ -197,6 +274,14 @@ export default function AdminPage() {
     const mapUrl = mapUrlDraft.trim() || null;
     const location = locationDraft.trim();
     const scheduleChanged = startTime !== event.startTime || endTime !== event.endTime;
+    if (scheduleChanged) {
+      // Changing the window rewrites player times and drops tables, so keep a way back first.
+      try { await backupBefore(code, 'schedule'); } catch (err) {
+        setScheduleError(err instanceof Error ? err.message : 'No se pudo guardar la copia de seguridad.');
+        setSavingSettings(false);
+        return;
+      }
+    }
     await Promise.all([
       updateEventSettings(code, settingsDraft),
       updateEventDetails(code, { name, mapUrl, location, date, startTime, endTime }),
@@ -622,6 +707,46 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Backups */}
+      <section className='border border-gray-700 rounded-xl p-4 space-y-3'>
+        <div className='flex items-center justify-between gap-2'>
+          <h2 className='font-semibold'>🛟 Copias de seguridad</h2>
+          <button onClick={handleCreateBackup} disabled={backupBusy}
+            className='text-sm border border-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-800 disabled:opacity-50'>
+            {backupBusy ? 'Trabajando...' : '+ Crear copia ahora'}
+          </button>
+        </div>
+        <p className='text-xs text-gray-500'>
+          Antes de cada acción que pisa datos (resetear, eliminar un jugador, unir o descartar juegos, cambiar el horario,
+          editar una mesa, o que un jugador quite un juego) se guarda sola una copia de jugadores, juegos y mesas.
+          Se conservan las últimas 20 y se borran junto con el evento.
+        </p>
+        {backupMsg && <p className={'text-xs ' + (backupMsg.startsWith('✓') ? 'text-green-400' : 'text-amber-400')}>{backupMsg}</p>}
+        {backups === null ? (
+          <p className='text-xs text-gray-500'>Cargando...</p>
+        ) : backups.length === 0 ? (
+          <p className='text-xs text-gray-500'>Todavía no hay copias.</p>
+        ) : (
+          <div className='space-y-1.5 max-h-72 overflow-y-auto'>
+            {backups.map((b) => (
+              <div key={b.id} className='flex items-center justify-between gap-3 border border-gray-800 rounded-lg px-3 py-2'>
+                <div className='min-w-0'>
+                  <p className='text-sm truncate'>{BACKUP_REASON_LABEL[b.reason] ?? b.reason}</p>
+                  <p className='text-xs text-gray-500'>
+                    {new Date(b.createdAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
+                    {' · '}{b.counts.players} jugadores · {b.counts.games} juegos · {b.counts.tables} mesas
+                  </p>
+                </div>
+                <button onClick={() => setRestoreTarget(b)} disabled={backupBusy}
+                  className='shrink-0 text-xs border border-amber-700 text-amber-400 rounded-lg px-2.5 py-1.5 hover:bg-amber-950/40 disabled:opacity-50'>
+                  Restaurar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Debug / demo */}
       <section className='border border-dashed border-amber-700 rounded-xl p-4'>
         <h2 className='font-semibold text-amber-400 text-sm mb-1'>🧪 Modo demo</h2>
@@ -662,6 +787,16 @@ export default function AdminPage() {
           </button>
         </div>
       </section>
+
+      <ConfirmModal
+        open={!!restoreTarget}
+        title='¿Restaurar esta copia?'
+        message={restoreTarget ? `El evento vuelve a como estaba el ${new Date(restoreTarget.createdAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}: jugadores, juegos, mesas, nombre, fecha, horario y configuración. Lo que se hizo después se pierde (antes se guarda una copia del estado actual para poder deshacerlo).` : ''}
+        confirmLabel='Sí, restaurar'
+        danger
+        onConfirm={handleRestoreBackup}
+        onCancel={() => setRestoreTarget(null)}
+      />
 
       <ConfirmModal
         open={confirmResetOpen}
