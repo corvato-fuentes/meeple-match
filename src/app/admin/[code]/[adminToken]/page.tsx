@@ -7,7 +7,8 @@ import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { computeEventStatus } from '@/lib/timeUtils';
+import { computeEventStatus, toMinutes } from '@/lib/timeUtils';
+import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
@@ -39,6 +40,10 @@ export default function AdminPage() {
   const [nameDraft, setNameDraft] = useState('');
   const [mapUrlDraft, setMapUrlDraft] = useState('');
   const [locationDraft, setLocationDraft] = useState('');
+  const [dateDraft, setDateDraft] = useState('');
+  const [startDraft, setStartDraft] = useState('');
+  const [endDraft, setEndDraft] = useState('');
+  const [scheduleError, setScheduleError] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [deletingProofs, setDeletingProofs] = useState(false);
@@ -61,6 +66,9 @@ export default function AdminPage() {
         setNameDraft(ev.name);
         setMapUrlDraft(ev.mapUrl ?? '');
         setLocationDraft(ev.location ?? '');
+        setDateDraft(ev.date);
+        setStartDraft(ev.startTime);
+        setEndDraft(ev.endTime);
         saveMyEvent({ code, adminToken, name: ev.name, date: ev.date });
       }
     });
@@ -157,17 +165,25 @@ export default function AdminPage() {
 
   async function handleSaveSettings() {
     if (!event || !settingsDraft) return;
+    const date = dateDraft || event.date;
+    const startTime = startDraft || event.startTime;
+    const endTime = endDraft || event.endTime;
+    if (toMinutes(endTime) <= toMinutes(startTime)) {
+      setScheduleError('La hora de fin tiene que ser posterior a la de inicio.');
+      return;
+    }
+    setScheduleError('');
     setSavingSettings(true);
     const name = nameDraft.trim() || event.name;
     const mapUrl = mapUrlDraft.trim() || null;
     const location = locationDraft.trim();
     await Promise.all([
       updateEventSettings(code, settingsDraft),
-      updateEventDetails(code, { name, mapUrl, location }),
+      updateEventDetails(code, { name, mapUrl, location, date, startTime, endTime }),
     ]);
-    setEvent((ev) => ev ? { ...ev, settings: settingsDraft, name, mapUrl, location } : ev);
+    setEvent((ev) => ev ? { ...ev, settings: settingsDraft, name, mapUrl, location, date, startTime, endTime } : ev);
     setNameDraft(name);
-    saveMyEvent({ code, adminToken, name, date: event.date });
+    saveMyEvent({ code, adminToken, name, date });
     setSavingSettings(false);
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 2000);
@@ -320,6 +336,26 @@ export default function AdminPage() {
             className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
             value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
         </div>
+        <div>
+          <label className='text-xs text-gray-400 block mb-1'>Fecha</label>
+          <input type='date'
+            className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
+            value={dateDraft} onChange={(e) => setDateDraft(e.target.value)} />
+        </div>
+        <div className='grid grid-cols-2 gap-3'>
+          <div>
+            <label className='text-xs text-gray-400 block mb-1'>Desde</label>
+            <TimeWheelPicker value={startDraft || '10:00'} onChange={setStartDraft} />
+          </div>
+          <div>
+            <label className='text-xs text-gray-400 block mb-1'>Hasta</label>
+            <TimeWheelPicker value={endDraft || '18:00'} onChange={setEndDraft} />
+          </div>
+        </div>
+        {scheduleError && <p className='text-xs text-red-400'>{scheduleError}</p>}
+        <p className='text-xs text-gray-500'>
+          Cambiar el horario no mueve las mesas ya armadas ni los horarios que cada jugador cargó; después podés usar “Regenerar recomendaciones”.
+        </p>
         <div>
           <label className='text-xs text-gray-400 block mb-1'>Lugar</label>
           <input placeholder='Club, domicilio...'
