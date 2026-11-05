@@ -171,6 +171,16 @@ export default function AdminPage() {
     setSettingsDraft((d) => d ? { ...d, [key]: value } : d);
   }
 
+  function cancelScheduleEdit() {
+    if (event) {
+      setDateDraft(event.date);
+      setStartDraft(event.startTime);
+      setEndDraft(event.endTime);
+    }
+    setScheduleError('');
+    setEditingSchedule(false);
+  }
+
   async function handleSaveSettings() {
     if (!event || !settingsDraft) return;
     const date = dateDraft || event.date;
@@ -352,10 +362,20 @@ export default function AdminPage() {
         <div>
           <div className='flex items-center justify-between gap-2 mb-1'>
             <label className='text-xs text-gray-400'>Fecha y horario</label>
-            <button type='button' onClick={() => setEditingSchedule((v) => !v)}
-              className='text-xs text-indigo-400 hover:underline'>
-              {editingSchedule ? 'Listo' : '✏️ Editar'}
-            </button>
+            {editingSchedule ? (
+              <div className='flex items-center gap-3'>
+                <button type='button' onClick={cancelScheduleEdit} className='text-xs text-gray-400 hover:underline'>
+                  Cancelar
+                </button>
+                <button type='button' onClick={() => setEditingSchedule(false)} className='text-xs text-indigo-400 hover:underline'>
+                  Listo
+                </button>
+              </div>
+            ) : (
+              <button type='button' onClick={() => setEditingSchedule(true)} className='text-xs text-indigo-400 hover:underline'>
+                ✏️ Editar
+              </button>
+            )}
           </div>
           {editingSchedule ? (
             <div className='space-y-3'>
@@ -372,6 +392,10 @@ export default function AdminPage() {
                   <TimeWheelPicker value={endDraft} onChange={setEndDraft} />
                 </div>
               </div>
+              <p className='text-xs text-gray-500'>
+                Si cambiás el horario, a los jugadores que llegaban antes del inicio o se iban después del fin se les ajusta la entrada o la salida al nuevo horario.
+                Las mesas ya armadas no se mueven; después podés usar “Regenerar recomendaciones”.
+              </p>
             </div>
           ) : (
             <p className='border border-gray-700 bg-gray-900 rounded-lg px-3 py-2 text-sm'>
@@ -384,10 +408,6 @@ export default function AdminPage() {
         </div>
         {scheduleError && <p className='text-xs text-red-400'>{scheduleError}</p>}
         {scheduleNotice && <p className='text-xs text-green-400'>{scheduleNotice}</p>}
-        <p className='text-xs text-gray-500'>
-          Si cambiás el horario, a los jugadores que llegaban antes del inicio o se iban después del fin se les ajusta la entrada o la salida al nuevo horario.
-          Las mesas ya armadas no se mueven; después podés usar “Regenerar recomendaciones”.
-        </p>
         <div>
           <label className='text-xs text-gray-400 block mb-1'>Lugar</label>
           <input placeholder='Club, domicilio...'
