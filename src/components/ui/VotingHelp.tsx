@@ -24,7 +24,7 @@ export default function VotingHelp() {
             </ul>
             <p className="text-gray-400">
               Cuando el sistema encuentra un horario en común para suficiente gente, te va a proponer esa mesa como
-              "recomendada" — ahí la aceptás o la rechazás. Una vez que llega al mínimo de aceptados, se confirma.
+              “recomendada” — ahí la aceptás o la rechazás. Una vez que llega al mínimo de aceptados, se confirma.
             </p>
             <button onClick={() => setOpen(false)}
               className="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-indigo-700">

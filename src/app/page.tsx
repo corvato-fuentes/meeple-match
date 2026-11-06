@@ -35,12 +35,18 @@ export default function LandingPage() {
     mapUrl: '',
   });
 
+  // What this browser remembers (events, tickets) and where it is running can't be known during the server render
   useEffect(() => {
-    setMyEvents(getMyEvents());
-    setMyPlayerEvents(getMyPlayerEvents());
-    setIsLocalhost(['localhost', '127.0.0.1'].includes(window.location.hostname));
-    // Coming from an organizer's ticket ("/#admin"): open the section where the admin link is pasted
-    if (window.location.hash === '#admin') setAdminSectionOpen(true);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setMyEvents(getMyEvents());
+      setMyPlayerEvents(getMyPlayerEvents());
+      setIsLocalhost(['localhost', '127.0.0.1'].includes(window.location.hostname));
+      // Coming from an organizer's ticket ("/#admin"): open the section where the admin link is pasted
+      if (window.location.hash === '#admin') setAdminSectionOpen(true);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   function handleJoin(e: React.FormEvent) {

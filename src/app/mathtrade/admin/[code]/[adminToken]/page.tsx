@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useOrigin } from '@/hooks/useOrigin';
 import { useParams } from 'next/navigation';
 import {
   verifyMathTradeAdminToken, getMathTradeEvent, updateMathTradeStatus,
@@ -17,8 +18,9 @@ export default function MathTradeAdminPage() {
   const [items, setItems] = useState<MathTradeItem[]>([]);
   const [result, setResult] = useState<MathTradeResult | null>(null);
   const [running, setRunning] = useState(false);
-  const [shareUrl, setShareUrl] = useState('');
-  const [adminUrl, setAdminUrl] = useState('');
+  const origin = useOrigin();
+  const shareUrl = origin && `${origin}/mathtrade/${code}`;
+  const adminUrl = origin && `${origin}/mathtrade/admin/${code}/${adminToken}`;
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -31,11 +33,6 @@ export default function MathTradeAdminPage() {
     const unsubI = subscribeMathTradeItems(code, setItems);
     const unsubR = subscribeMathTradeResult(code, setResult);
     return () => { unsubP(); unsubI(); unsubR(); };
-  }, [code, adminToken]);
-
-  useEffect(() => {
-    setShareUrl(`${window.location.origin}/mathtrade/${code}`);
-    setAdminUrl(`${window.location.origin}/mathtrade/admin/${code}/${adminToken}`);
   }, [code, adminToken]);
 
   async function handleStatusChange(status: MathTradeEvent['status']) {

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -12,7 +12,8 @@ import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { slotMapFor } from '@/lib/physicalSlots';
 import { savePlayerEvent, findMyAdminEvent, type SavedEvent } from '@/lib/myEvents';
-import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
+import { getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
+import { useBggSearch } from '@/hooks/useBggSearch';
 import GameCover from '@/components/ui/GameCover';
 import NextTableCard from '@/components/ui/NextTableCard';
 import InstallPrompt from '@/components/ui/InstallPrompt';
@@ -76,10 +77,6 @@ export default function MyTicketPage() {
   const [proposeStart, setProposeStart] = useState('');
   const [proposingSubmitting, setProposingSubmitting] = useState(false);
   const [proposeError, setProposeError] = useState('');
-  const [bggResults, setBggResults] = useState<BggSearchResult[]>([]);
-  const [bggOpen, setBggOpen] = useState(false);
-  const [bggLoading, setBggLoading] = useState(false);
-  const skipBggSearchRef = useRef(false);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -110,25 +107,7 @@ export default function MyTicketPage() {
     return unsub;
   }, [code, player]);
 
-  useEffect(() => {
-    if (skipBggSearchRef.current) { skipBggSearchRef.current = false; return; }
-    const query = newGame.name.trim();
-    if (query.length < 3) { setBggResults([]); setBggOpen(false); return; }
-    const handle = setTimeout(async () => {
-      setBggLoading(true);
-      try {
-        const results = await searchBgg(query);
-        setBggResults(results);
-        setBggOpen(results.length > 0);
-      } catch (err) {
-        console.error(err);
-        setBggResults([]);
-      } finally {
-        setBggLoading(false);
-      }
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [newGame.name]);
+  const { bggResults, bggOpen, bggLoading, setBggOpen, setBggResults, skipBggSearchRef } = useBggSearch(newGame.name);
 
   async function selectBggResult(result: BggSearchResult) {
     skipBggSearchRef.current = true;

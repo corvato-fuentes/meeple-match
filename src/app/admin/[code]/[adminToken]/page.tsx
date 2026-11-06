@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, clampPlayerTimesToEvent, subscribePlayers, subscribeTables, getPlayers, getGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, clampPlayerTimesToEvent, subscribePlayers, subscribeTables, seedFakePlayers, resetEventData } from '@/lib/firestore';
+import { useOrigin } from '@/hooks/useOrigin';
 import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent, findMyPlayerEvent, type SavedPlayerEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
@@ -24,7 +25,6 @@ const EVENT_STATUS_LABEL = { open: 'Abierto', live: 'En vivo', closed: 'Cerrado'
 
 export default function AdminPage() {
   const { code, adminToken } = useParams<{ code: string; adminToken: string }>();
-  const router = useRouter();
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
@@ -33,11 +33,12 @@ export default function AdminPage() {
   const [generateMsg, setGenerateMsg] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [shareUrl, setShareUrl] = useState('');
+  const origin = useOrigin();
+  const shareUrl = origin && `${origin}/event/${code}`;
   const [copied, setCopied] = useState(false);
-  const [adminUrl, setAdminUrl] = useState('');
+  const adminUrl = origin && `${origin}/admin/${code}/${adminToken}`;
   const [adminCopied, setAdminCopied] = useState(false);
-  const [boardUrl, setBoardUrl] = useState('');
+  const boardUrl = origin && `${origin}/event/${code}/board`;
   const [showQr, setShowQr] = useState(false);
   const [seedPromptOpen, setSeedPromptOpen] = useState(false);
   const [seedCountInput, setSeedCountInput] = useState('');
@@ -93,12 +94,6 @@ export default function AdminPage() {
     return () => { unsubP(); unsubT(); };
   }, [code, adminToken]);
 
-  useEffect(() => {
-    setShareUrl(`${window.location.origin}/event/${code}`);
-    setAdminUrl(`${window.location.origin}/admin/${code}/${adminToken}`);
-    setBoardUrl(`${window.location.origin}/event/${code}/board`);
-  }, [code, adminToken]);
-
   async function handleGenerate() {
     if (!event) return;
     setGenerating(true);
@@ -144,7 +139,7 @@ export default function AdminPage() {
         : `✓ Se agregaron ${count} jugadores de prueba, pero no se generaron mesas nuevas.`);
     } catch (err) {
       console.error(err);
-      setGenerateMsg('✕ Algo falló generando los datos de prueba — revisá la consola. Puede que se hayan creado jugadores sin mesas; probá "Resetear y regenerar" para dejarlo consistente.');
+      setGenerateMsg('✕ Algo falló generando los datos de prueba — revisá la consola. Puede que se hayan creado jugadores sin mesas; probá «Resetear y regenerar» para dejarlo consistente.');
     } finally {
       setSeeding(false);
     }
@@ -622,6 +617,7 @@ export default function AdminPage() {
       </div>
       {showQr && boardUrl && (
         <div className='flex flex-col items-center gap-2 border border-gray-700 rounded-xl p-4 w-fit'>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(boardUrl)}`}
             alt='QR hacia la grilla del evento' width={220} height={220} className='rounded-lg bg-white p-2' />
@@ -645,7 +641,7 @@ export default function AdminPage() {
       {/* Debug / demo */}
       <section className='border border-dashed border-amber-700 rounded-xl p-4'>
         <h2 className='font-semibold text-amber-400 text-sm mb-1'>🧪 Modo demo</h2>
-        <p className='text-xs text-gray-500 mb-3'>Te pregunta cuántos jugadores de prueba crear (sin superar la capacidad máxima configurada), genera sus juegos y votos al azar, arma mesas postuladas (algunos las postulan, otros se suman) y propone mesas por algoritmo. "Resetear y regenerar" solo borra jugadores/juegos/mesas de prueba generados antes — las inscripciones reales quedan intactas.</p>
+        <p className='text-xs text-gray-500 mb-3'>Te pregunta cuántos jugadores de prueba crear (sin superar la capacidad máxima configurada), genera sus juegos y votos al azar, arma mesas postuladas (algunos las postulan, otros se suman) y propone mesas por algoritmo. «Resetear y regenerar» solo borra jugadores/juegos/mesas de prueba generados antes — las inscripciones reales quedan intactas.</p>
         {seedPromptOpen && (
           <div className='flex items-end gap-3 mb-3 flex-wrap'>
             <div>

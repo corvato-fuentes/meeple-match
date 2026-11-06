@@ -1,12 +1,13 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, verifyAdminToken, subscribeAllGames, subscribePlayers, mergeGames, autoMergeDuplicates, ungroupGame, updateGame,
   transferGameVotes, discardDeletedGame,
 } from '@/lib/firestore';
-import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
+import { getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
+import { useBggSearch } from '@/hooks/useBggSearch';
 import { roundUp5 } from '@/lib/timeUtils';
 import type { MeepleEvent, Game, Player, GameComplexity } from '@/lib/types';
 
@@ -338,30 +339,8 @@ function GameEditForm({
   onCancel: () => void;
   saving: boolean;
 }) {
-  const [bggResults, setBggResults] = useState<BggSearchResult[]>([]);
-  const [bggOpen, setBggOpen] = useState(false);
-  const [bggLoading, setBggLoading] = useState(false);
-  const skipBggSearchRef = useRef(false);
 
-  useEffect(() => {
-    if (skipBggSearchRef.current) { skipBggSearchRef.current = false; return; }
-    const query = draft.name.trim();
-    if (query.length < 3) { setBggResults([]); setBggOpen(false); return; }
-    const handle = setTimeout(async () => {
-      setBggLoading(true);
-      try {
-        const results = await searchBgg(query);
-        setBggResults(results);
-        setBggOpen(results.length > 0);
-      } catch (err) {
-        console.error(err);
-        setBggResults([]);
-      } finally {
-        setBggLoading(false);
-      }
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [draft.name]);
+  const { bggResults, bggOpen, bggLoading, setBggOpen, setBggResults, skipBggSearchRef } = useBggSearch(draft.name);
 
   async function selectBggResult(result: BggSearchResult) {
     skipBggSearchRef.current = true;

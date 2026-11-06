@@ -10,7 +10,10 @@ export default function Icon() {
   const src = `data:image/png;base64,${buf.toString('base64')}`;
   return new ImageResponse(
     (
+      // ImageResponse renders to a PNG, so next/image does not apply here
+      // eslint-disable-next-line @next/next/no-img-element
       <img
+        alt=""
         src={src}
         width={size.width}
         height={size.height}

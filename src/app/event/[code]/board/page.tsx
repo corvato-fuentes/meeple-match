@@ -103,8 +103,12 @@ export default function BoardPage() {
   }, [code]);
 
   useEffect(() => {
-    const stored = sessionStorage.getItem(BOARD_RETURN_KEY(code));
-    if (stored) setBackHref(stored);
+    let cancelled = false;
+    queueMicrotask(() => {
+      const stored = sessionStorage.getItem(BOARD_RETURN_KEY(code));
+      if (!cancelled && stored) setBackHref(stored);
+    });
+    return () => { cancelled = true; };
   }, [code]);
 
   useEffect(() => {

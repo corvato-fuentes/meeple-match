@@ -5,6 +5,8 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // Developer scripts (diagnostics, simulations) poke at loosely-typed Firestore data: `any` is fine there.
+  { files: ["scripts/**"], rules: { "@typescript-eslint/no-explicit-any": "off" } },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
