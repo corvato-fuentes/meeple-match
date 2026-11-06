@@ -8,7 +8,7 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots, slotMapFor } from '@/lib/physicalSlots';
-import { estimatedDuration } from '@/lib/tableAlgorithm';
+import { estimatedDurationRange } from '@/lib/tableAlgorithm';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
@@ -70,6 +70,9 @@ function todayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+type RecGroup = 'pending' | 'accepted' | 'other';
+const REC_GROUP_LABEL: Record<RecGroup, string> = { pending: '🤔 Por aceptar', accepted: '✅ Ya acepté', other: 'Otras' };
+
 export default function BoardPage() {
   const { code } = useParams<{ code: string }>();
   const searchParams = useSearchParams();
@@ -90,7 +93,9 @@ export default function BoardPage() {
   const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
   const [joiningTableId, setJoiningTableId] = useState<string | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
-  const [viewingTableId, setViewingTableId] = useState<string | null>(null);
+  // Which table's people are being listed: just those who confirmed, or just those who are interested (not yet confirmed)
+  const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
+  const [recFilter, setRecFilter] = useState<RecGroup | null>(null); // null = show the first group that has tables
 
   useEffect(() => {
     getEvent(code).then(setEvent);
@@ -137,6 +142,22 @@ export default function BoardPage() {
   const scheduledTables = useMemo(() => tables.filter((t) => t.status !== 'recommended'), [tables]);
   const recommendedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !t.postedByOwner), [tables]);
   const postulatedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !!t.postedByOwner), [tables]);
+
+  // The recommended tables, split by where the viewer stands: the ones waiting on their answer come first; the ones
+  // they accepted, and everything else (rejected, not in the table, or not voted), are one chip away.
+  const recGroups = useMemo(() => {
+    const groups: Record<RecGroup, Table[]> = { pending: [], accepted: [], other: [] };
+    for (const t of recommendedTables) {
+      if (!viewer) groups.other.push(t);
+      else if (t.playerIds.includes(viewer.id)) groups.accepted.push(t);
+      else if ((t.candidateIds ?? []).includes(viewer.id) && !(t.rejectedIds ?? []).includes(viewer.id)) groups.pending.push(t);
+      else groups.other.push(t);
+    }
+    return groups;
+  }, [recommendedTables, viewer]);
+  const activeRecGroup: RecGroup = recFilter && recGroups[recFilter].length > 0 ? recFilter
+    : recGroups.pending.length > 0 ? 'pending' : recGroups.accepted.length > 0 ? 'accepted' : 'other';
+  const visibleRecommended = viewer ? recGroups[activeRecGroup] : recommendedTables;
 
   // Drives the "Solo mis mesas" toggle for the cards view — the grid view filters separately
   // (via ScheduleGrid's onlyPlayerId) so its table numbering/timeline stay anchored to the full schedule.
@@ -352,35 +373,53 @@ export default function BoardPage() {
               <p className='text-sm text-gray-500 mb-3'>
                 El algoritmo ya encontró un horario en común — falta que los candidatos acepten para agendarse.
               </p>
+              {viewer && (
+                <div className='flex flex-wrap gap-2 mb-3'>
+                  {(Object.keys(REC_GROUP_LABEL) as RecGroup[]).map((g) => {
+                    const on = g === activeRecGroup;
+                    const count = recGroups[g].length;
+                    return (
+                      <button key={g} onClick={() => setRecFilter(g)} aria-pressed={on} disabled={count === 0}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${on ? 'bg-amber-600 border-amber-600 text-black' : 'border-gray-700 text-gray-400 hover:bg-gray-800'}`}>
+                        {REC_GROUP_LABEL[g]} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className='space-y-2'>
-                {recommendedTables.map((t) => {
+                {visibleRecommended.map((t) => {
                   const game = games.find((g) => g.id === t.gameId);
-                  const minPlayers = game?.minPlayers ?? '?';
+                  const interested = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id)).length;
                   return (
                     <div key={t.id} className='border border-amber-700 rounded-xl p-3 bg-amber-950/20'>
-                      <div className='flex justify-between items-start gap-2'>
-                        <span className='flex items-center gap-2 min-w-0'>
-                          <GameCover imageUrl={game?.imageUrl} />
-                          <p className='font-semibold text-amber-300'>{t.gameName}</p>
-                        </span>
-                        <span className='text-xs text-amber-400 shrink-0'>{t.startTime}–{t.endTime}</span>
-                      </div>
-                      <p className='text-xs text-gray-400 mt-1'>
-                        ✅ {t.playerIds.length}/{minPlayers} confirmados · 🤔 {(t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id)).length} interesados
-                      </p>
-                      <button onClick={() => setViewingTableId(t.id)} className='block text-xs text-amber-400 hover:underline mt-1'>
-                        👀 Ver interesados
-                      </button>
-                      {viewer && (
-                        viewer.interests[t.gameId] === 'yes' ? (
-                          <p className='text-xs text-green-400 mt-2'>✅ Ya votaste que sí</p>
-                        ) : (
-                          <button onClick={() => handleQuickVoteYes(t.gameId)}
-                            className='text-xs bg-amber-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-amber-700 mt-2'>
-                            🙋 Unirme
-                          </button>
-                        )
-                      )}
+                      <WaitingTableInfo t={t} game={game} playerMap={playerMap} accent='amber' interested={interested} seatWord='confirmados'
+                        onView={(kind) => setViewing({ tableId: t.id, kind })} />
+                      {viewer && (() => {
+                        // What this means for the viewer is where they stand on THIS table — having voted yes on the
+                        // game only makes them a candidate; they still have to accept the table.
+                        if (t.playerIds.includes(viewer.id)) return <p className='text-xs text-green-400 mt-2'>✅ Ya confirmaste tu lugar en esta mesa</p>;
+                        if ((t.rejectedIds ?? []).includes(viewer.id)) return <p className='text-xs text-gray-500 mt-2'>🚫 Rechazaste esta mesa</p>;
+                        if ((t.candidateIds ?? []).includes(viewer.id)) return (
+                          <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1'>
+                            <p className='text-xs text-amber-300'>🤔 Te ofrecieron esta mesa — falta que la aceptes</p>
+                            <Link href={`/event/${code}/recommended?ticket=${viewer.ticketCode}`}
+                              className='text-xs bg-amber-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-amber-700'>
+                              Ver y aceptar →
+                            </Link>
+                          </div>
+                        );
+                        if (viewer.interests[t.gameId] === 'yes') return <p className='text-xs text-gray-400 mt-2'>👍 Votaste que sí a este juego, pero no estás en esta mesa</p>;
+                        return (
+                          <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1'>
+                            <p className='text-xs text-gray-400'>🙋 No mostraste interés en este juego, pero estás a tiempo de unirte</p>
+                            <button onClick={() => handleQuickVoteYes(t.gameId)}
+                              className='text-xs bg-amber-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-amber-700'>
+                              Unirme
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -397,36 +436,11 @@ export default function BoardPage() {
               <div className='space-y-2'>
                 {postulatedTables.map((t) => {
                   const game = games.find((g) => g.id === t.gameId);
-                  const minPlayers = game?.minPlayers ?? '?';
-                  const maxPlayers = game?.maxPlayers;
-                  const seatsLeft = maxPlayers != null ? maxPlayers - t.playerIds.length : null;
+                  const seatsLeft = game ? game.maxPlayers - t.playerIds.length : null;
                   return (
                     <div key={t.id} className='border border-indigo-700 rounded-xl p-3 bg-indigo-950/20'>
-                      <div className='flex justify-between items-start gap-2'>
-                        <span className='flex items-center gap-2 min-w-0'>
-                          <GameCover imageUrl={game?.imageUrl} />
-                          <p className='font-semibold text-indigo-300'>{t.gameName}</p>
-                        </span>
-                        <span className='text-xs text-indigo-400 shrink-0'>{t.startTime}–{t.endTime}</span>
-                      </div>
-                      <p className='text-xs text-gray-400 mt-1'>
-                        👥 {t.playerIds.length} anotado{t.playerIds.length === 1 ? '' : 's'}
-                        {typeof minPlayers === 'number' && (minPlayers > t.playerIds.length
-                          ? <> · faltan {minPlayers - t.playerIds.length} para confirmar</>
-                          : <> · ya se confirma</>)}
-                        {seatsLeft != null && <><br />🪑 {Math.max(0, seatsLeft)} lugar{seatsLeft === 1 ? '' : 'es'} libre{seatsLeft === 1 ? '' : 's'} de {maxPlayers}</>}
-                      </p>
-                      {game && (
-                        <p className='text-xs text-gray-500 mt-0.5'>
-                          {COMPLEXITY_LABEL[game.complexity]} · ~{estimatedDuration(game, game.maxPlayers)}min
-                        </p>
-                      )}
-                      <p className='text-xs text-gray-500 mt-0.5'>
-                        Lo trae {playerMap.get(t.explainerId)?.name ?? 'alguien'}
-                      </p>
-                      <button onClick={() => setViewingTableId(t.id)} className='block text-xs text-indigo-400 hover:underline mt-1'>
-                        👀 Ver anotados
-                      </button>
+                      <WaitingTableInfo t={t} game={game} playerMap={playerMap} accent='indigo' interested={null} seatWord='anotados'
+                        onView={(kind) => setViewing({ tableId: t.id, kind })} />
                       {viewer && (
                         t.playerIds.includes(viewer.id) ? (
                           <p className='text-xs text-green-400 mt-2'>✅ Ya estás anotado</p>
@@ -465,10 +479,10 @@ export default function BoardPage() {
         );
       })()}
 
-      {viewingTableId && (() => {
-        const t = tables.find((x) => x.id === viewingTableId);
+      {viewing && (() => {
+        const t = tables.find((x) => x.id === viewing.tableId);
         if (!t) return null;
-        const close = () => setViewingTableId(null);
+        const close = () => setViewing(null);
         const pending = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id));
         const nameOf = (id: string) => (id === viewer?.id ? 'Vos' : playerMap.get(id)?.name ?? '?');
         const group = (title: string, ids: string[], empty: string, tag: string, tagClass: string) => (
@@ -496,11 +510,9 @@ export default function BoardPage() {
                 <h3 className='font-semibold text-gray-100'>{t.gameName}</h3>
                 <p className='text-xs text-gray-500'>{t.startTime}–{t.endTime}</p>
               </div>
-              {t.explainerId && (
-                <p className='text-xs text-gray-400'>🎓 Explica: <span className='text-gray-300'>{nameOf(t.explainerId)}</span></p>
-              )}
-              {group('✅ Confirmados', t.playerIds, 'Nadie todavía.', 'confirmado', 'bg-green-900 text-green-300')}
-              {!t.postedByOwner && group('🤔 Interesados (sin confirmar)', pending, 'No quedan interesados pendientes.', 'interesado', 'bg-amber-900 text-amber-300')}
+              {viewing.kind === 'confirmed'
+                ? group('🪑 Confirmados', t.playerIds, 'Nadie todavía.', 'confirmado', 'bg-green-900 text-green-300')
+                : group('🤔 Interesados (sin confirmar)', pending, 'No quedan interesados pendientes.', 'interesado', 'bg-amber-900 text-amber-300')}
               <button onClick={close} className='w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800'>
                 Cerrar
               </button>
@@ -511,6 +523,76 @@ export default function BoardPage() {
 
       <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} />
     </main>
+  );
+}
+
+const WAITING_ACCENT = {
+  amber: { title: 'text-amber-300', link: 'text-amber-400' },
+  indigo: { title: 'text-indigo-300', link: 'text-indigo-400' },
+} as const;
+
+/**
+ * The info block shared by both kinds of table that are still waiting (recommended by the algorithm / posted by an
+ * owner), so they read the same: game, estimated time, who brings it, who explains it, and how full it is. The
+ * seat line spells out that the confirmed count is measured against a MINIMUM — the table can take more people.
+ */
+function WaitingTableInfo({ t, game, playerMap, accent, interested, seatWord, onView }: {
+  t: Table;
+  game: Game | undefined;
+  playerMap: Map<string, Player>;
+  accent: keyof typeof WAITING_ACCENT;
+  /** People offered the table who haven't answered yet; null when the table has no offer step (posted tables). */
+  interested: number | null;
+  seatWord: string;
+  onView: (kind: 'confirmed' | 'interested') => void;
+}) {
+  const a = WAITING_ACCENT[accent];
+  const explainerName = playerMap.get(t.explainerId)?.name ?? 'alguien';
+  const bringsAndExplains = game ? game.ownerPlayerId === t.explainerId : false;
+  const [shortest, longest] = game ? estimatedDurationRange(game) : [null, null];
+  const seatsLeft = game ? Math.max(0, game.maxPlayers - t.playerIds.length) : null;
+  const missing = game ? Math.max(0, game.minPlayers - t.playerIds.length) : null;
+  const range = game ? (game.minPlayers === game.maxPlayers ? `se juega con ${game.maxPlayers}` : `mínimo ${game.minPlayers}, hasta ${game.maxPlayers}`) : '';
+  return (
+    <>
+      <div className='flex justify-between items-start gap-3'>
+        <span className='flex items-start gap-3 min-w-0'>
+          <GameCover imageUrl={game?.imageUrl} size='ml' />
+          <span className='min-w-0 space-y-0.5'>
+            <p className={`font-semibold ${a.title}`}>{t.gameName}</p>
+            {game && shortest != null && (
+              <p className='text-xs text-gray-500'>
+                ⏱ ~{shortest === longest ? shortest : `${shortest}–${longest}`} min · {COMPLEXITY_LABEL[game.complexity]}
+              </p>
+            )}
+            {bringsAndExplains ? (
+              <p className='text-xs text-gray-400'>🎒🎓 Lo trae y lo explica: <span className='text-gray-300'>{explainerName}</span></p>
+            ) : (
+              <>
+                {game && <p className='text-xs text-gray-400'>🎒 Lo trae: <span className='text-gray-300'>{game.ownerName || '?'}</span></p>}
+                <p className='text-xs text-gray-400'>🎓 Lo explica: <span className='text-gray-300'>{explainerName}</span></p>
+              </>
+            )}
+          </span>
+        </span>
+        <span className={`text-xs ${a.link} shrink-0`}>{t.startTime}–{t.endTime}</span>
+      </div>
+      <div className='mt-2 space-y-1'>
+        {interested != null && (
+          <button onClick={() => onView('interested')} className={`block text-xs ${a.link} hover:underline text-left`}>
+            🤔 {interested} interesados →
+          </button>
+        )}
+        <button onClick={() => onView('confirmed')} className={`block text-xs ${a.link} hover:underline text-left`}>
+          🪑 {t.playerIds.length} {seatWord}{range && ` · ${range}`} →
+        </button>
+        {missing != null && seatsLeft != null && (
+          <p className='text-xs text-gray-500'>
+            {missing > 0 ? `Faltan ${missing} para confirmar` : 'Ya alcanza el mínimo'} · {seatsLeft} lugar{seatsLeft === 1 ? '' : 'es'} libre{seatsLeft === 1 ? '' : 's'}
+          </p>
+        )}
+      </div>
+    </>
   );
 }
 
