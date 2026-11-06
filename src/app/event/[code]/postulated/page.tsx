@@ -11,11 +11,14 @@ import { toMinutes } from '@/lib/timeUtils';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
+import FilterChip from '@/components/ui/FilterChip';
 import type { MeepleEvent, Player, Game, Table, GameComplexity } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 
 const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
+
+type TableFilter = 'open' | 'joined' | 'own' | 'confirmed' | 'all';
 
 export default function PostulatedTablesPage() {
   const { code } = useParams<{ code: string }>();
@@ -33,6 +36,8 @@ export default function PostulatedTablesPage() {
   const [leavingTable, setLeavingTable] = useState<Table | null>(null);
   const [viewingTableId, setViewingTableId] = useState<string | null>(null);
   const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
+  // null = nothing picked yet, so the list opens on "Abiertas" when there is something to join
+  const [tableFilter, setTableFilter] = useState<TableFilter | null>(null);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -195,142 +200,103 @@ export default function PostulatedTablesPage() {
     )
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
+  // One list with filter chips instead of four columns: a table keeps its place when it changes
+  // state (only its badge changes) and the whole day reads in time order under "Todas".
+  type TableKind = 'open' | 'joined' | 'own' | 'confirmed';
+  const tableEntries: { t: Table; kind: TableKind }[] = [
+    ...joinableTables.map((t) => ({ t, kind: 'open' as const })),
+    ...myJoinedPostulatedTables.map((t) => ({ t, kind: 'joined' as const })),
+    ...myOwnPostulatedTables.map((t) => ({ t, kind: 'own' as const })),
+    ...myConfirmedPostulatedTables.map((t) => ({ t, kind: 'confirmed' as const })),
+  ].sort((a, b) => a.t.startTime.localeCompare(b.t.startTime));
+  // Opens on what you can still join; falls back to everything when nothing is open.
+  const activeTableFilter: TableFilter = tableFilter ?? (joinableTables.length > 0 ? 'open' : 'all');
+  const visibleEntries = tableEntries.filter((e) => activeTableFilter === 'all' || e.kind === activeTableFilter);
+
+  const TABLE_FILTER_HINT: Record<TableFilter, string> = {
+    open: 'Las que ofrecen otros jugadores — sumate con un toque.',
+    joined: 'Mesas de otros jugadores a las que ya te sumaste, esperando que se llenen.',
+    own: 'Las mesas que postulaste vos, esperando que se sumen jugadores.',
+    confirmed: 'Ya llegaron al mínimo — también las vas a ver en la pantalla principal.',
+    all: 'Todas tus mesas postuladas y las abiertas, ordenadas por horario.',
+  };
+  const TABLE_FILTER_EMPTY: Record<TableFilter, string> = {
+    open: 'No hay ninguna abierta para sumarte todavía.',
+    joined: 'Todavía no te sumaste a ninguna mesa postulada.',
+    own: 'Todavía no postulaste ninguna mesa. Proponé una desde “Tus juegos”.',
+    confirmed: 'Todavía ninguna mesa postulada se confirmó.',
+    all: 'Todavía no hay mesas postuladas para vos.',
+  };
+  const KIND_BADGE: Record<TableKind, { label: string; cls: string }> = {
+    open: { label: '🎉 Abierta', cls: 'bg-indigo-900/60 text-indigo-300' },
+    joined: { label: '🙋 Te anotaste', cls: 'bg-purple-900/60 text-purple-300' },
+    own: { label: '📌 La armaste vos', cls: 'bg-purple-900/60 text-purple-300' },
+    confirmed: { label: '✅ Confirmada', cls: 'bg-green-900/60 text-green-300' },
+  };
+
+  const tableCard = (t: Table, kind: TableKind) => {
+    const border = kind === 'open' ? 'border-indigo-800 bg-indigo-950/20'
+      : kind === 'confirmed' ? 'border-green-800 bg-green-950/10' : 'border-purple-800 bg-purple-950/20';
+    const timeCls = kind === 'open' ? 'text-indigo-300' : kind === 'confirmed' ? 'text-green-400' : 'text-purple-400';
+    return (
+      <div key={t.id} className={`border rounded-xl px-3 py-2 ${border}`}>
+        <div className="flex justify-between items-start gap-2">
+          <span className="flex items-center gap-2 min-w-0">
+            {coverFor(t.gameId)}
+            <span className="min-w-0">
+              <span className="block font-medium text-sm">{t.gameName}</span>
+              <span className={`inline-block mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>
+            </span>
+          </span>
+          <span className={`text-xs shrink-0 ${timeCls}`}>{t.startTime}–{t.endTime}</span>
+        </div>
+        {gameMetaLine(t.gameId, t) && (
+          <p className="text-[11px] text-gray-500 mt-1">{gameMetaLine(t.gameId, t)}</p>
+        )}
+        {whoLines(t)}
+        <div className="space-y-0.5 mt-1">
+          {kind === 'confirmed' ? <p className="text-xs text-gray-400">✅ {t.playerIds.length} jugadores</p> : seatLines(t)}
+          {viewBtn(t)}
+        </div>
+        {kind === 'open' ? (
+          <button onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}
+            className="mt-2 w-full text-xs bg-indigo-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-indigo-700 disabled:opacity-50">
+            {joiningTableId === t.id ? 'Sumando...' : '+ Sumarme'}
+          </button>
+        ) : leaveBtn(t)}
+      </div>
+    );
+  };
+
   return (
-    <main className="max-w-6xl mx-auto px-4 py-10 space-y-6">
+    <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
       <div className="flex items-center gap-3">
         <Link href={`/event/${code}/me?ticket=${player.ticketCode}`} className="text-gray-500 hover:text-gray-300">←</Link>
         <h1 className="text-xl font-bold">📣 Mesas postuladas</h1>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
-        <section>
-          <h2 className="font-semibold text-gray-200 mb-2">📌 Las que armaste vos</h2>
-          {myOwnPostulatedTables.length === 0 ? (
-            <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-              Todavía no postulaste ninguna mesa. Proponé una desde “Tus juegos”.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {myOwnPostulatedTables.map((t) => {
-                return (
-                  <div key={t.id} className="border border-purple-800 bg-purple-950/20 rounded-xl px-3 py-2">
-                    <div className="flex justify-between items-start">
-                      <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
-                      <span className="text-xs text-purple-400 shrink-0">{t.startTime}–{t.endTime}</span>
-                    </div>
-                    {gameMetaLine(t.gameId, t) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
-                    )}
-                    {whoLines(t)}
-                    <div className="space-y-0.5 mt-1">
-                      {seatLines(t)}
-                      {viewBtn(t)}
-                    </div>
-                    {leaveBtn(t)}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="font-semibold text-gray-200 mb-2">🎉 Abiertas para sumarte</h2>
-          <p className="text-xs text-gray-500 mb-2">Las que ofrecen otros jugadores — sumate con un toque.</p>
-          {joinableTables.length === 0 ? (
-            <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-              No hay ninguna abierta para sumarte todavía.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {joinableTables.map((t) => {
-                return (
-                  <div key={t.id} className="border border-indigo-800 bg-indigo-950/20 rounded-xl px-3 py-2">
-                    <div className="flex justify-between items-start gap-2">
-                      <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
-                      <span className="text-xs text-indigo-300 shrink-0">{t.startTime}–{t.endTime}</span>
-                    </div>
-                    {gameMetaLine(t.gameId, t) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
-                    )}
-                    {whoLines(t)}
-                    <div className="space-y-0.5">
-                      {seatLines(t)}
-                      {viewBtn(t)}
-                    </div>
-                    <button onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}
-                      className="mt-2 w-full text-xs bg-indigo-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-indigo-700 disabled:opacity-50">
-                      {joiningTableId === t.id ? 'Sumando...' : '+ Sumarme'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="font-semibold text-gray-200 mb-2">🙋 Te anotaste</h2>
-          <p className="text-xs text-gray-500 mb-2">Mesas de otros jugadores a las que ya te sumaste, esperando que se llenen.</p>
-          {myJoinedPostulatedTables.length === 0 ? (
-            <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-              Todavía no te sumaste a ninguna mesa postulada.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {myJoinedPostulatedTables.map((t) => {
-                return (
-                  <div key={t.id} className="border border-purple-800 bg-purple-950/20 rounded-xl px-3 py-2">
-                    <div className="flex justify-between items-start">
-                      <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
-                      <span className="text-xs text-purple-400 shrink-0">{t.startTime}–{t.endTime}</span>
-                    </div>
-                    {gameMetaLine(t.gameId, t) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
-                    )}
-                    {whoLines(t)}
-                    <div className="space-y-0.5">
-                      {seatLines(t)}
-                      {viewBtn(t)}
-                    </div>
-                    {leaveBtn(t)}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="font-semibold text-gray-200 mb-2">✅ Confirmadas</h2>
-          <p className="text-xs text-gray-500 mb-2">Ya llegaron al mínimo — también las vas a ver en la pantalla principal.</p>
-          {myConfirmedPostulatedTables.length === 0 ? (
-            <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-              Todavía ninguna mesa postulada se confirmó.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {myConfirmedPostulatedTables.map((t) => (
-                <div key={t.id} className="border border-green-800 bg-green-950/10 rounded-xl px-3 py-2">
-                  <div className="flex justify-between items-start">
-                    <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
-                    <span className="text-xs text-green-400 shrink-0">{t.startTime}–{t.endTime}</span>
-                  </div>
-                  {gameMetaLine(t.gameId, t) && (
-                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
-                  )}
-                  {whoLines(t)}
-                  <div className="space-y-0.5 mt-1">
-                    <p className="text-xs text-gray-400">✅ {t.playerIds.length} jugadores</p>
-                    {viewBtn(t)}
-                  </div>
-                  {leaveBtn(t)}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+      <section>
+        <div className="flex flex-wrap gap-2 mb-2">
+          <FilterChip active={activeTableFilter === 'open'} onClick={() => setTableFilter('open')} label="🎉 Abiertas"
+            count={joinableTables.length} activeClass="bg-indigo-500 border-indigo-500 text-white" highlightClass="bg-purple-400 text-black" />
+          <FilterChip active={activeTableFilter === 'joined'} onClick={() => setTableFilter('joined')} label="🙋 Te anotaste"
+            count={myJoinedPostulatedTables.length} activeClass="bg-purple-500 border-purple-500 text-white" />
+          <FilterChip active={activeTableFilter === 'own'} onClick={() => setTableFilter('own')} label="📌 Las tuyas"
+            count={myOwnPostulatedTables.length} activeClass="bg-purple-500 border-purple-500 text-white" />
+          <FilterChip active={activeTableFilter === 'confirmed'} onClick={() => setTableFilter('confirmed')} label="✅ Confirmadas"
+            count={myConfirmedPostulatedTables.length} activeClass="bg-green-600 border-green-600 text-black" />
+          <FilterChip active={activeTableFilter === 'all'} onClick={() => setTableFilter('all')} label="Todas"
+            count={tableEntries.length} activeClass="bg-gray-200 border-gray-200 text-gray-900" />
+        </div>
+        <p className="text-xs text-gray-500 mb-3">{TABLE_FILTER_HINT[activeTableFilter]}</p>
+        {visibleEntries.length === 0 ? (
+          <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{TABLE_FILTER_EMPTY[activeTableFilter]}</p>
+        ) : (
+          <div className="space-y-2">
+            {visibleEntries.map((e) => tableCard(e.t, e.kind))}
+          </div>
+        )}
+      </section>
 
       <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} />
       {viewingTableId && (() => {

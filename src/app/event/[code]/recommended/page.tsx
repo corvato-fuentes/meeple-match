@@ -10,6 +10,7 @@ import { runTableGeneration } from '@/lib/tableGeneration';
 import { estimatedDuration, findConflictingTable } from '@/lib/tableAlgorithm';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
+import FilterChip from '@/components/ui/FilterChip';
 import GameVoteCard from '@/components/ui/GameVoteCard';
 import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
@@ -19,6 +20,9 @@ import type { MeepleEvent, Player, Game, Table, GameComplexity, InterestLevel } 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 
 const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
+
+type TableFilter = 'pending' | 'waiting' | 'confirmed' | 'all';
+type GameFilter = 'available' | 'wishlist' | 'hidden';
 
 export default function RecommendedTablesPage() {
   const { code } = useParams<{ code: string }>();
@@ -37,7 +41,9 @@ export default function RecommendedTablesPage() {
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
   const [canExplain, setCanExplain] = useState<string[]>([]);
   const [playedGameIds, setPlayedGameIds] = useState<string[]>([]);
-  const [showDismissed, setShowDismissed] = useState(false);
+  // null = nothing picked yet, so the tables list opens on "Por aceptar" when something is pending
+  const [tableFilter, setTableFilter] = useState<TableFilter | null>(null);
+  const [gameFilter, setGameFilter] = useState<GameFilter>('available');
   const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -199,6 +205,97 @@ export default function RecommendedTablesPage() {
     .filter((t) => !t.postedByOwner && ['confirmed', 'in-progress'].includes(t.status) && t.playerIds.includes(player.id))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
+  // One list with filter chips instead of three columns: a table keeps its place when it changes
+  // state (only its badge changes) and overlapping tables sit next to each other, sorted by time.
+  type TableKind = 'pending' | 'waiting' | 'confirmed';
+  const tableEntries: { t: Table; kind: TableKind }[] = [
+    ...myRecommendedTables.map((t) => ({ t, kind: 'pending' as const })),
+    ...myAcceptedRecommendedTables.map((t) => ({ t, kind: 'waiting' as const })),
+    ...myConfirmedRecommendedTables.map((t) => ({ t, kind: 'confirmed' as const })),
+  ].sort((a, b) => a.t.startTime.localeCompare(b.t.startTime));
+  // Opens on what needs an answer; falls back to everything when nothing is pending.
+  const activeTableFilter: TableFilter = tableFilter ?? (myRecommendedTables.length > 0 ? 'pending' : 'all');
+  const visibleEntries = tableEntries.filter((e) => activeTableFilter === 'all' || e.kind === activeTableFilter);
+
+  const TABLE_FILTER_HINT: Record<TableFilter, string> = {
+    pending: 'El algoritmo te ofrece un lugar acá según tus votos — aceptá para sumarte o rechazá si ya no te interesa.',
+    waiting: 'Ya aceptaste, pero todavía no se llega al mínimo — en cuanto se complete, pasa a confirmada.',
+    confirmed: 'Ya llegaron al mínimo — también las vas a ver en la pantalla principal.',
+    all: 'Todas tus mesas recomendadas, ordenadas por horario.',
+  };
+  const TABLE_FILTER_EMPTY: Record<TableFilter, string> = {
+    pending: 'No tenés mesas por aceptar. Van a aparecer acá cuando tus votos coincidan con un horario en común.',
+    waiting: 'Todavía no aceptaste ninguna mesa recomendada.',
+    confirmed: 'Todavía ninguna mesa recomendada se confirmó.',
+    all: 'Todavía no hay mesas recomendadas para vos. Votá juegos abajo para que aparezcan.',
+  };
+  const KIND_BADGE: Record<TableKind, { label: string; cls: string }> = {
+    pending: { label: '🟡 Por aceptar', cls: 'bg-amber-900/60 text-amber-300' },
+    waiting: { label: '⏳ Esperando jugadores', cls: 'bg-gray-800 text-gray-300' },
+    confirmed: { label: '✅ Confirmada', cls: 'bg-green-900/60 text-green-300' },
+  };
+
+  const filterChip = (active: boolean, onClick: () => void, label: string, count: number, activeClass: string, highlight = false) => (
+    <FilterChip key={label} active={active} onClick={onClick} label={label} count={count} activeClass={activeClass}
+      highlightClass={highlight ? 'bg-amber-500 text-black' : undefined} />
+  );
+
+  const tableCard = (t: Table, kind: TableKind) => {
+    // A table I already hold a seat on at an overlapping time. Still-open ones are a soft
+    // commitment (accepting this one offers to swap); confirmed ones can't be left.
+    const clash = kind === 'pending' ? findConflictingTable(myId, t.startTime, t.endTime, allTables, t.id) : null;
+    const hardClash = !!clash && clash.status !== 'recommended';
+    const minPlayers = gameMap.get(t.gameId)?.minPlayers ?? '?';
+    const border = kind === 'confirmed' ? 'border-green-800 bg-green-950/10'
+      : kind === 'waiting' ? 'border-amber-800 bg-amber-950/10' : 'border-amber-700 bg-amber-950/20';
+    return (
+      <div key={t.id} className={`border rounded-xl px-3 py-2 ${border} ${hardClash ? 'opacity-60' : ''}`}>
+        <div className="flex justify-between items-start gap-2">
+          <span className="flex items-center gap-2 min-w-0">
+            {coverFor(t.gameId)}
+            <span className="min-w-0">
+              <span className={`block font-medium text-sm ${kind === 'confirmed' ? 'text-gray-100' : 'text-amber-300'}`}>{t.gameName}</span>
+              <span className={`inline-block mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>
+            </span>
+          </span>
+          <span className={`text-xs shrink-0 ${kind === 'confirmed' ? 'text-green-400' : 'text-amber-400'}`}>{t.startTime}–{t.endTime}</span>
+        </div>
+        {gameMetaLine(t.gameId, t) && (
+          <p className="text-[11px] text-gray-500 mt-1">{gameMetaLine(t.gameId, t)}</p>
+        )}
+        {kind === 'waiting' && <p className="text-xs text-gray-400 mt-1">Mínimo {minPlayers} para confirmar</p>}
+        {rosterSummary(t)}
+        {clash && (
+          <p className="text-[11px] text-orange-300 mt-1.5">
+            {hardClash
+              ? `⛔ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya está confirmada.`
+              : `⚠️ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya aceptaste. Si aceptás esta, salís de aquella.`}
+          </p>
+        )}
+        {kind === 'pending' && (
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}
+              className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800 disabled:opacity-50">
+              ❌ Rechazar
+            </button>
+            <button onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id || hardClash}
+              className="flex-1 bg-amber-600 rounded-lg py-1.5 text-xs font-medium hover:bg-amber-700 disabled:opacity-50">
+              {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const GAME_FILTER_LIST: Record<GameFilter, Game[]> = { available: availableGames, wishlist: wishlistGames, hidden: dismissedGames };
+  const GAME_FILTER_EMPTY: Record<GameFilter, string> = {
+    available: 'Ya votaste todos los juegos. Los que dijiste que sí están en tu wishlist.',
+    wishlist: 'Todavía no elegiste ningún juego. Votá desde “Disponibles”.',
+    hidden: 'No ocultaste ningún juego.',
+  };
+  const visibleGames = GAME_FILTER_LIST[gameFilter];
+
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
       <div className="flex items-center gap-3">
@@ -206,113 +303,22 @@ export default function RecommendedTablesPage() {
         <h1 className="text-xl font-bold">🟡 Mesas recomendadas</h1>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <section>
-          <h2 className="font-semibold text-gray-200 mb-2">Por aceptar</h2>
-          <p className="text-xs text-gray-500 mb-2">
-            El algoritmo te ofrece un lugar acá según tus votos — aceptá para sumarte o rechazá si ya no te interesa.
-          </p>
-          {myRecommendedTables.length === 0 ? (
-            <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-              Todavía no sos candidato de ninguna mesa armada por el algoritmo. Van a aparecer acá cuando tus votos coincidan con un horario en común.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {myRecommendedTables.map((t) => {
-                // A table I already hold a seat on at an overlapping time. Still-open ones are a soft
-                // commitment (accepting this one offers to swap); confirmed ones can't be left.
-                const clash = findConflictingTable(myId, t.startTime, t.endTime, allTables, t.id);
-                const hardClash = !!clash && clash.status !== 'recommended';
-                return (
-                <div key={t.id} className={`border border-amber-700 rounded-xl px-3 py-2 bg-amber-950/20 ${hardClash ? 'opacity-60' : ''}`}>
-                  <div className="flex justify-between items-start">
-                    <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm text-amber-300">{t.gameName}</span></span>
-                    <span className="text-xs text-amber-400 shrink-0">{t.startTime}–{t.endTime}</span>
-                  </div>
-                  {gameMetaLine(t.gameId, t) && (
-                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
-                  )}
-                  {rosterSummary(t)}
-                  {clash && (
-                    <p className="text-[11px] text-orange-300 mt-1.5">
-                      {hardClash
-                        ? `⛔ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya está confirmada.`
-                        : `⚠️ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya aceptaste. Si aceptás esta, salís de aquella.`}
-                    </p>
-                  )}
-                  <div className="flex gap-2 mt-2">
-                    <button onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}
-                      className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800 disabled:opacity-50">
-                      ❌ Rechazar
-                    </button>
-                    <button onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id || hardClash}
-                      className="flex-1 bg-amber-600 rounded-lg py-1.5 text-xs font-medium hover:bg-amber-700 disabled:opacity-50">
-                      {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
-                    </button>
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="font-semibold text-gray-200 mb-2">⏳ Esperando jugadores</h2>
-          <p className="text-xs text-gray-500 mb-2">
-            Ya aceptaste, pero todavía no se llega al mínimo — en cuanto se complete, pasa a confirmada.
-          </p>
-          {myAcceptedRecommendedTables.length === 0 ? (
-            <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-              Todavía no aceptaste ninguna mesa recomendada.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {myAcceptedRecommendedTables.map((t) => {
-                const minPlayers = gameMap.get(t.gameId)?.minPlayers ?? '?';
-                return (
-                  <div key={t.id} className="border border-amber-800 rounded-xl px-3 py-2 bg-amber-950/10">
-                    <div className="flex justify-between items-start">
-                      <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm text-amber-300">{t.gameName}</span></span>
-                      <span className="text-xs text-amber-400 shrink-0">{t.startTime}–{t.endTime}</span>
-                    </div>
-                    {gameMetaLine(t.gameId, t) && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
-                    )}
-                    <p className="text-xs text-gray-400 mt-1">Mínimo {minPlayers} para confirmar</p>
-                    {rosterSummary(t)}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="font-semibold text-gray-200 mb-2">✅ Confirmadas</h2>
-          <p className="text-xs text-gray-500 mb-2">Ya llegaron al mínimo — también las vas a ver en la pantalla principal.</p>
-          {myConfirmedRecommendedTables.length === 0 ? (
-            <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-              Todavía ninguna mesa recomendada se confirmó.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {myConfirmedRecommendedTables.map((t) => (
-                <div key={t.id} className="border border-green-800 bg-green-950/10 rounded-xl px-3 py-2">
-                  <div className="flex justify-between items-start">
-                    <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm">{t.gameName}</span></span>
-                    <span className="text-xs text-green-400 shrink-0">{t.startTime}–{t.endTime}</span>
-                  </div>
-                  {gameMetaLine(t.gameId, t) && (
-                    <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
-                  )}
-                  {rosterSummary(t)}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+      <section>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {filterChip(activeTableFilter === 'pending', () => setTableFilter('pending'), 'Por aceptar', myRecommendedTables.length, 'bg-amber-600 border-amber-600 text-black', true)}
+          {filterChip(activeTableFilter === 'waiting', () => setTableFilter('waiting'), '⏳ Esperando', myAcceptedRecommendedTables.length, 'bg-gray-200 border-gray-200 text-gray-900')}
+          {filterChip(activeTableFilter === 'confirmed', () => setTableFilter('confirmed'), '✅ Confirmadas', myConfirmedRecommendedTables.length, 'bg-green-600 border-green-600 text-black')}
+          {filterChip(activeTableFilter === 'all', () => setTableFilter('all'), 'Todas', tableEntries.length, 'bg-gray-200 border-gray-200 text-gray-900')}
+        </div>
+        <p className="text-xs text-gray-500 mb-3">{TABLE_FILTER_HINT[activeTableFilter]}</p>
+        {visibleEntries.length === 0 ? (
+          <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{TABLE_FILTER_EMPTY[activeTableFilter]}</p>
+        ) : (
+          <div className="space-y-2">
+            {visibleEntries.map((e) => tableCard(e.t, e.kind))}
+          </div>
+        )}
+      </section>
 
       <section>
         <div className="flex items-center justify-between mb-1">
@@ -323,50 +329,22 @@ export default function RecommendedTablesPage() {
           </Link>
         </div>
         <WhyVoteHelp />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-400 mb-2">Juegos disponibles</h3>
-            <div className="space-y-2">
-              {availableGames.map((g) => (
-                <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
-                  onSetInterest={(level) => handleSetInterest(g.id, level)}
-                  knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
-              ))}
-            </div>
-            {dismissedGames.length > 0 && (
-              <div className="mt-3">
-                <button onClick={() => setShowDismissed((v) => !v)}
-                  className="text-xs text-gray-500 hover:text-gray-300">
-                  {showDismissed ? '▾' : '▸'} Ocultados ({dismissedGames.length})
-                </button>
-                {showDismissed && (
-                  <div className="space-y-2 mt-2">
-                    {dismissedGames.map((g) => (
-                      <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
-                        onSetInterest={(level) => handleSetInterest(g.id, level)}
-                        knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <h3 className="text-sm font-semibold text-gray-400 mb-2">❤️ Tu wishlist</h3>
-            {wishlistGames.length === 0 ? (
-              <p className="text-xs text-gray-500">Todavía no elegiste ningún juego. Votá desde “Juegos disponibles” ←</p>
-            ) : (
-              <div className="space-y-2">
-                {wishlistGames.map((g) => (
-                  <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
-                    onSetInterest={(level) => handleSetInterest(g.id, level)}
-                    knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="flex flex-wrap gap-2 my-3">
+          {filterChip(gameFilter === 'available', () => setGameFilter('available'), 'Disponibles', availableGames.length, 'bg-indigo-500 border-indigo-500 text-white')}
+          {filterChip(gameFilter === 'wishlist', () => setGameFilter('wishlist'), '❤️ Tu wishlist', wishlistGames.length, 'bg-indigo-500 border-indigo-500 text-white')}
+          {filterChip(gameFilter === 'hidden', () => setGameFilter('hidden'), 'Ocultados', dismissedGames.length, 'bg-indigo-500 border-indigo-500 text-white')}
         </div>
+        {visibleGames.length === 0 ? (
+          <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{GAME_FILTER_EMPTY[gameFilter]}</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {visibleGames.map((g) => (
+              <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
+                onSetInterest={(level) => handleSetInterest(g.id, level)}
+                knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
+            ))}
+          </div>
+        )}
 
         <div className="sticky bottom-4 flex justify-end pt-4">
           <button onClick={saveWishlist} disabled={saving}
