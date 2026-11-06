@@ -2,10 +2,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createEvent } from '@/lib/firestore';
+import { createEvent, getEvent, verifyAdminToken } from '@/lib/firestore';
 import { generateUniqueShortCode } from '@/lib/shortCode';
 import {
-  getMyEvents, saveMyEvent, removeMyEvent, type SavedEvent,
+  getMyEvents, saveMyEvent, removeMyEvent, parseAdminLink, type SavedEvent,
   getMyPlayerEvents, removeMyPlayerEvent, type SavedPlayerEvent,
 } from '@/lib/myEvents';
 import { createMathTradeEvent, generateUniqueMathTradeCode } from '@/lib/mathtradeFirestore';
@@ -18,6 +18,10 @@ export default function LandingPage() {
   const [myEvents, setMyEvents] = useState<SavedEvent[]>([]);
   const [myPlayerEvents, setMyPlayerEvents] = useState<SavedPlayerEvent[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [adminLink, setAdminLink] = useState('');
+  const [adminSectionOpen, setAdminSectionOpen] = useState(false);
+  const [adminLinkError, setAdminLinkError] = useState('');
+  const [adminLinkBusy, setAdminLinkBusy] = useState(false);
   const [isLocalhost, setIsLocalhost] = useState(false);
   const [showMathTradeForm, setShowMathTradeForm] = useState(false);
   const [mathTradeName, setMathTradeName] = useState('');
@@ -35,12 +39,33 @@ export default function LandingPage() {
     setMyEvents(getMyEvents());
     setMyPlayerEvents(getMyPlayerEvents());
     setIsLocalhost(['localhost', '127.0.0.1'].includes(window.location.hostname));
+    // Coming from an organizer's ticket ("/#admin"): open the section where the admin link is pasted
+    if (window.location.hash === '#admin') setAdminSectionOpen(true);
   }, []);
 
   function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     const code = joinCode.trim().toUpperCase();
     if (code) router.push(`/event/${code}`);
+  }
+
+  // Saves an admin link pasted by hand on this device (browser or installed app) and opens the panel
+  async function handleAdminLink(e: React.FormEvent) {
+    e.preventDefault();
+    setAdminLinkError('');
+    const parsed = parseAdminLink(adminLink);
+    if (!parsed) { setAdminLinkError('Ese no parece un link de administrador. Tiene que incluir /admin/ y tu código secreto.'); return; }
+    setAdminLinkBusy(true);
+    try {
+      if (!(await verifyAdminToken(parsed.code, parsed.adminToken))) { setAdminLinkError('El link no es válido para ese evento.'); return; }
+      const ev = await getEvent(parsed.code);
+      saveMyEvent({ code: parsed.code, adminToken: parsed.adminToken, name: ev?.name ?? '', date: ev?.date ?? '' });
+      router.push(`/admin/${parsed.code}/${parsed.adminToken}`);
+    } catch {
+      setAdminLinkError('No se pudo comprobar el link. Revisá tu conexión e intentá de nuevo.');
+    } finally {
+      setAdminLinkBusy(false);
+    }
   }
 
   function handleForgetEvent(code: string) {
@@ -168,6 +193,24 @@ export default function LandingPage() {
             Unirme →
           </button>
         </form>
+        <details id='admin' open={adminSectionOpen} onToggle={(e) => setAdminSectionOpen(e.currentTarget.open)} className='text-left pt-2'>
+          <summary className='text-sm text-gray-400 cursor-pointer text-center hover:text-gray-200'>Soy organizador: entrar con mi link de admin</summary>
+          <form onSubmit={handleAdminLink} className='mt-3 space-y-2'>
+            <input
+              className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-2 text-sm'
+              value={adminLink}
+              onChange={(e) => setAdminLink(e.target.value)}
+              placeholder='Pegá acá tu link de administrador'
+              autoComplete='off'
+            />
+            {adminLinkError && <p className='text-xs text-red-400'>{adminLinkError}</p>}
+            <p className='text-xs text-gray-500'>Queda guardado en este teléfono o app, así la próxima vez lo ves en «Mis eventos».</p>
+            <button type='submit' disabled={!adminLink.trim() || adminLinkBusy}
+              className='w-full border border-amber-700 text-amber-300 rounded-lg py-2 text-sm font-semibold hover:bg-amber-950/40 disabled:opacity-50'>
+              {adminLinkBusy ? 'Comprobando…' : 'Entrar al panel'}
+            </button>
+          </form>
+        </details>
       </section>
 
       <div className='flex items-center gap-3 text-gray-600 text-xs uppercase tracking-wide'>

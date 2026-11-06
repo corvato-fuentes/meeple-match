@@ -68,3 +68,19 @@ export function removeMyPlayerEvent(code: string): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(getMyPlayerEvents().filter((e) => e.code !== code)));
 }
+
+/** The admin access this browser/app has saved for an event, if any. */
+export function findMyAdminEvent(code: string): SavedEvent | null {
+  return getMyEvents().find((e) => e.code === code) ?? null;
+}
+
+/** The ticket this browser/app has saved for an event, if any. */
+export function findMyPlayerEvent(code: string): SavedPlayerEvent | null {
+  return getMyPlayerEvents().find((e) => e.code === code) ?? null;
+}
+
+/** Pulls the event code and admin token out of a pasted admin link (a full URL or just /admin/CODE/TOKEN). */
+export function parseAdminLink(input: string): { code: string; adminToken: string } | null {
+  const m = input.trim().match(/\/admin\/([A-Za-z0-9]{3,12})\/([A-Za-z0-9_-]{16,64})/);
+  return m ? { code: m[1], adminToken: m[2] } : null;
+}

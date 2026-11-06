@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, clampPlayerTimesToEvent, subscribePlayers, subscribeTables, getPlayers, getGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
 import { generateFakePlayers } from '@/lib/fakeData';
-import { saveMyEvent } from '@/lib/myEvents';
+import { saveMyEvent, findMyPlayerEvent, type SavedPlayerEvent } from '@/lib/myEvents';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { runTableGeneration, pruneOutOfWindowTables } from '@/lib/tableGeneration';
 import { computeEventStatus, toMinutes } from '@/lib/timeUtils';
@@ -58,6 +58,8 @@ export default function AdminPage() {
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [emailConfigured, setEmailConfigured] = useState(false);
   const [gmailUserSaved, setGmailUserSaved] = useState<string | null>(null);
+  // The admin may also be a registered player: this device may hold their ticket for the event
+  const [myTicket, setMyTicket] = useState<SavedPlayerEvent | null>(null);
   const [gmailUserDraft, setGmailUserDraft] = useState('');
   const [gmailAppPasswordDraft, setGmailAppPasswordDraft] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
@@ -79,6 +81,7 @@ export default function AdminPage() {
         setEndDraft(ev.endTime);
         saveMyEvent({ code, adminToken, name: ev.name, date: ev.date });
       }
+      setMyTicket(findMyPlayerEvent(code));
     });
     fetch(`/api/admin/email-config?code=${code}&adminToken=${adminToken}`)
       .then((r) => r.json())
@@ -299,6 +302,15 @@ export default function AdminPage() {
         <h1 className='text-2xl font-bold'>{event.name}</h1>
         <p className='text-gray-400 text-sm'>{event.date} · {event.location}</p>
         <p className='text-xs text-gray-500 mt-1'>Código: <span className='font-mono text-indigo-400'>{code}</span></p>
+        <div className='flex flex-wrap gap-2 mt-3'>
+          <Link href='/' className='text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800'>🏠 Inicio</Link>
+          {myTicket && (
+            <Link href={`/event/${code}/me?ticket=${myTicket.ticketCode}`}
+              className='text-sm border border-indigo-700 text-indigo-300 rounded-xl px-3 py-1.5 hover:bg-indigo-950/40'>
+              🎟️ Mi ticket
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Admin access — losing this link means losing access, since there's no login/recovery */}

@@ -11,7 +11,7 @@ import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { slotMapFor } from '@/lib/physicalSlots';
-import { savePlayerEvent } from '@/lib/myEvents';
+import { savePlayerEvent, findMyAdminEvent, type SavedEvent } from '@/lib/myEvents';
 import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import GameCover from '@/components/ui/GameCover';
 import NextTableCard from '@/components/ui/NextTableCard';
@@ -48,6 +48,8 @@ export default function MyTicketPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  // Set when this device already holds the admin link for the event (saved the first time it was opened here)
+  const [adminAccess, setAdminAccess] = useState<SavedEvent | null>(null);
   const [allTables, setAllTables] = useState<Table[]>([]);
   const [myTables, setMyTables] = useState<Table[]>([]);
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
@@ -92,6 +94,7 @@ export default function MyTicketPage() {
       setCanExplain(p.canExplain);
       setPlayedGameIds(p.playedGameIds ?? []);
       setRepeatGameIds(p.repeatGameIds ?? []);
+      setAdminAccess(findMyAdminEvent(code));
       setLoading(false);
       localStorage.setItem(STORAGE_KEY(code), ticketCode!);
       savePlayerEvent({ code, ticketCode: ticketCode!, name: ev.name, date: ev.date, playerName: p.name });
@@ -395,6 +398,22 @@ export default function MyTicketPage() {
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
+      {/* Page navigation, outside the card at the page's edges: home on the left, admin panel (only if this device has the admin link) on the right */}
+      <div className="flex items-center justify-between gap-2">
+        <Link href="/" className="text-sm border border-gray-700 rounded-xl px-3 py-1.5 text-gray-300 hover:bg-gray-800">
+          🏠 Inicio
+        </Link>
+        {/* Shown to whoever has the admin link saved on this device, and to players marked as organizers.
+            The organizer mark only reveals the shortcut — it never grants access (players can edit their own
+            record), so without the saved link it leads to where the link is pasted. */}
+        {(adminAccess || player.isOrganizer) && (
+          <Link href={adminAccess ? `/admin/${adminAccess.code}/${adminAccess.adminToken}` : '/#admin'}
+            className="text-sm border border-amber-700 text-amber-300 rounded-xl px-3 py-1.5 hover:bg-amber-950/40">
+            🛠️ Panel de admin
+          </Link>
+        )}
+      </div>
+
       {/* Same layout as before, just framed as a card like the other sections */}
       <section className="max-w-sm mx-auto border border-gray-700 bg-gray-800 rounded-2xl p-5 text-center">
         <p className="text-sm text-gray-500 mb-1">{event.name}</p>
@@ -465,7 +484,7 @@ export default function MyTicketPage() {
       <PushOptIn code={code} ticketCode={player.ticketCode} />
 
       <div className="space-y-6">
-        <section className="border-t border-gray-800 pt-6">
+        <section className="pt-6">
           <div className="flex items-center justify-between gap-2 mb-2">
             <h2 className="font-semibold text-gray-200">🎲 Tus mesas <TablesHelp /></h2>
             <Link href={`/event/${code}/board?ticket=${player.ticketCode}`}
@@ -546,7 +565,7 @@ export default function MyTicketPage() {
           </div>
         </section>
 
-        <section className="border-t border-gray-800 pt-6">
+        <section className="pt-6">
           <div className="flex items-center justify-between gap-2 mb-2">
             <h2 className="font-semibold text-gray-200">♟️ Tus juegos</h2>
             <Link href={`/event/${code}/games?ticket=${player.ticketCode}`}

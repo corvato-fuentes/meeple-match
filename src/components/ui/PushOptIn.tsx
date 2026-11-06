@@ -97,7 +97,7 @@ export default function PushOptIn({ code, ticketCode, variant = 'ticket' }: Prop
   if (status === 'on') {
     return (
       <p className="text-xs text-gray-500 text-center">
-        🔔 Avisos activados en este teléfono ·{' '}
+        🔔 Avisos activados en este dispositivo ·{' '}
         <button onClick={turnOff} disabled={busy} className="text-indigo-400 hover:underline disabled:opacity-50">Desactivar</button>
       </p>
     );
