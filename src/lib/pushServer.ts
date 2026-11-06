@@ -17,10 +17,7 @@ export const EVENT_TIMEZONE = process.env.EVENT_TIMEZONE || 'America/Argentina/C
 /** Most devices one player can register per event (phone, tablet, laptop…). */
 export const MAX_DEVICES_PER_PLAYER = 5;
 
-const EVENT_CODE = /^[A-Za-z0-9]{3,12}$/;
-export function isValidEventCode(value: unknown): value is string {
-  return typeof value === 'string' && EVENT_CODE.test(value);
-}
+export { isValidEventCode } from './serverAuth';
 
 export function pushConfigured(): boolean {
   return !!(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT);

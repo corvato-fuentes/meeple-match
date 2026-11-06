@@ -3,9 +3,10 @@ import {
   query, where, onSnapshot, writeBatch, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { verifyMathTradeAdminOnServer } from './session';
 import { generateTicketCodeCandidate } from './ticketCode';
 import type {
-  MathTradeEvent, MathTradeAdminConfig, MathTradeItem, MathTradePlayer, MathTradeResult,
+  MathTradeEvent, MathTradeItem, MathTradePlayer, MathTradeResult,
 } from './mathtradeTypes';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRTUVWXY3479';
@@ -43,14 +44,9 @@ export async function getMathTradeEvent(code: string): Promise<MathTradeEvent | 
   return snap.exists() ? (snap.data() as MathTradeEvent) : null;
 }
 
-export async function getMathTradeAdminConfig(code: string): Promise<MathTradeAdminConfig | null> {
-  const snap = await getDoc(doc(db, 'mathtrades', code, 'private', 'config'));
-  return snap.exists() ? (snap.data() as MathTradeAdminConfig) : null;
-}
-
+/** The token isn't readable from the browser anymore: the server compares it (see /api/auth/mathtrade-admin). */
 export async function verifyMathTradeAdminToken(code: string, adminToken: string): Promise<boolean> {
-  const config = await getMathTradeAdminConfig(code);
-  return !!config && config.adminToken === adminToken;
+  return verifyMathTradeAdminOnServer(code, adminToken);
 }
 
 export async function updateMathTradeStatus(code: string, status: MathTradeEvent['status']): Promise<void> {

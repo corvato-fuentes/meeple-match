@@ -4,12 +4,13 @@ import {
   orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { MeepleEvent, EventAdminConfig, Game, Player, Table, InterestLevel } from './types';
+import type { MeepleEvent, Game, Player, Table, InterestLevel } from './types';
 import type { FakePlayerDraft, FakePlayerForTables, FakeGameForTables } from './fakeData';
 import { randomInterest, randomOwnGameInterest, generateFakePostulatedTables } from './fakeData';
 import { generateTicketCodeCandidate } from './ticketCode';
 import { toMinutes, toTimeString } from './timeUtils';
 import { requestPushSync } from './pushClient';
+import { signInAsAdmin, startPlayerSession, whenSessionReady } from './session';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -44,18 +45,17 @@ export async function createEvent(
   await batch.commit();
 }
 
-/** Admin token lives outside the public event doc so it's never returned to player reads */
-export async function getEventAdminConfig(code: string): Promise<EventAdminConfig | null> {
-  const snap = await getDoc(doc(db, 'events', code, 'private', 'config'));
-  return snap.exists() ? (snap.data() as EventAdminConfig) : null;
-}
-
+/**
+ * Browser-side admin check. The token lives in events/{code}/private/config, which nothing in the browser can read
+ * (not even this check): the server compares it and, when it matches, returns a sign-in token that gives this
+ * browser the "admin of this event" claim the Firestore rules require for admin-only writes.
+ */
 export async function verifyAdminToken(code: string, adminToken: string): Promise<boolean> {
-  const config = await getEventAdminConfig(code);
-  return !!config && config.adminToken === adminToken;
+  return signInAsAdmin(code, adminToken);
 }
 
 export async function updateEventSettings(code: string, settings: MeepleEvent['settings']): Promise<void> {
+  await whenSessionReady();
   await updateDoc(doc(db, 'events', code), { settings });
 }
 
@@ -63,6 +63,7 @@ export async function updateEventDetails(
   code: string,
   details: Partial<Pick<MeepleEvent, 'mapUrl' | 'name' | 'date' | 'startTime' | 'endTime' | 'location'>>
 ): Promise<void> {
+  await whenSessionReady();
   await updateDoc(doc(db, 'events', code), details);
 }
 
@@ -254,6 +255,7 @@ function migratedVoteFields(p: Player, fromId: string, toId: string): Record<str
  * another game afterward rather than losing them.
  */
 export async function removePlayerGame(eventCode: string, playerId: string, gameId: string): Promise<void> {
+  await whenSessionReady();
   const [gamesSnap, playersSnap, tablesSnap] = await Promise.all([
     getDocs(collection(db, 'events', eventCode, 'games')),
     getDocs(collection(db, 'events', eventCode, 'players')),
@@ -318,6 +320,7 @@ export async function removePlayerGame(eventCode: string, playerId: string, game
  * the now-empty deleted game.
  */
 export async function transferGameVotes(eventCode: string, fromGameId: string, toGameId: string): Promise<void> {
+  await whenSessionReady();
   const toSnap = await getDoc(doc(db, 'events', eventCode, 'games', toGameId));
   if (!toSnap.exists()) return;
   const toGame = { ...(toSnap.data() as Game), id: toGameId };
@@ -342,6 +345,7 @@ export async function transferGameVotes(eventCode: string, fromGameId: string, t
 
 /** Admin action: permanently discards a soft-deleted game and any lingering votes on it, with nowhere for them to go. */
 export async function discardDeletedGame(eventCode: string, gameId: string): Promise<void> {
+  await whenSessionReady();
   const playersSnap = await getDocs(collection(db, 'events', eventCode, 'players'));
   const batch = writeBatch(db);
   playersSnap.docs.forEach((playerDoc) => {
@@ -385,6 +389,7 @@ export async function getPlayerByTicketCode(eventCode: string, ticketCode: strin
   );
   if (snap.empty) return null;
   const d = snap.docs[0];
+  startPlayerSession(eventCode, ticketCode, d.id); // fire-and-forget: pages don't wait for it
   return { id: d.id, ...d.data() } as Player;
 }
 
@@ -411,6 +416,7 @@ export async function addPlayer(eventCode: string, player: Omit<Player, 'id'>): 
     ...player,
     registeredAt: serverTimestamp(),
   });
+  startPlayerSession(eventCode, player.ticketCode, ref.id); // the new player can now delete their own games etc.
   return ref.id;
 }
 
@@ -502,6 +508,7 @@ export async function addPlayerGame(
  * so deleting this player doesn't erase everyone else's votes for a game still being brought.
  */
 export async function deletePlayer(eventCode: string, playerId: string): Promise<void> {
+  await whenSessionReady();
   const playerSnap = await getDoc(doc(db, 'events', eventCode, 'players', playerId));
   if (!playerSnap.exists()) return;
   const player = playerSnap.data() as Player;
@@ -774,6 +781,7 @@ export async function leavePostedTable(
 /** Deletes a batch of tables — used to clear out stale "proposed" tables before a full regeneration */
 export async function deleteTables(eventCode: string, tableIds: string[]): Promise<void> {
   if (tableIds.length === 0) return;
+  await whenSessionReady();
   const batch = writeBatch(db);
   tableIds.forEach((id) => batch.delete(doc(db, 'events', eventCode, 'tables', id)));
   await batch.commit();
@@ -787,14 +795,21 @@ export async function deleteTables(eventCode: string, tableIds: string[]): Promi
  */
 export async function deleteStaleTables(eventCode: string, tableIds: string[]): Promise<string[]> {
   const keptConfirmed: string[] = [];
+  await whenSessionReady();
   await Promise.all(tableIds.map(async (id) => {
     const ref = doc(db, 'events', eventCode, 'tables', id);
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists()) return;
-      if ((snap.data() as Table).status === 'confirmed') { keptConfirmed.push(id); return; }
-      tx.delete(ref);
-    });
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        if ((snap.data() as Table).status === 'confirmed') { keptConfirmed.push(id); return; }
+        tx.delete(ref);
+      });
+    } catch {
+      // The delete was refused (this browser has no session yet) or the transaction failed: the table stays, so
+      // report it as kept — the caller then keeps counting it, and a later pass prunes it.
+      keptConfirmed.push(id);
+    }
   }));
   return keptConfirmed;
 }
@@ -843,6 +858,7 @@ export async function fillTableSeats(eventCode: string, tableId: string, playerI
  * reseeding fresh demo data without wiping the actual event.
  */
 export async function resetEventData(eventCode: string): Promise<number> {
+  await whenSessionReady();
   const [playersSnap, gamesSnap, tablesSnap] = await Promise.all([
     getDocs(collection(db, 'events', eventCode, 'players')),
     getDocs(collection(db, 'events', eventCode, 'games')),

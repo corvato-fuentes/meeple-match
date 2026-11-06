@@ -55,6 +55,7 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [deletingProofs, setDeletingProofs] = useState(false);
+  const [confirmProofsOpen, setConfirmProofsOpen] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [emailConfigured, setEmailConfigured] = useState(false);
   const [gmailUserSaved, setGmailUserSaved] = useState<string | null>(null);
@@ -235,7 +236,7 @@ export default function AdminPage() {
   }
 
   async function handleDeletePaymentProofs() {
-    if (!confirm('Esto BORRA PERMANENTEMENTE todos los comprobantes de pago subidos por los jugadores. No se puede deshacer. ¿Continuar?')) return;
+    setConfirmProofsOpen(false);
     setDeletingProofs(true);
     try {
       const res = await fetch('/api/admin/payment-proof', {
@@ -246,7 +247,7 @@ export default function AdminPage() {
       if (!res.ok) throw new Error();
       setGenerateMsg('✓ Se borraron todos los comprobantes de pago.');
     } catch {
-      alert('No se pudieron borrar los comprobantes. Intentá de nuevo.');
+      setGenerateMsg('⚠️ No se pudieron borrar los comprobantes. Intentá de nuevo.');
     } finally {
       setDeletingProofs(false);
     }
@@ -295,6 +296,7 @@ export default function AdminPage() {
   const recommendedCount = tables.filter((t) => t.status === 'recommended' && !t.postedByOwner).length;
   const postulatedCount = tables.filter((t) => t.status === 'recommended' && t.postedByOwner).length;
   const eventStatus = computeEventStatus(event.date, event.startTime, event.endTime);
+  const proofCount = players.filter((p) => p.paymentProofUrl).length;
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10 space-y-6'>
@@ -502,10 +504,11 @@ export default function AdminPage() {
               value={settingsDraft.paymentInfo ?? ''}
               onChange={(e) => handleDraftChange('paymentInfo', e.target.value || null)} />
             <p className='text-xs text-gray-500 mt-1'>Se muestra al jugador junto con el campo para subir la foto del comprobante.</p>
-            <button onClick={handleDeletePaymentProofs} disabled={deletingProofs}
+            <button onClick={() => setConfirmProofsOpen(true)} disabled={deletingProofs || proofCount === 0}
               className='mt-2 text-xs border border-red-800 text-red-400 rounded-lg px-3 py-1.5 hover:bg-red-950 disabled:opacity-50'>
-              {deletingProofs ? 'Borrando...' : '🗑️ Borrar todos los comprobantes de pago'}
+              {deletingProofs ? 'Borrando...' : `🗑️ Borrar todos los comprobantes de pago (${proofCount})`}
             </button>
+            {proofCount === 0 && <p className='text-xs text-gray-500 mt-1'>Todavía no hay comprobantes cargados.</p>}
           </div>
         )}
         <div className='border-t border-gray-800 pt-3 space-y-2'>
@@ -676,6 +679,16 @@ export default function AdminPage() {
           </button>
         </div>
       </section>
+
+      <ConfirmModal
+        open={confirmProofsOpen}
+        title='¿Borrar TODOS los comprobantes de pago?'
+        message={`Vas a borrar para siempre ${proofCount} comprobante${proofCount === 1 ? '' : 's'} de pago. Se eliminan los archivos y los jugadores pierden el vínculo: no hay copia ni forma de recuperarlos. Si necesitás conservar alguno, abrilo antes desde «Ver comprobante» en la lista de jugadores. De todos modos, se borran solos 7 días después del evento.`}
+        confirmLabel={`Sí, borrar ${proofCount === 1 ? 'el comprobante' : 'los ' + proofCount + ' comprobantes'}`}
+        danger
+        onConfirm={handleDeletePaymentProofs}
+        onCancel={() => setConfirmProofsOpen(false)}
+      />
 
       <ConfirmModal
         open={confirmResetOpen}

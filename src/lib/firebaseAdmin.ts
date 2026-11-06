@@ -1,5 +1,6 @@
 import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 // Server-only: bypasses Firestore rules, so this must never be imported from client code.
 // FIREBASE_SERVICE_ACCOUNT_KEY is the full service account JSON (from Firebase Console >
@@ -14,3 +15,6 @@ function getAdminApp(): App {
 }
 
 export const adminDb = getFirestore(getAdminApp());
+
+/** Server-only: mints the custom sign-in tokens the Firestore rules check (see src/lib/serverAuth.ts). */
+export const adminAuth = getAuth(getAdminApp());

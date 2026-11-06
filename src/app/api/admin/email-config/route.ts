@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminToken } from '@/lib/firestore';
+import { verifyAdminTokenServer } from '@/lib/serverAuth';
 import { getEmailConfig, setEmailConfig } from '@/lib/emailConfigAdmin';
 
 // Admin-only. GET returns whether email is configured + the sender address (never the password).
@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const adminToken = request.nextUrl.searchParams.get('adminToken');
   if (!code || !adminToken) return NextResponse.json({ error: 'Missing params' }, { status: 400 });
 
-  const ok = await verifyAdminToken(code, adminToken);
+  const ok = await verifyAdminTokenServer(code, adminToken);
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const config = await getEmailConfig(code);
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing params' }, { status: 400 });
   }
 
-  const ok = await verifyAdminToken(code, adminToken);
+  const ok = await verifyAdminTokenServer(code, adminToken);
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   await setEmailConfig(code, { gmailUser, gmailAppPassword });

@@ -1,25 +1,50 @@
 rules_version = '2';
 
-// MVP model: no login, security relies on the 32-char adminToken URL being secret.
-// The token itself is never exposed through the public event doc — it lives in
-// events/{code}/private/config, which nothing in the public read flow ever fetches.
+// There are no user accounts. Two kinds of secret exist: an event's admin token (the secret admin link) and each
+// player's ticket. Rules can't see either, so the server (src/lib/serverAuth.ts, /api/auth/*) checks them and hands the
+// browser a Firebase custom token with a claim the rules DO check:
+//   adminFor == <event code>                       the admin of that event
+//   playerFor == <event code>, playerId == <id>    a registered player of that event
+// Reading stays public (the roster, tables and games are shown to everyone) and most writes stay open, but anything
+// that DESTROYS data or edits the event itself needs one of those claims. The admin token is never readable.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isAdmin(code) {
+      return request.auth != null && request.auth.token.adminFor == code;
+    }
+    function isPlayerOf(code) {
+      return request.auth != null && request.auth.token.playerFor == code;
+    }
+    function eventDoc(code) {
+      return get(/databases/$(database)/documents/events/$(code)).data;
+    }
 
     match /events/{code} {
       allow read: if true;
       allow create: if !('adminToken' in request.resource.data);
-      allow update: if !('adminToken' in request.resource.data);
+      // Only the admin edits the event (name, date, schedule, settings…). Anyone could otherwise push the date
+      // into the past and have the nightly clean-up delete the whole event. The one exception is the table-
+      // generation lock, which any player's browser takes while it recomputes tables: it may only touch
+      // genLockAt, and not park it far in the future (that would stall generation for everyone).
+      allow update: if !('adminToken' in request.resource.data) && (
+        isAdmin(code) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['genLockAt'])
+          && (request.resource.data.genLockAt == null
+              || (request.resource.data.genLockAt is number
+                  && request.resource.data.genLockAt < request.time.toMillis() + 60000)))
+      );
       allow delete: if false;
 
+      // The admin token. Written once when the event is created; never readable from a browser — the
+      // server compares it (Admin SDK bypasses these rules).
       match /private/config {
-        allow read: if true;
+        allow read: if false;
         allow create: if !exists(/databases/$(database)/documents/events/$(code)/private/config);
         allow update, delete: if false;
       }
 
-      // Gmail sender credentials for this event's ticket emails — never touched by client SDK,
-      // only by server API routes using firebase-admin (which bypasses these rules entirely).
+      // Gmail sender credentials for this event's ticket emails — only server API routes (Admin SDK) touch them.
       match /private/email {
         allow read, write: if false;
       }
@@ -27,19 +52,28 @@ service cloud.firestore {
       match /games/{gameId} {
         allow read: if true;
         allow create, update: if true;
-        allow delete: if true;
+        // The admin, or the player who owns the game
+        allow delete: if isAdmin(code)
+          || (isPlayerOf(code) && resource.data.ownerPlayerId == request.auth.token.playerId);
       }
 
       match /players/{playerId} {
         allow read: if true;
         allow create, update: if true;
-        allow delete: if true;
+        allow delete: if isAdmin(code);
       }
 
       match /tables/{tableId} {
         allow read: if true;
         allow create, update: if true;
-        allow delete: if true;
+        // The admin; or any registered player pruning a recommended (never confirmed, never owner-posted) table that
+        // no longer fits the event's schedule — table generation does that from whichever browser triggered it.
+        allow delete: if isAdmin(code)
+          || (isPlayerOf(code)
+              && resource.data.status == 'recommended'
+              && resource.data.get('postedByOwner', false) != true
+              && (resource.data.startTime < eventDoc(code).startTime
+                  || resource.data.endTime > eventDoc(code).endTime));
       }
     }
 
@@ -49,8 +83,9 @@ service cloud.firestore {
       allow update: if !('adminToken' in request.resource.data);
       allow delete: if false;
 
+      // Same as events: the token is compared on the server, never read by a browser.
       match /private/config {
-        allow read: if true;
+        allow read: if false;
         allow create: if !exists(/databases/$(database)/documents/mathtrades/$(code)/private/config);
         allow update, delete: if false;
       }

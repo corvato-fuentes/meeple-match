@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getEvent, verifyAdminToken, getPlayers } from '@/lib/firestore';
+import { getEvent, getPlayers } from '@/lib/firestore';
+import { verifyAdminTokenServer } from '@/lib/serverAuth';
 import { getEmailConfig } from '@/lib/emailConfigAdmin';
 import { sendTicketEmail } from '@/lib/email';
 
@@ -8,7 +9,7 @@ export async function POST(request: NextRequest) {
   const { code, adminToken, playerId } = await request.json();
   if (!code || !adminToken || !playerId) return NextResponse.json({ error: 'Missing params' }, { status: 400 });
 
-  const ok = await verifyAdminToken(code, adminToken);
+  const ok = await verifyAdminTokenServer(code, adminToken);
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const [event, players, emailConfig] = await Promise.all([getEvent(code), getPlayers(code), getEmailConfig(code)]);
