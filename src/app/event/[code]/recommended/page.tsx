@@ -7,7 +7,7 @@ import {
   respondToRecommendation, updatePlayerWishlist,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { estimatedDuration } from '@/lib/tableAlgorithm';
+import { estimatedDuration, findConflictingTable } from '@/lib/tableAlgorithm';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import GameVoteCard from '@/components/ui/GameVoteCard';
@@ -96,9 +96,22 @@ export default function RecommendedTablesPage() {
     return `${COMPLEXITY_LABEL[game.complexity]} · ~${estimatedDuration(game, seated)}min`;
   }
 
-  function namesFor(ids: string[]): string {
-    return ids.map((id) => (id === myId ? 'vos' : otherPlayerMap.get(id)?.name ?? '?')).join(', ');
-  }
+  // "✅ N confirmados · 🤔 N interesados" + the popup button, shared by every recommended-table card
+  // so the same table reads the same wherever it shows up. Interesados = offered the seat, not accepted yet.
+  const rosterSummary = (t: Table) => {
+    const interested = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id)).length;
+    return (
+      <>
+        <p className="text-xs text-gray-400 mt-1 flex flex-wrap gap-x-2">
+          <span className="whitespace-nowrap">✅ {t.playerIds.length} confirmados</span>
+          <span className="whitespace-nowrap">🤔 {interested} interesados</span>
+        </p>
+        <button onClick={() => setViewingTableId(t.id)} className="text-xs text-amber-400 hover:underline mt-0.5">
+          👀 Ver interesados
+        </button>
+      </>
+    );
+  };
 
   const coverFor = (gameId: string) => (
     // eslint-disable-next-line @next/next/no-img-element
@@ -206,10 +219,12 @@ export default function RecommendedTablesPage() {
           ) : (
             <div className="space-y-2">
               {myRecommendedTables.map((t) => {
-                // Everyone the algorithm offered this seat to who hasn't accepted yet (me included).
-                const stillDeciding = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id));
+                // A table I already hold a seat on at an overlapping time. Still-open ones are a soft
+                // commitment (accepting this one offers to swap); confirmed ones can't be left.
+                const clash = findConflictingTable(myId, t.startTime, t.endTime, allTables, t.id);
+                const hardClash = !!clash && clash.status !== 'recommended';
                 return (
-                <div key={t.id} className="border border-amber-700 rounded-xl px-3 py-2 bg-amber-950/20">
+                <div key={t.id} className={`border border-amber-700 rounded-xl px-3 py-2 bg-amber-950/20 ${hardClash ? 'opacity-60' : ''}`}>
                   <div className="flex justify-between items-start">
                     <span className="flex items-center gap-2 min-w-0">{coverFor(t.gameId)}<span className="font-medium text-sm text-amber-300">{t.gameName}</span></span>
                     <span className="text-xs text-amber-400 shrink-0">{t.startTime}–{t.endTime}</span>
@@ -217,18 +232,20 @@ export default function RecommendedTablesPage() {
                   {gameMetaLine(t.gameId, t) && (
                     <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                   )}
-                  <p className="text-xs text-gray-400 mt-1 whitespace-nowrap">
-                    ✅ {t.playerIds.length} confirmados · 🤔 {stillDeciding.length} interesados
-                  </p>
-                  <button onClick={() => setViewingTableId(t.id)} className="text-xs text-amber-400 hover:underline mt-0.5">
-                    👀 Ver interesados
-                  </button>
+                  {rosterSummary(t)}
+                  {clash && (
+                    <p className="text-[11px] text-orange-300 mt-1.5">
+                      {hardClash
+                        ? `⛔ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya está confirmada.`
+                        : `⚠️ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya aceptaste. Si aceptás esta, salís de aquella.`}
+                    </p>
+                  )}
                   <div className="flex gap-2 mt-2">
                     <button onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}
                       className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800 disabled:opacity-50">
                       ❌ Rechazar
                     </button>
-                    <button onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id}
+                    <button onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id || hardClash}
                       className="flex-1 bg-amber-600 rounded-lg py-1.5 text-xs font-medium hover:bg-amber-700 disabled:opacity-50">
                       {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
                     </button>
@@ -262,8 +279,8 @@ export default function RecommendedTablesPage() {
                     {gameMetaLine(t.gameId, t) && (
                       <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                     )}
-                    <p className="text-xs text-gray-400 mt-1">✅ {t.playerIds.length}/{minPlayers} · esperando que se sumen más candidatos</p>
-                    <p className="text-xs text-gray-400">👥 {namesFor(t.playerIds)}</p>
+                    <p className="text-xs text-gray-400 mt-1">Mínimo {minPlayers} para confirmar</p>
+                    {rosterSummary(t)}
                   </div>
                 );
               })}
@@ -289,7 +306,7 @@ export default function RecommendedTablesPage() {
                   {gameMetaLine(t.gameId, t) && (
                     <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                   )}
-                  <p className="text-xs text-gray-400 mt-1">✅ {namesFor(t.playerIds)}</p>
+                  {rosterSummary(t)}
                 </div>
               ))}
             </div>
