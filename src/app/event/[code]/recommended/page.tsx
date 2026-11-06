@@ -12,6 +12,8 @@ import { useAutoSaveWishlist } from '@/hooks/useAutoSaveWishlist';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import SaveStatusPill from '@/components/ui/SaveStatus';
 import FilterChip from '@/components/ui/FilterChip';
+import GameFilterBar from '@/components/ui/GameFilterBar';
+import { filterGames, hasAnyFilter, NO_FILTERS, type GameFilters } from '@/lib/gameFilters';
 import PushOptIn from '@/components/ui/PushOptIn';
 import GameVoteCard from '@/components/ui/GameVoteCard';
 import VotingHelp from '@/components/ui/VotingHelp';
@@ -50,6 +52,8 @@ export default function RecommendedTablesPage() {
   // null = nothing picked yet, so the tables list opens on "Por aceptar" when something is pending
   const [tableFilter, setTableFilter] = useState<TableFilter | null>(null);
   const [gameFilter, setGameFilter] = useState<GameFilter>('available');
+  // Search + difficulty / duration / players, applied on top of the chip (Disponibles / Wishlist / Ocultados)
+  const [filters, setFilters] = useState<GameFilters>(NO_FILTERS);
   const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -293,7 +297,8 @@ export default function RecommendedTablesPage() {
     wishlist: 'Todavía no elegiste ningún juego. Votá desde “Disponibles”.',
     hidden: 'No ocultaste ningún juego.',
   };
-  const visibleGames = GAME_FILTER_LIST[gameFilter];
+  const chipGames = GAME_FILTER_LIST[gameFilter];
+  const visibleGames = filterGames(chipGames, filters);
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
@@ -335,8 +340,11 @@ export default function RecommendedTablesPage() {
           {filterChip(gameFilter === 'wishlist', () => setGameFilter('wishlist'), '❤️ Tu wishlist', wishlistGames.length, 'bg-indigo-500 border-indigo-500 text-white')}
           {filterChip(gameFilter === 'hidden', () => setGameFilter('hidden'), 'Ocultados', dismissedGames.length, 'bg-indigo-500 border-indigo-500 text-white')}
         </div>
+        {chipGames.length > 0 && <GameFilterBar filters={filters} onChange={setFilters} shown={visibleGames.length} total={chipGames.length} />}
         {visibleGames.length === 0 ? (
-          <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{GAME_FILTER_EMPTY[gameFilter]}</p>
+          <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
+            {chipGames.length > 0 && hasAnyFilter(filters) ? 'Ningún juego coincide con la búsqueda y los filtros.' : GAME_FILTER_EMPTY[gameFilter]}
+          </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {visibleGames.map((g) => (
