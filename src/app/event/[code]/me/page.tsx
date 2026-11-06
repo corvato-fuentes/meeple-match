@@ -12,6 +12,7 @@ import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { savePlayerEvent } from '@/lib/myEvents';
 import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
+import GameCover from '@/components/ui/GameCover';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import TablesHelp from '@/components/ui/TablesHelp';
 import HelpPopover from '@/components/ui/HelpPopover';
@@ -467,12 +468,12 @@ export default function MyTicketPage() {
               <p>
                 Cuando votás tus intereses, el algoritmo busca otros inscriptos con los mismos intereses y te
                 propone una mesa en un horario en el que coincidan. Vas a encontrar esa propuesta
-                en <strong className="text-gray-300">Mesas recomendadas</strong>, donde podés aceptarla o
+                en <strong className="text-amber-300">Mesas recomendadas</strong>, donde podés aceptarla o
                 rechazarla. Una vez que la aceptás, aparece acá como confirmada.
               </p>
               <p>
                 También podés revisar las mesas que postularon otros inscriptos
-                en <strong className="text-gray-300">Mesas postuladas</strong> y anotarte. Cuando la mesa junta el
+                en <strong className="text-purple-300">Mesas postuladas</strong> y anotarte. Cuando la mesa junta el
                 mínimo de jugadores necesario, también aparece acá como confirmada.
               </p>
             </div>
@@ -545,11 +546,13 @@ export default function MyTicketPage() {
             <div className="space-y-2 mb-3">
               {myGames.map((g) => (
                 <div key={g.id} className="border border-gray-700 rounded-xl px-3 py-2 bg-gray-800 text-sm">
-                  <div className="min-w-0 mb-2 flex items-center gap-2">
-                    {coverFor(g.id)}
-                    <div className="min-w-0">
-                      <span className="font-medium">{g.name}</span>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{g.minPlayers}–{g.maxPlayers}p · {roundUp5(g.durationMinutes)}min ·{COMPLEXITY_LABEL[g.complexity]}</p>
+                  <div className="min-w-0 mb-3 flex items-center gap-3">
+                    <GameCover size="lg" imageUrl={g.imageUrl} />
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="font-semibold text-base leading-snug">{g.name}</p>
+                      <p className="text-xs text-gray-400">👥 {g.minPlayers}–{g.maxPlayers} jugadores</p>
+                      <p className="text-xs text-gray-400">⏱️ ~{roundUp5(g.durationMinutes)}min</p>
+                      <p className="text-xs text-gray-400">🧠 {COMPLEXITY_LABEL[g.complexity]}</p>
                     </div>
                   </div>
                   <div className="flex gap-1.5">

@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, getGames, getPlayers } from '@/lib/firestore';
 import { roundUp5 } from '@/lib/timeUtils';
+import GameCover from '@/components/ui/GameCover';
 import type { MeepleEvent, Game, Player } from '@/lib/types';
 
 /** Public, read-only view of every game and its vote totals — anyone with the event link can see it. */
@@ -30,6 +31,10 @@ export default function VotesPage() {
   const primaryGames = games.filter((g) => !g.groupId || g.groupId === g.id);
   const ownerLabel = (g: Game) => games.filter((m) => (m.groupId ?? m.id) === g.id).map((m) => m.ownerName).join(', ');
 
+  // A merged game shows the primary's cover, or any copy's if the primary has none.
+  const coverFor = (g: Game) =>
+    g.imageUrl || games.find((m) => (m.groupId ?? m.id) === g.id && m.imageUrl)?.imageUrl;
+
   const rows = primaryGames.map((g) => {
     const yes = players.filter((p) => p.interests[g.id] === 'yes').length;
     const no = players.filter((p) => p.interests[g.id] === 'no').length;
@@ -55,20 +60,25 @@ export default function VotesPage() {
             const copyCount = label.split(',').length;
             return (
               <div key={game.id} className={'border rounded-xl p-3 bg-gray-800 ' + (notEnough ? 'border-amber-800' : 'border-gray-700')}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-semibold">
-                      {game.name}
-                      {copyCount > 1 && <span className="ml-2 text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded">🧩 {copyCount} copias</span>}
-                    </p>
-                    <p className="text-xs text-gray-500">Trae: {label} · {game.minPlayers}–{game.maxPlayers}p · {roundUp5(game.durationMinutes)}min</p>
+                <div className="flex gap-3">
+                  <GameCover size="md" imageUrl={coverFor(game)} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold">
+                          {game.name}
+                          {copyCount > 1 && <span className="ml-2 text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded">🧩 {copyCount} copias</span>}
+                        </p>
+                        <p className="text-xs text-gray-500">Trae: {label} · {game.minPlayers}–{game.maxPlayers}p · {roundUp5(game.durationMinutes)}min</p>
+                      </div>
+                      {notEnough && <span className="text-xs text-amber-400 shrink-0">⚠️ Faltan votos ({total}/{game.minPlayers})</span>}
+                    </div>
+                    <div className="flex gap-3 mt-2 text-sm">
+                      <span className="text-blue-300">👍 {yes}</span>
+                      <span className="text-gray-500">👎 {no}</span>
+                      <span className="text-purple-300">🎓 {explainers} explica{explainers !== 1 ? 'n' : ''}</span>
+                    </div>
                   </div>
-                  {notEnough && <span className="text-xs text-amber-400 shrink-0">⚠️ Faltan votos ({total}/{game.minPlayers})</span>}
-                </div>
-                <div className="flex gap-3 mt-2 text-sm">
-                  <span className="text-blue-300">👍 {yes}</span>
-                  <span className="text-gray-500">👎 {no}</span>
-                  <span className="text-purple-300">🎓 {explainers} explica{explainers !== 1 ? 'n' : ''}</span>
                 </div>
               </div>
             );

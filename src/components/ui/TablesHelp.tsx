@@ -21,11 +21,11 @@ export default function TablesHelp() {
             </p>
             <p className="text-gray-300">
               Cuando votás tus intereses, el algoritmo busca otros inscriptos con los mismos intereses y te propone
-              una mesa en un horario en el que coincidan — la vas a encontrar en <strong>Mesas recomendadas</strong>,
+              una mesa en un horario en el que coincidan — la vas a encontrar en <strong className="text-amber-300">Mesas recomendadas</strong>,
               donde podés aceptarla o rechazarla. Una vez que la aceptás, aparece acá como confirmada.
             </p>
             <p className="text-gray-300">
-              También podés revisar las mesas que postularon otros inscriptos en <strong>Mesas postuladas</strong> y
+              También podés revisar las mesas que postularon otros inscriptos en <strong className="text-purple-300">Mesas postuladas</strong> y
               anotarte. Cuando la mesa junta el mínimo de jugadores necesario, también aparece acá como confirmada.
             </p>
             <button onClick={() => setOpen(false)}
