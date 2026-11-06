@@ -11,6 +11,7 @@ import { computeEventStatus, toMinutes } from '@/lib/timeUtils';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
 import ConfirmModal from '@/components/ui/ConfirmModal';
+import AnnounceCard from '@/components/ui/AnnounceCard';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
 /** "2026-11-15" → "15/11/2026" */
@@ -358,6 +359,8 @@ export default function AdminPage() {
       </div>
 
       {/* Status — always derived from the event's own schedule, never picked manually */}
+      <AnnounceCard code={code} adminToken={adminToken} />
+
       <section className='border border-gray-700 rounded-xl p-4 space-y-2'>
         <h2 className='font-semibold'>Estado del evento</h2>
         <div className='flex gap-2 flex-wrap'>

@@ -243,3 +243,41 @@ export async function syncTodaysEvents(): Promise<{ events: number; sent: number
   for (const e of events.docs) sent += (await syncEventPush(e.id)).sent;
   return { events: events.size, sent };
 }
+
+export interface BroadcastResult {
+  devices: number;
+  players: number;
+}
+
+/**
+ * Sends one message to every device registered for the event — what the admin's "Avisar a todos" uses. Each
+ * device gets a link to its own player's ticket. Devices the push service reports as gone are cleaned up.
+ */
+export async function broadcastToEvent(
+  code: string,
+  message: { title: string; body: string; tag: string; ttl: number },
+): Promise<BroadcastResult> {
+  if (!pushConfigured()) return { devices: 0, players: 0 };
+  const base = eventRef(code);
+  const subsSnap = await base.collection('pushSubs').get();
+  if (subsSnap.empty) return { devices: 0, players: 0 };
+
+  const playerIds = [...new Set(subsSnap.docs.map((d) => d.data().playerId as string))];
+  const playerSnaps = await adminDb.getAll(...playerIds.map((id) => base.collection('players').doc(id)));
+  const ticketByPlayer = new Map(playerSnaps.filter((s) => s.exists).map((s) => [s.id, s.data()!.ticketCode as string]));
+
+  let devices = 0;
+  const reached = new Set<string>();
+  const CHUNK = 20; // don't open hundreds of connections at once
+  for (let i = 0; i < subsSnap.docs.length; i += CHUNK) {
+    await Promise.all(subsSnap.docs.slice(i, i + CHUNK).map(async (d) => {
+      const { playerId, subscription } = d.data() as { playerId: string; subscription: StoredSubscription };
+      const ticketCode = ticketByPlayer.get(playerId);
+      if (!ticketCode) return;
+      const result = await deliver(subscription, { ...message, url: `/event/${code}/me?ticket=${encodeURIComponent(ticketCode)}` });
+      if (result === 'gone') await d.ref.delete().catch(() => {});
+      if (result === 'ok') { devices++; reached.add(playerId); }
+    }));
+  }
+  return { devices, players: reached.size };
+}

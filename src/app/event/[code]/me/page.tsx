@@ -17,6 +17,7 @@ import GameCover from '@/components/ui/GameCover';
 import NextTableCard from '@/components/ui/NextTableCard';
 import InstallPrompt from '@/components/ui/InstallPrompt';
 import PushOptIn from '@/components/ui/PushOptIn';
+import AnnouncementBanner from '@/components/ui/AnnouncementBanner';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import TablesHelp from '@/components/ui/TablesHelp';
 import HelpPopover from '@/components/ui/HelpPopover';
@@ -413,6 +414,8 @@ export default function MyTicketPage() {
           </Link>
         )}
       </div>
+
+      <AnnouncementBanner code={code} />
 
       {/* Same layout as before, just framed as a card like the other sections */}
       <section className="max-w-sm mx-auto border border-gray-700 bg-gray-800 rounded-2xl p-5 text-center">
