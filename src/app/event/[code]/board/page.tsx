@@ -90,6 +90,7 @@ export default function BoardPage() {
   const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
   const [joiningTableId, setJoiningTableId] = useState<string | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
+  const [viewingTableId, setViewingTableId] = useState<string | null>(null);
 
   useEffect(() => {
     getEvent(code).then(setEvent);
@@ -361,8 +362,11 @@ export default function BoardPage() {
                         <span className='text-xs text-amber-400 shrink-0'>{t.startTime}–{t.endTime}</span>
                       </div>
                       <p className='text-xs text-gray-400 mt-1'>
-                        👥 {t.playerIds.length}/{minPlayers} aceptaron · {(t.candidateIds ?? []).length} candidatos en total
+                        ✅ {t.playerIds.length}/{minPlayers} confirmados · 🤔 {(t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id)).length} interesados
                       </p>
+                      <button onClick={() => setViewingTableId(t.id)} className='block text-xs text-amber-400 hover:underline mt-1'>
+                        👀 Ver interesados
+                      </button>
                       {viewer && (
                         viewer.interests[t.gameId] === 'yes' ? (
                           <p className='text-xs text-green-400 mt-2'>✅ Ya votaste que sí</p>
@@ -416,6 +420,9 @@ export default function BoardPage() {
                       <p className='text-xs text-gray-500 mt-0.5'>
                         Lo trae {playerMap.get(t.explainerId)?.name ?? 'alguien'}
                       </p>
+                      <button onClick={() => setViewingTableId(t.id)} className='block text-xs text-indigo-400 hover:underline mt-1'>
+                        👀 Ver anotados
+                      </button>
                       {viewer && (
                         t.playerIds.includes(viewer.id) ? (
                           <p className='text-xs text-green-400 mt-2'>✅ Ya estás anotado</p>
@@ -448,6 +455,50 @@ export default function BoardPage() {
                 onChange={(level) => handleKnowledgeLevelChosen(game.id, level)} />
               <button onClick={closeKnowledgePrompt} className='w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800'>
                 Ahora no
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {viewingTableId && (() => {
+        const t = tables.find((x) => x.id === viewingTableId);
+        if (!t) return null;
+        const close = () => setViewingTableId(null);
+        const pending = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id));
+        const nameOf = (id: string) => (id === viewer?.id ? 'Vos' : playerMap.get(id)?.name ?? '?');
+        const group = (title: string, ids: string[], empty: string, tag: string, tagClass: string) => (
+          <div>
+            <p className='text-xs font-semibold text-gray-300 mb-1'>{title} ({ids.length})</p>
+            {ids.length === 0 ? (
+              <p className='text-xs text-gray-500'>{empty}</p>
+            ) : (
+              <ul className='text-xs text-gray-400 space-y-1'>
+                {ids.map((id) => (
+                  <li key={id} className='flex items-center gap-2'>
+                    <span className='truncate'>{nameOf(id)}</span>
+                    <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${tagClass}`}>{tag}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+        return (
+          <div className='fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50' onClick={close}>
+            <div className='max-w-sm w-full max-h-[80vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm'
+              onClick={(e) => e.stopPropagation()}>
+              <div>
+                <h3 className='font-semibold text-gray-100'>{t.gameName}</h3>
+                <p className='text-xs text-gray-500'>{t.startTime}–{t.endTime}</p>
+              </div>
+              {t.explainerId && (
+                <p className='text-xs text-gray-400'>🎓 Explica: <span className='text-gray-300'>{nameOf(t.explainerId)}</span></p>
+              )}
+              {group('✅ Confirmados', t.playerIds, 'Nadie todavía.', 'confirmado', 'bg-green-900 text-green-300')}
+              {!t.postedByOwner && group('🤔 Interesados (sin confirmar)', pending, 'No quedan interesados pendientes.', 'interesado', 'bg-amber-900 text-amber-300')}
+              <button onClick={close} className='w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800'>
+                Cerrar
               </button>
             </div>
           </div>

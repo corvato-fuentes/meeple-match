@@ -218,10 +218,10 @@ export default function RecommendedTablesPage() {
                     <p className="text-[11px] text-gray-500 mt-0.5">{gameMetaLine(t.gameId, t)}</p>
                   )}
                   <p className="text-xs text-gray-400 mt-1 whitespace-nowrap">
-                    ✅ {t.playerIds.length} aceptaron · 👥 {stillDeciding.length} candidatos
+                    ✅ {t.playerIds.length} confirmados · 🤔 {stillDeciding.length} interesados
                   </p>
                   <button onClick={() => setViewingTableId(t.id)} className="text-xs text-amber-400 hover:underline mt-0.5">
-                    👀 Ver inscriptos
+                    👀 Ver interesados
                   </button>
                   <div className="flex gap-2 mt-2">
                     <button onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}
@@ -407,8 +407,8 @@ export default function RecommendedTablesPage() {
               {t.explainerId && (
                 <p className="text-xs text-gray-400">🎓 Explica: <span className="text-gray-300">{nameList([t.explainerId])[0]}</span></p>
               )}
-              {group('✅ Ya aceptaron', t.playerIds, 'Nadie todavía.')}
-              {group('👥 Candidatos', candidates, 'No quedan candidatos pendientes.')}
+              {group('✅ Confirmados', t.playerIds, 'Nadie todavía.')}
+              {group('🤔 Interesados (sin confirmar)', candidates, 'No quedan interesados pendientes.')}
               <button onClick={close} className="w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800">
                 Cerrar
               </button>
