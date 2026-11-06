@@ -11,6 +11,7 @@ import { computeEventStatus, roundUp5 } from '@/lib/timeUtils';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
 import { savePlayerEvent } from '@/lib/myEvents';
+import { displayNameOf } from '@/lib/playerName';
 import { getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import { useBggSearch } from '@/hooks/useBggSearch';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
@@ -256,7 +257,7 @@ export default function EventPage() {
   async function handleSubmit() {
     if (!event || submitting) return;
     setSubmitting(true);
-    const displayName = alias.trim() || `${firstName.trim()} ${lastName.trim()}`.trim();
+    const displayName = displayNameOf(firstName, lastName, alias);
     const maxPlayers = event.settings.maxPlayers;
     if (maxPlayers != null && playerCount >= maxPlayers) { alert('El evento está completo.'); setSubmitting(false); return; }
     const ticketCode = await generateUniqueTicketCode(code);

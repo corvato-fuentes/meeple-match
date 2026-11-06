@@ -10,7 +10,8 @@ const COMPLEXITIES: { value: GameComplexity; label: string }[] = [
   { value: 'medium', label: 'Intermedio' },
   { value: 'heavy', label: 'Pesado' },
 ];
-const PLAYER_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8];
+const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 12;
 
 interface Props {
   filters: GameFilters;
@@ -65,15 +66,24 @@ export default function GameFilterBar({ filters, onChange, shown, total }: Props
                 {(Object.keys(DURATION_LABEL) as DurationRange[]).map((d) => <option key={d} value={d}>{DURATION_LABEL[d]}</option>)}
               </select>
             </label>
-            <label className="block">
-              <span className="block text-xs text-gray-400 mb-1.5">Cantidad de jugadores</span>
-              <select value={filters.players ?? ''} onChange={(e) => set({ players: e.target.value ? Number(e.target.value) : null })}
-                className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1.5 text-sm">
-                <option value="">Cualquiera</option>
-                {PLAYER_COUNTS.map((n) => <option key={n} value={n}>{n === 1 ? '1 (solitario)' : `${n} jugadores`}</option>)}
-              </select>
-            </label>
+            <div>
+              <span className="block text-xs text-gray-400 mb-1.5">¿Cuántos van a jugar?</span>
+              <div className="flex items-stretch border border-gray-700 bg-gray-900 rounded-lg overflow-hidden">
+                <button onClick={() => set({ players: filters.players == null || filters.players <= MIN_PLAYERS ? null : filters.players - 1 })}
+                  disabled={filters.players == null} aria-label="Menos jugadores"
+                  className="px-3 text-lg leading-none text-gray-300 hover:bg-gray-800 disabled:opacity-30">−</button>
+                <span className="flex-1 text-center py-1.5 text-sm" aria-live="polite">
+                  {filters.players == null ? <span className="text-gray-500">Cualquiera</span> : `${filters.players} personas`}
+                </span>
+                <button onClick={() => set({ players: filters.players == null ? MIN_PLAYERS : Math.min(MAX_PLAYERS, filters.players + 1) })}
+                  disabled={filters.players === MAX_PLAYERS} aria-label="Más jugadores"
+                  className="px-3 text-lg leading-none text-gray-300 hover:bg-gray-800 disabled:opacity-30">+</button>
+              </div>
+            </div>
           </div>
+          {filters.players != null && (
+            <p className="text-xs text-gray-500 -mt-1">Se muestran los juegos que se pueden jugar con {filters.players} personas (entre su mínimo y su máximo).</p>
+          )}
         </div>
       )}
 

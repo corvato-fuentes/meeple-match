@@ -10,6 +10,7 @@ import { randomInterest, randomOwnGameInterest, generateFakePostulatedTables } f
 import { generateTicketCodeCandidate } from './ticketCode';
 import { toMinutes, toTimeString } from './timeUtils';
 import { requestPushSync } from './pushClient';
+import { displayNameOf } from './playerName';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -430,6 +431,41 @@ export async function updatePlayerTimes(
   departureTime: string
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { arrivalTime, departureTime });
+}
+
+export interface PlayerProfile {
+  firstName: string;
+  lastName: string;
+  alias: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+/**
+ * Updates a player's own details (name, alias, email, phone). Refuses an email or phone that
+ * already belongs to someone else, like registration does. The display name is recomputed and
+ * copied onto the games the player brought (they carry the owner's name).
+ */
+export async function updatePlayerProfile(
+  eventCode: string,
+  playerId: string,
+  profile: PlayerProfile
+): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  const playersRef = collection(db, 'events', eventCode, 'players');
+  for (const [field, value] of [['email', profile.email], ['phone', profile.phone]] as const) {
+    if (!value) continue;
+    const snap = await getDocs(query(playersRef, where(field, '==', value)));
+    if (snap.docs.some((d) => d.id !== playerId)) {
+      return { ok: false, error: 'Ya hay alguien registrado con ese email o teléfono.' };
+    }
+  }
+  const name = displayNameOf(profile.firstName, profile.lastName, profile.alias);
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'events', eventCode, 'players', playerId), { ...profile, name });
+  const owned = await getDocs(query(collection(db, 'events', eventCode, 'games'), where('ownerPlayerId', '==', playerId)));
+  owned.docs.forEach((g) => batch.update(g.ref, { ownerName: name }));
+  await batch.commit();
+  return { ok: true, name };
 }
 
 /**

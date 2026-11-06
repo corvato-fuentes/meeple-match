@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, autoMergeDuplicates,
   updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame, updatePlayerTimes,
-  postTable,
+  postTable, updatePlayerProfile,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
@@ -73,6 +73,10 @@ export default function MyTicketPage() {
   const [draftArrival, setDraftArrival] = useState('');
   const [draftDeparture, setDraftDeparture] = useState('');
   const [savingTimes, setSavingTimes] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [draftProfile, setDraftProfile] = useState({ firstName: '', lastName: '', alias: '', email: '', phone: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [proposingGameId, setProposingGameId] = useState<string | null>(null);
   const [proposeStart, setProposeStart] = useState('');
   const [proposingSubmitting, setProposingSubmitting] = useState(false);
@@ -250,7 +254,44 @@ export default function MyTicketPage() {
     if (!player) return;
     setDraftArrival(player.arrivalTime);
     setDraftDeparture(player.departureTime);
+    setEditingProfile(false);
     setEditingTimes(true);
+  }
+
+  function startEditProfile() {
+    if (!player) return;
+    setDraftProfile({
+      firstName: player.firstName ?? '', lastName: player.lastName ?? '', alias: player.alias ?? '',
+      email: player.email ?? '', phone: player.phone ?? '',
+    });
+    setProfileError('');
+    setEditingTimes(false);
+    setEditingProfile(true);
+  }
+
+  const profileValid = draftProfile.firstName.trim() !== '' && draftProfile.lastName.trim() !== '' && draftProfile.phone.trim() !== ''
+    && (draftProfile.email.trim() === '' || /^\S+@\S+\.\S+$/.test(draftProfile.email.trim()));
+
+  async function saveProfile() {
+    if (!player || !event || savingProfile || !profileValid) return;
+    setSavingProfile(true);
+    setProfileError('');
+    try {
+      const profile = {
+        firstName: draftProfile.firstName.trim(), lastName: draftProfile.lastName.trim(),
+        alias: draftProfile.alias.trim() || null, email: draftProfile.email.trim() || null, phone: draftProfile.phone.trim(),
+      };
+      const result = await updatePlayerProfile(code, player.id, profile);
+      if (!result.ok) { setProfileError(result.error); return; }
+      setPlayer((p) => p ? { ...p, ...profile, name: result.name } : p);
+      setGames((gs) => gs.map((g) => (g.ownerPlayerId === player.id ? { ...g, ownerName: result.name } : g)));
+      savePlayerEvent({ code, ticketCode: player.ticketCode, name: event.name, date: event.date, playerName: result.name });
+      setEditingProfile(false);
+    } catch {
+      setProfileError('No se pudo guardar. Probá de nuevo.');
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   async function saveTimes() {
@@ -406,15 +447,60 @@ export default function MyTicketPage() {
         <button onClick={copyCode} className="text-xs text-gray-500 mt-1 hover:text-indigo-400">
           {copied ? '✓ Copiado' : 'Copiar código'}
         </button>
-        <p className="text-sm mt-2 text-gray-400">
-          Hola, <strong>{player.name}</strong> · {player.arrivalTime}–{player.departureTime}
+        <TicketQr code={code} ticketCode={player.ticketCode} />
+        <p className="text-lg font-semibold text-gray-100 mt-4">
+          Hola, <span className="text-amber-300">{player.name}</span>!
         </p>
-        {!editingTimes ? (
-          <button onClick={startEditTimes} className="block mx-auto text-xs text-indigo-400 hover:underline mt-0.5">
-            ✏️ Editar horario
-          </button>
-        ) : (
-          <div className="mt-2 border border-gray-700 rounded-xl p-3 bg-gray-900 space-y-2 text-left">
+        {!editingProfile && (
+          <button onClick={startEditProfile} className="text-xs text-indigo-400 hover:underline mt-0.5">👤 Editar datos</button>
+        )}
+        {editingProfile && (
+          <div className="mt-3 border border-gray-700 rounded-xl p-3 bg-gray-900 space-y-2 text-left">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-xs text-gray-400">Nombre
+                <input className="mt-0.5 w-full border border-gray-700 bg-gray-800 rounded-lg px-2 py-1.5 text-sm text-gray-100" value={draftProfile.firstName}
+                  onChange={(e) => setDraftProfile((d) => ({ ...d, firstName: e.target.value }))} />
+              </label>
+              <label className="text-xs text-gray-400">Apellido
+                <input className="mt-0.5 w-full border border-gray-700 bg-gray-800 rounded-lg px-2 py-1.5 text-sm text-gray-100" value={draftProfile.lastName}
+                  onChange={(e) => setDraftProfile((d) => ({ ...d, lastName: e.target.value }))} />
+              </label>
+            </div>
+            <label className="block text-xs text-gray-400">Alias (opcional, se muestra en vez del nombre)
+              <input className="mt-0.5 w-full border border-gray-700 bg-gray-800 rounded-lg px-2 py-1.5 text-sm text-gray-100" value={draftProfile.alias}
+                onChange={(e) => setDraftProfile((d) => ({ ...d, alias: e.target.value }))} />
+            </label>
+            <label className="block text-xs text-gray-400">Teléfono
+              <input type="tel" className="mt-0.5 w-full border border-gray-700 bg-gray-800 rounded-lg px-2 py-1.5 text-sm text-gray-100" value={draftProfile.phone}
+                onChange={(e) => setDraftProfile((d) => ({ ...d, phone: e.target.value }))} />
+            </label>
+            <label className="block text-xs text-gray-400">Email (opcional)
+              <input type="email" className="mt-0.5 w-full border border-gray-700 bg-gray-800 rounded-lg px-2 py-1.5 text-sm text-gray-100" value={draftProfile.email}
+                onChange={(e) => setDraftProfile((d) => ({ ...d, email: e.target.value }))} />
+            </label>
+            {profileError && <p className="text-xs text-red-400">{profileError}</p>}
+            <div className="flex gap-2">
+              <button onClick={() => setEditingProfile(false)}
+                className="flex-1 border border-gray-700 rounded-lg py-1.5 text-sm font-medium">
+                Cancelar
+              </button>
+              <button onClick={saveProfile} disabled={savingProfile || !profileValid}
+                className="flex-1 bg-indigo-600 rounded-lg py-1.5 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                {savingProfile ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        )}
+        <p className="text-sm text-gray-400 mt-4">El horario que registraste es:</p>
+        <p className="text-base font-semibold text-gray-100">
+          {player.arrivalTime}–{player.departureTime}
+          {!editingTimes && (
+            <button onClick={startEditTimes} aria-label="Editar horario" title="Editar horario"
+              className="ml-2 align-middle text-sm hover:opacity-70">✏️</button>
+          )}
+        </p>
+        {editingTimes && (
+          <div className="mt-3 border border-gray-700 rounded-xl p-3 bg-gray-900 space-y-2 text-left">
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-gray-400">Llego</label>
@@ -440,7 +526,9 @@ export default function MyTicketPage() {
           </div>
         )}
         {event.location && (
-          <p className="text-sm text-gray-400 mt-1">📍 {event.location}</p>
+          <p className="text-sm text-gray-400 mt-4">
+            Recordá que el lugar es: <strong className="text-gray-200">📍 {event.location}</strong>
+          </p>
         )}
         {event.mapUrl && (
           <a href={event.mapUrl} target="_blank" rel="noopener noreferrer"
@@ -459,7 +547,6 @@ export default function MyTicketPage() {
           className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800">
           🧑‍💼 Organizadores
         </Link>
-        <TicketQr code={code} ticketCode={player.ticketCode} playerName={player.name} />
         <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} />
       </div>
 

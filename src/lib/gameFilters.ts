@@ -11,7 +11,7 @@ export interface GameFilters {
   /** Empty = any difficulty. */
   complexity: GameComplexity[];
   duration: DurationRange;
-  /** How many people want to play: keeps the games that can be played with exactly that many. null = any. */
+  /** How many people will play: keeps the games whose min–max range includes that number. null = any. */
   players: number | null;
 }
 
