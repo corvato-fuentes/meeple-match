@@ -6,10 +6,11 @@ import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables,
   respondToRecommendation, updatePlayerWishlist,
 } from '@/lib/firestore';
-import { runTableGeneration } from '@/lib/tableGeneration';
 import { estimatedDuration, findConflictingTable } from '@/lib/tableAlgorithm';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
+import { useAutoSaveWishlist } from '@/hooks/useAutoSaveWishlist';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
+import SaveStatusPill from '@/components/ui/SaveStatus';
 import FilterChip from '@/components/ui/FilterChip';
 import GameVoteCard from '@/components/ui/GameVoteCard';
 import VotingHelp from '@/components/ui/VotingHelp';
@@ -45,7 +46,6 @@ export default function RecommendedTablesPage() {
   const [tableFilter, setTableFilter] = useState<TableFilter | null>(null);
   const [gameFilter, setGameFilter] = useState<GameFilter>('available');
   const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -73,6 +73,9 @@ export default function RecommendedTablesPage() {
   }, [code, player]);
 
   const { conflictPrompt, resolveScheduleConflict, handleConflictChoice } = useScheduleConflict(code, player, allTables);
+  // Votes and knowledge levels save themselves a moment after the last change.
+  const { status: saveStatus, retry: retrySave } = useAutoSaveWishlist(code, player?.id, event,
+    player ? { interests, canExplain, playedGameIds, repeatGameIds: player.repeatGameIds ?? [] } : null);
 
   if (loading) return <div className="p-8 text-center">Cargando...</div>;
   if (!player || !event) return null;
@@ -152,17 +155,6 @@ export default function RecommendedTablesPage() {
       return next;
     });
     if (level === 'yes' && !wasYes) setKnowledgePromptGameId(gameId);
-  }
-
-  async function saveWishlist() {
-    if (!player || !event) return;
-    setSaving(true);
-    await updatePlayerWishlist(code, player.id, {
-      interests, canExplain, playedGameIds, repeatGameIds: player.repeatGameIds ?? [],
-    });
-    // Fire-and-forget: don't make the player wait on the scheduling algorithm.
-    runTableGeneration(code, event).catch(() => {});
-    setSaving(false);
   }
 
   async function handleRepeatChoice(gameId: string, wantsRepeat: boolean) {
@@ -346,12 +338,7 @@ export default function RecommendedTablesPage() {
           </div>
         )}
 
-        <div className="sticky bottom-4 flex justify-end pt-4">
-          <button onClick={saveWishlist} disabled={saving}
-            className="bg-indigo-600 text-white rounded-xl px-6 py-2.5 text-sm font-semibold shadow-lg shadow-black/40 hover:bg-indigo-700 disabled:opacity-50">
-            {saving ? 'Guardando...' : '💾 Guardar cambios'}
-          </button>
-        </div>
+        <SaveStatusPill status={saveStatus} onRetry={retrySave} />
       </section>
 
       {knowledgePromptGameId && (() => {
