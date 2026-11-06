@@ -3,16 +3,18 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getEvent, getPlayerByTicketCode, getGames, autoMergeDuplicates,
+  getEvent, getPlayerByTicketCode, getGames, getPlayers, autoMergeDuplicates,
   updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame, updatePlayerTimes,
   postTable,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
+import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import { savePlayerEvent } from '@/lib/myEvents';
 import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import GameCover from '@/components/ui/GameCover';
+import NextTableCard from '@/components/ui/NextTableCard';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import TablesHelp from '@/components/ui/TablesHelp';
 import HelpPopover from '@/components/ui/HelpPopover';
@@ -43,6 +45,7 @@ export default function MyTicketPage() {
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
   const [games, setGames] = useState<Game[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
   const [allTables, setAllTables] = useState<Table[]>([]);
   const [myTables, setMyTables] = useState<Table[]>([]);
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
@@ -76,12 +79,13 @@ export default function MyTicketPage() {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
     if (!ticketCode) { router.replace('/event/' + code); return; }
     async function load() {
-      const [ev, gs] = await Promise.all([getEvent(code), getGames(code)]);
+      const [ev, gs, ps] = await Promise.all([getEvent(code), getGames(code), getPlayers(code)]);
       const p = await getPlayerByTicketCode(code, ticketCode!);
       if (!p || !ev) { localStorage.removeItem(STORAGE_KEY(code)); router.replace('/event/' + code); return; }
       setEvent(ev);
       setPlayer(p);
       setGames(gs);
+      setPlayers(ps);
       setInterests(p.interests as Record<string, InterestLevel>);
       setCanExplain(p.canExplain);
       setPlayedGameIds(p.playedGameIds ?? []);
@@ -373,6 +377,13 @@ export default function MyTicketPage() {
     </span>
   );
 
+  // Physical table number per session — the same numbering the full schedule (grilla) uses, so
+  // "Mesa #3" here is the table you actually walk to.
+  const slotByTableId = new Map(
+    assignPhysicalSlots(allTables.filter((t) => t.status !== 'recommended'), event.settings.bufferMinutes)
+      .assignments.map((a) => [a.table.id, a.slot + 1] as const)
+  );
+
   const confirmedTables = myTables
     .filter((t) => ['confirmed', 'in-progress'].includes(t.status))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
@@ -449,6 +460,9 @@ export default function MyTicketPage() {
         </div>
       </div>
 
+      <NextTableCard myTables={myTables} eventDate={event.date} games={games} players={players}
+        myId={player.id} slotByTableId={slotByTableId} />
+
       <div className="space-y-6">
         <section className="border-t border-gray-800 pt-6">
           <div className="flex items-center justify-between gap-2 mb-2">
@@ -493,7 +507,7 @@ export default function MyTicketPage() {
                         {statusLabel[t.status] ?? t.status}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-400 mt-1">Mesa {t.tableNumber} · {t.startTime}–{t.endTime}</p>
+                    <p className="text-sm text-gray-400 mt-1">Mesa #{slotByTableId.get(t.id) ?? t.tableNumber} · {t.startTime}–{t.endTime}</p>
                     <div className="flex gap-1 mt-1">
                       {isPlaying && (
                         <span className="text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded">🎲 Jugador</span>

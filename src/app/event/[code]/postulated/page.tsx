@@ -133,15 +133,26 @@ export default function PostulatedTablesPage() {
     </button>
   );
 
-  // A player is free for a window if it fits their own arrival/departure and doesn't overlap
-  // (with buffer) any table they're already seated at or explaining.
-  function isPlayerFreeFor(start: string, end: string): boolean {
-    if (!event) return false;
+  // Why a window doesn't work for this player — null when it fits. It has to sit inside their own
+  // arrival/departure and not overlap (with buffer) any table they're already seated at or explaining.
+  // Saying the reason (instead of silently hiding the table) lets them fix it — e.g. leave the other
+  // table or move their arrival time.
+  function unavailableReason(start: string, end: string): string | null {
+    if (!event) return 'No se pudo comprobar tu horario';
     const buf = event.settings.bufferMinutes;
     const sMin = toMinutes(start);
     const eMin = toMinutes(end);
-    if (sMin < toMinutes(player!.arrivalTime) + buf || eMin > toMinutes(player!.departureTime)) return false;
-    return myTables.every((t) => toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime));
+    const arrival = toMinutes(player!.arrivalTime);
+    if (sMin < arrival) return `Empieza antes de que llegues (llegás a las ${player!.arrivalTime})`;
+    if (sMin < arrival + buf) return `Arranca muy pegada a tu llegada (llegás a las ${player!.arrivalTime})`;
+    if (eMin > toMinutes(player!.departureTime)) return `Termina después de que te vayas (te vas a las ${player!.departureTime})`;
+    const clash = myTables.find((t) => !(toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime)));
+    if (clash) {
+      // Overlapping outright vs. just not leaving the buffer minutes between two tables
+      const overlaps = !(toMinutes(clash.endTime) <= sMin || eMin <= toMinutes(clash.startTime));
+      return `${overlaps ? 'Se pisa con' : 'No deja margen con'} ${clash.gameName} (${clash.startTime}–${clash.endTime})`;
+    }
+    return null;
   }
 
   async function handleLeaveTable() {
@@ -182,14 +193,22 @@ export default function PostulatedTablesPage() {
     )
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-  const joinableTables = allTables
+  // Open tables from others that still have a seat. The ones that don't fit my schedule stay in the
+  // list, dimmed and with the reason, instead of vanishing.
+  const openTablesWithSeats = allTables
     .filter((t) =>
       t.postedByOwner && t.status === 'recommended' &&
       !t.playerIds.includes(player.id) && t.explainerId !== player.id &&
-      t.playerIds.length < (gameMap.get(t.gameId)?.maxPlayers ?? 0) &&
-      isPlayerFreeFor(t.startTime, t.endTime)
+      t.playerIds.length < (gameMap.get(t.gameId)?.maxPlayers ?? 0)
     )
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const blockedReason = new Map<string, string>();
+  for (const t of openTablesWithSeats) {
+    const why = unavailableReason(t.startTime, t.endTime);
+    if (why) blockedReason.set(t.id, why);
+  }
+  const joinableTables = openTablesWithSeats.filter((t) => !blockedReason.has(t.id));
+  const blockedTables = openTablesWithSeats.filter((t) => blockedReason.has(t.id));
 
   // Postulated tables (mine or joined) that already hit the minimum and got confirmed — also
   // shown on the main ticket page, but useful here too to see the whole postulated flow through.
@@ -202,19 +221,23 @@ export default function PostulatedTablesPage() {
 
   // One list with filter chips instead of four columns: a table keeps its place when it changes
   // state (only its badge changes) and the whole day reads in time order under "Todas".
-  type TableKind = 'open' | 'joined' | 'own' | 'confirmed';
+  type TableKind = 'open' | 'blocked' | 'joined' | 'own' | 'confirmed';
   const tableEntries: { t: Table; kind: TableKind }[] = [
     ...joinableTables.map((t) => ({ t, kind: 'open' as const })),
+    ...blockedTables.map((t) => ({ t, kind: 'blocked' as const })),
     ...myJoinedPostulatedTables.map((t) => ({ t, kind: 'joined' as const })),
     ...myOwnPostulatedTables.map((t) => ({ t, kind: 'own' as const })),
     ...myConfirmedPostulatedTables.map((t) => ({ t, kind: 'confirmed' as const })),
   ].sort((a, b) => a.t.startTime.localeCompare(b.t.startTime));
   // Opens on what you can still join; falls back to everything when nothing is open.
   const activeTableFilter: TableFilter = tableFilter ?? (joinableTables.length > 0 ? 'open' : 'all');
-  const visibleEntries = tableEntries.filter((e) => activeTableFilter === 'all' || e.kind === activeTableFilter);
+  // "Abiertas" lists the ones you can join first, then the ones that don't fit (each in time order).
+  const visibleEntries = activeTableFilter === 'open'
+    ? [...tableEntries.filter((e) => e.kind === 'open'), ...tableEntries.filter((e) => e.kind === 'blocked')]
+    : tableEntries.filter((e) => activeTableFilter === 'all' || e.kind === activeTableFilter);
 
   const TABLE_FILTER_HINT: Record<TableFilter, string> = {
-    open: 'Las que ofrecen otros jugadores — sumate con un toque.',
+    open: 'Las que ofrecen otros jugadores — sumate con un toque. Las que no te quedan libres aparecen abajo, con el motivo.',
     joined: 'Mesas de otros jugadores a las que ya te sumaste, esperando que se llenen.',
     own: 'Las mesas que postulaste vos, esperando que se sumen jugadores.',
     confirmed: 'Ya llegaron al mínimo — también las vas a ver en la pantalla principal.',
@@ -229,6 +252,7 @@ export default function PostulatedTablesPage() {
   };
   const KIND_BADGE: Record<TableKind, { label: string; cls: string }> = {
     open: { label: '🎉 Abierta', cls: 'bg-indigo-900/60 text-indigo-300' },
+    blocked: { label: '🚫 No te queda libre', cls: 'bg-gray-800 text-gray-400' },
     joined: { label: '🙋 Te anotaste', cls: 'bg-purple-900/60 text-purple-300' },
     own: { label: '📌 La armaste vos', cls: 'bg-purple-900/60 text-purple-300' },
     confirmed: { label: '✅ Confirmada', cls: 'bg-green-900/60 text-green-300' },
@@ -236,8 +260,10 @@ export default function PostulatedTablesPage() {
 
   const tableCard = (t: Table, kind: TableKind) => {
     const border = kind === 'open' ? 'border-indigo-800 bg-indigo-950/20'
+      : kind === 'blocked' ? 'border-gray-700 bg-gray-900/40 opacity-70'
       : kind === 'confirmed' ? 'border-green-800 bg-green-950/10' : 'border-purple-800 bg-purple-950/20';
-    const timeCls = kind === 'open' ? 'text-indigo-300' : kind === 'confirmed' ? 'text-green-400' : 'text-purple-400';
+    const timeCls = kind === 'open' ? 'text-indigo-300' : kind === 'blocked' ? 'text-gray-400'
+      : kind === 'confirmed' ? 'text-green-400' : 'text-purple-400';
     return (
       <div key={t.id} className={`border rounded-xl px-3 py-2 ${border}`}>
         <div className="flex justify-between items-start gap-2">
@@ -258,7 +284,9 @@ export default function PostulatedTablesPage() {
           {kind === 'confirmed' ? <p className="text-xs text-gray-400">✅ {t.playerIds.length} jugadores</p> : seatLines(t)}
           {viewBtn(t)}
         </div>
-        {kind === 'open' ? (
+        {kind === 'blocked' ? (
+          <p className="text-[11px] text-orange-300 mt-1.5">⛔ {blockedReason.get(t.id)}</p>
+        ) : kind === 'open' ? (
           <button onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}
             className="mt-2 w-full text-xs bg-indigo-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-indigo-700 disabled:opacity-50">
             {joiningTableId === t.id ? 'Sumando...' : '+ Sumarme'}
@@ -293,7 +321,14 @@ export default function PostulatedTablesPage() {
           <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{TABLE_FILTER_EMPTY[activeTableFilter]}</p>
         ) : (
           <div className="space-y-2">
-            {visibleEntries.map((e) => tableCard(e.t, e.kind))}
+            {visibleEntries.map((e, i) => (
+              <div key={e.t.id}>
+                {activeTableFilter === 'open' && e.kind === 'blocked' && visibleEntries[i - 1]?.kind !== 'blocked' && (
+                  <p className="text-xs font-semibold text-gray-400 mt-3 mb-2">No te quedan libres ({blockedTables.length})</p>
+                )}
+                {tableCard(e.t, e.kind)}
+              </div>
+            ))}
           </div>
         )}
       </section>
