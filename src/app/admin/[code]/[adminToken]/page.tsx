@@ -298,19 +298,21 @@ export default function AdminPage() {
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10 space-y-6'>
+      {/* Same corners as the ticket page: home on the left, my ticket (if this device has it) on the right */}
+      <div className='flex items-center justify-between gap-2'>
+        <Link href='/' className='text-sm border border-gray-700 rounded-xl px-3 py-1.5 text-gray-300 hover:bg-gray-800'>🏠 Inicio</Link>
+        {myTicket && (
+          <Link href={`/event/${code}/me?ticket=${myTicket.ticketCode}`}
+            className='text-sm border border-indigo-700 text-indigo-300 rounded-xl px-3 py-1.5 hover:bg-indigo-950/40'>
+            🎟️ Mi ticket
+          </Link>
+        )}
+      </div>
+
       <div>
         <h1 className='text-2xl font-bold'>{event.name}</h1>
         <p className='text-gray-400 text-sm'>{event.date} · {event.location}</p>
         <p className='text-xs text-gray-500 mt-1'>Código: <span className='font-mono text-indigo-400'>{code}</span></p>
-        <div className='flex flex-wrap gap-2 mt-3'>
-          <Link href='/' className='text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800'>🏠 Inicio</Link>
-          {myTicket && (
-            <Link href={`/event/${code}/me?ticket=${myTicket.ticketCode}`}
-              className='text-sm border border-indigo-700 text-indigo-300 rounded-xl px-3 py-1.5 hover:bg-indigo-950/40'>
-              🎟️ Mi ticket
-            </Link>
-          )}
-        </div>
       </div>
 
       {/* Admin access — losing this link means losing access, since there's no login/recovery */}

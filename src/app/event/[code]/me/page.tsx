@@ -465,18 +465,19 @@ export default function MyTicketPage() {
             Ver ubicación en el mapa →
           </a>
         )}
-        <div className="flex flex-wrap justify-center gap-2 mt-3">
-          <Link href={`/event/${code}/roster`}
-            className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-700">
-            👥 Ver inscriptos
-          </Link>
-          <Link href={`/event/${code}/organizers?ticket=${player.ticketCode}`}
-            className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-700">
-            🧑‍💼 Organizadores
-          </Link>
-          <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} />
-        </div>
       </section>
+
+      <div className="flex flex-wrap justify-center gap-2">
+        <Link href={`/event/${code}/roster`}
+          className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800">
+          👥 Ver inscriptos
+        </Link>
+        <Link href={`/event/${code}/organizers?ticket=${player.ticketCode}`}
+          className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800">
+          🧑‍💼 Organizadores
+        </Link>
+        <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} />
+      </div>
 
       <NextTableCard myTables={myTables} eventDate={event.date} games={games} players={players}
         myId={player.id} slotByTableId={slotByTableId} />
