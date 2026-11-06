@@ -594,6 +594,9 @@ export default function AdminPage() {
 
       {/* Actions */}
       <div className='flex flex-col gap-3'>
+        <Link href={`/admin/${code}/${adminToken}/checkin`} className='border border-green-800 text-green-300 rounded-xl px-5 py-2 font-medium hover:bg-green-950/40 text-center'>
+          ✅ Check-in (QR)
+        </Link>
         <Link href={`/admin/${code}/${adminToken}/players`} className='border border-gray-700 rounded-xl px-5 py-2 font-medium hover:bg-gray-800 text-center'>
           Ver jugadores →
         </Link>
