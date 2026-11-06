@@ -526,13 +526,14 @@ export default function MyTicketPage() {
           </div>
         )}
         {event.location && (
-          <p className="text-sm text-gray-400 mt-4">
-            Recordá que el lugar es: <strong className="text-gray-200">📍 {event.location}</strong>
-          </p>
+          <>
+            <p className="text-sm text-gray-400 mt-4">Recordá que el lugar es:</p>
+            <p className="text-base font-semibold text-gray-100">📍 {event.location}</p>
+          </>
         )}
         {event.mapUrl && (
           <a href={event.mapUrl} target="_blank" rel="noopener noreferrer"
-            className="text-indigo-400 text-sm hover:underline inline-block mt-1">
+            className="block text-indigo-400 text-sm hover:underline mt-1">
             Ver ubicación en el mapa →
           </a>
         )}
