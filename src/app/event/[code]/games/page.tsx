@@ -4,6 +4,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, getPlayerByTicketCode, getGames, updatePlayerWishlist } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
+import FilterChip from '@/components/ui/FilterChip';
 import GameVoteCard from '@/components/ui/GameVoteCard';
 import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
@@ -11,6 +12,8 @@ import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/Knowl
 import type { MeepleEvent, Player, Game, InterestLevel } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
+
+type GameFilter = 'available' | 'wishlist' | 'hidden';
 
 // Pure "browse and vote" view — every game in the event, with no tables/schedule shown at all.
 // The same voting UI also lives on the Mesas recomendadas page (since votes drive it directly),
@@ -27,7 +30,7 @@ export default function GamesVotePage() {
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
   const [canExplain, setCanExplain] = useState<string[]>([]);
   const [playedGameIds, setPlayedGameIds] = useState<string[]>([]);
-  const [showDismissed, setShowDismissed] = useState(false);
+  const [gameFilter, setGameFilter] = useState<GameFilter>('available');
   const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -63,6 +66,15 @@ export default function GamesVotePage() {
   // Unvoted games stay on top; "no"-voted games are collapsed into a separate section below.
   const availableGames = primaryGames.filter((g) => interests[g.id] !== 'yes' && interests[g.id] !== 'no');
   const dismissedGames = primaryGames.filter((g) => interests[g.id] === 'no');
+
+  // Chips instead of side-by-side columns; always opens on "Disponibles", the list left to vote on.
+  const GAME_FILTER_LIST: Record<GameFilter, Game[]> = { available: availableGames, wishlist: wishlistGames, hidden: dismissedGames };
+  const GAME_FILTER_EMPTY: Record<GameFilter, string> = {
+    available: 'Ya votaste todos los juegos. Los que dijiste que sí están en tu wishlist.',
+    wishlist: 'Todavía no elegiste ningún juego. Votá desde “Disponibles”.',
+    hidden: 'No ocultaste ningún juego.',
+  };
+  const visibleGames = GAME_FILTER_LIST[gameFilter];
 
   function knowledgeLevelFor(gameId: string): KnowledgeLevel {
     if (canExplain.includes(gameId)) return 'explains';
@@ -120,50 +132,25 @@ export default function GamesVotePage() {
           </Link>
         </div>
         <WhyVoteHelp />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-400 mb-2">Juegos disponibles</h3>
-            <div className="space-y-2">
-              {availableGames.map((g) => (
-                <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
-                  onSetInterest={(level) => handleSetInterest(g.id, level)}
-                  knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
-              ))}
-            </div>
-            {dismissedGames.length > 0 && (
-              <div className="mt-3">
-                <button onClick={() => setShowDismissed((v) => !v)}
-                  className="text-xs text-gray-500 hover:text-gray-300">
-                  {showDismissed ? '▾' : '▸'} Ocultados ({dismissedGames.length})
-                </button>
-                {showDismissed && (
-                  <div className="space-y-2 mt-2">
-                    {dismissedGames.map((g) => (
-                      <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
-                        onSetInterest={(level) => handleSetInterest(g.id, level)}
-                        knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <h3 className="text-sm font-semibold text-gray-400 mb-2">❤️ Tu wishlist</h3>
-            {wishlistGames.length === 0 ? (
-              <p className="text-xs text-gray-500">Todavía no elegiste ningún juego. Votá desde “Juegos disponibles” ←</p>
-            ) : (
-              <div className="space-y-2">
-                {wishlistGames.map((g) => (
-                  <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
-                    onSetInterest={(level) => handleSetInterest(g.id, level)}
-                    knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="flex flex-wrap gap-2 my-3">
+          <FilterChip active={gameFilter === 'available'} onClick={() => setGameFilter('available')} label="Disponibles"
+            count={availableGames.length} activeClass="bg-indigo-500 border-indigo-500 text-white" />
+          <FilterChip active={gameFilter === 'wishlist'} onClick={() => setGameFilter('wishlist')} label="❤️ Tu wishlist"
+            count={wishlistGames.length} activeClass="bg-indigo-500 border-indigo-500 text-white" />
+          <FilterChip active={gameFilter === 'hidden'} onClick={() => setGameFilter('hidden')} label="Ocultados"
+            count={dismissedGames.length} activeClass="bg-indigo-500 border-indigo-500 text-white" />
         </div>
+        {visibleGames.length === 0 ? (
+          <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{GAME_FILTER_EMPTY[gameFilter]}</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {visibleGames.map((g) => (
+              <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
+                onSetInterest={(level) => handleSetInterest(g.id, level)}
+                knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
+            ))}
+          </div>
+        )}
 
         <div className="sticky bottom-4 flex justify-end pt-4">
           <button onClick={saveWishlist} disabled={saving}
