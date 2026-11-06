@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { isIOS, isInAppBrowser, isPhone, isStandalone, readStore, writeStore } from '@/lib/pwa';
+import { getPushStatus, requestPushPermission, subscribeAfterPermission, type PushStatus } from '@/lib/pushClient';
 
 /** Chrome / Edge / Samsung Internet fire this when the page can be installed; it isn't in the DOM typings. */
 interface BeforeInstallPromptEvent extends Event {
@@ -35,8 +36,15 @@ const FALLBACK_AFTER_MS = 4500; // how long to wait for the browser's own "insta
  * `startPath` is the page the installed app should open on — the player's own ticket.
  * Render it where the button should appear; the popup itself is a full-screen overlay.
  */
-export default function InstallPrompt({ startPath }: { startPath: string }) {
+export default function InstallPrompt({ startPath, push }: { startPath: string; push?: { code: string; ticketCode: string } }) {
   const [mode, setMode] = useState<Mode>('manual');
+  // With `push`, installing can also turn on notifications for this ticket (on by default, the browser still asks)
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [alsoPush, setAlsoPush] = useState(true);
+  const hasPush = !!push;
+  useEffect(() => {
+    if (hasPush) getPushStatus().then(setPushStatus).catch(() => setPushStatus('unsupported'));
+  }, [hasPush]);
   const [open, setOpen] = useState(false);
   const [eligible, setEligible] = useState(false); // phone, not installed: the button may show
   const deferredPrompt = useRef<BeforeInstallPromptEvent | null>(null);
@@ -103,7 +111,15 @@ export default function InstallPrompt({ startPath }: { startPath: string }) {
     try {
       await evt.prompt();
       const { outcome } = await evt.userChoice;
-      if (outcome === 'accepted') { writeStore(INSTALLED_KEY, '1'); setEligible(false); } else close();
+      if (outcome === 'accepted') {
+        writeStore(INSTALLED_KEY, '1');
+        setEligible(false);
+        if (push && alsoPush && pushStatus === 'off') {
+          // Right after installing: ask for notifications too, so it is one flow. If the browser declines to show
+          // the dialog here, the card on the ticket page offers it.
+          try { await subscribeAfterPermission(push.code, push.ticketCode, await requestPushPermission()); } catch { /* the ticket page card covers it */ }
+        }
+      } else close();
     } catch {
       close();
     }
@@ -142,6 +158,12 @@ export default function InstallPrompt({ startPath }: { startPath: string }) {
               </div>
             </div>
 
+            {mode === 'android' && push && pushStatus === 'off' && (
+              <label className="flex items-start gap-2 text-xs text-gray-300 cursor-pointer">
+                <input type="checkbox" checked={alsoPush} onChange={(e) => setAlsoPush(e.target.checked)} className="mt-0.5" />
+                <span>🔔 Activar también los avisos de mis mesas <span className="text-gray-500">(te van a pedir permiso)</span></span>
+              </label>
+            )}
             {mode === 'android' ? (
               <div className="flex gap-2">
                 <button onClick={dismiss}
@@ -192,6 +214,9 @@ export default function InstallPrompt({ startPath }: { startPath: string }) {
                       <span>Confirmá. Listo: te queda el icono en tu teléfono.</span>
                     </li>
                   </ol>
+                )}
+                {mode === 'ios' && push && (
+                  <p className="text-xs text-gray-400">🔔 Después de instalarla, abrila desde el icono: ahí vas a poder activar los avisos de tus mesas.</p>
                 )}
                 {isInAppBrowser() && (
                   <p className="text-xs text-amber-300">

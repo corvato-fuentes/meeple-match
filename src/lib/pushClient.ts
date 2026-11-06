@@ -49,10 +49,23 @@ async function postSubscription(code: string, ticketCode: string, subscription: 
   return res.ok;
 }
 
+/**
+ * Shows the browser's "allow notifications?" dialog. Must be called straight from a tap (iOS only shows it in
+ * response to a user gesture — call it before any `await` in the handler). Pair it with `subscribeAfterPermission`.
+ */
+export function requestPushPermission(): Promise<NotificationPermission> {
+  return Notification.requestPermission();
+}
+
 /** Must be called from a tap (iOS only shows the permission dialog in response to a user gesture). */
 export async function enablePush(code: string, ticketCode: string): Promise<EnableResult> {
   if (!VAPID_PUBLIC_KEY) return 'error';
-  const permission = await Notification.requestPermission();
+  return subscribeAfterPermission(code, ticketCode, await requestPushPermission());
+}
+
+/** Second half of `enablePush`, for flows that asked for the permission earlier (e.g. at the start of registering). */
+export async function subscribeAfterPermission(code: string, ticketCode: string, permission: NotificationPermission): Promise<EnableResult> {
+  if (!VAPID_PUBLIC_KEY) return 'error';
   if (permission === 'denied') return 'blocked';
   if (permission !== 'granted') return 'dismissed'; // closed the prompt without choosing
   try {

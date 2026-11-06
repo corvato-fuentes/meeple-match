@@ -548,7 +548,7 @@ export default function MyTicketPage() {
           className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800">
           🧑‍💼 Organizadores
         </Link>
-        <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} />
+        <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} push={{ code, ticketCode: player.ticketCode }} />
       </div>
 
       <NextTableCard myTables={myTables} eventDate={event.date} games={games} players={players}

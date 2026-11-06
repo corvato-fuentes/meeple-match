@@ -11,6 +11,7 @@ import { computeEventStatus, roundUp5 } from '@/lib/timeUtils';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
 import { savePlayerEvent } from '@/lib/myEvents';
+import { getPushStatus, requestPushPermission, subscribeAfterPermission, type PushStatus } from '@/lib/pushClient';
 import { displayNameOf } from '@/lib/playerName';
 import { getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import { useBggSearch } from '@/hooks/useBggSearch';
@@ -54,6 +55,13 @@ export default function EventPage() {
   const [existingTicket, setExistingTicket] = useState<string | null>(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Notifications are offered at sign-up, on by default (the browser still asks for permission itself).
+  // Only offered where they can be turned on right now: not already on, not blocked, not an iPhone without the app.
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [wantPush, setWantPush] = useState(true);
+  useEffect(() => {
+    getPushStatus().then(setPushStatus).catch(() => setPushStatus('unsupported'));
+  }, []);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
 
@@ -257,6 +265,8 @@ export default function EventPage() {
   async function handleSubmit() {
     if (!event || submitting) return;
     setSubmitting(true);
+    // The permission dialog has to be opened from this tap, before any await — the answer is used once the ticket exists
+    const pushPermission = wantPush && pushStatus === 'off' ? requestPushPermission().catch(() => null) : null;
     const displayName = displayNameOf(firstName, lastName, alias);
     const maxPlayers = event.settings.maxPlayers;
     if (maxPlayers != null && playerCount >= maxPlayers) { alert('El evento está completo.'); setSubmitting(false); return; }
@@ -300,6 +310,10 @@ export default function EventPage() {
     }
     localStorage.setItem(STORAGE_KEY(code), ticketCode);
     savePlayerEvent({ code, ticketCode, name: event.name, date: event.date, playerName: displayName });
+    if (pushPermission) {
+      const permission = await pushPermission;
+      if (permission) await subscribeAfterPermission(code, ticketCode, permission).catch(() => {});
+    }
     router.push('/event/' + code + '/me?ticket=' + ticketCode);
   }
 
@@ -705,12 +719,20 @@ export default function EventPage() {
             </div>
           )}
         </div>
-        <div className="sticky bottom-0 -mx-4 px-4 py-3 flex gap-3 bg-black/80 backdrop-blur-sm border-t border-gray-800 z-10">
-          <button onClick={() => setStep(2)} className="flex-1 border border-gray-700 rounded-xl py-2 text-sm">← Atrás</button>
-          <button onClick={handleSubmit} disabled={submitting}
-            className="flex-1 bg-indigo-600 text-white rounded-xl py-2 font-semibold hover:bg-indigo-700 disabled:opacity-50">
-            {submitting ? 'Guardando...' : '¡Listo! →'}
-          </button>
+        <div className="sticky bottom-0 -mx-4 px-4 py-3 space-y-2 bg-black/80 backdrop-blur-sm border-t border-gray-800 z-10">
+          {pushStatus === 'off' && (
+            <label className="flex items-start gap-2 text-xs text-gray-300 cursor-pointer">
+              <input type="checkbox" checked={wantPush} onChange={(e) => setWantPush(e.target.checked)} className="mt-0.5" />
+              <span>🔔 Avisarme cuando me ofrezcan una mesa y cuando se confirme. <span className="text-gray-500">Sin spam: solo eso. Si lo dejás marcado, tu navegador te va a pedir permiso.</span></span>
+            </label>
+          )}
+          <div className="flex gap-3">
+            <button onClick={() => setStep(2)} className="flex-1 border border-gray-700 rounded-xl py-2 text-sm">← Atrás</button>
+            <button onClick={handleSubmit} disabled={submitting}
+              className="flex-1 bg-indigo-600 text-white rounded-xl py-2 font-semibold hover:bg-indigo-700 disabled:opacity-50">
+              {submitting ? 'Guardando...' : '¡Listo! →'}
+            </button>
+          </div>
         </div>
         {knowledgePromptGameId && (() => {
           const game = games.find((g) => g.id === knowledgePromptGameId);
