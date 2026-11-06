@@ -351,6 +351,27 @@ export default function MyTicketPage() {
 
   // The real schedule — only tables that actually happen. Pending states (recommended, either
   // algorithm- or owner-driven) have their own dedicated pages instead of mixing in here.
+  // Counters on the two table buttons, kept to what's actionable so they never become noise:
+  // recommended tables waiting for MY answer, and open posted tables for games I voted 👍 on that
+  // still have a free seat and fit my schedule.
+  const pendingRecommendedCount = allTables.filter(
+    (t) => t.status === 'recommended' && !t.postedByOwner && (t.candidateIds ?? []).includes(player.id)
+  ).length;
+  const joinablePostedCount = allTables.filter((t) => {
+    if (!t.postedByOwner || t.status !== 'recommended') return false;
+    if (t.playerIds.includes(player.id) || t.explainerId === player.id) return false;
+    if (interests[t.gameId] !== 'yes') return false;
+    const game = games.find((g) => g.id === t.gameId);
+    if (!game || t.playerIds.length >= game.maxPlayers) return false;
+    return isPlayerFreeFor(t.startTime, t.endTime);
+  }).length;
+  const countBadge = (n: number, cls: string, meaning: string) => n > 0 && (
+    <span className={'min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center ' + cls}
+      title={meaning} aria-label={`${n} ${meaning}`}>
+      {n > 9 ? '9+' : n}
+    </span>
+  );
+
   const confirmedTables = myTables
     .filter((t) => ['confirmed', 'in-progress'].includes(t.status))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
@@ -489,17 +510,21 @@ export default function MyTicketPage() {
             <Link href={`/event/${code}/recommended?ticket=${player.ticketCode}`}
               className="flex items-center justify-center gap-1.5 text-sm border border-amber-800 text-amber-300 rounded-xl px-2 py-2 hover:bg-amber-950/30">
               <span>🟡 Mesas recomendadas</span>
+              {countBadge(pendingRecommendedCount, 'bg-amber-500 text-black', pendingRecommendedCount === 1 ? 'mesa esperando tu respuesta' : 'mesas esperando tu respuesta')}
               <HelpPopover title="🟡 Mesas recomendadas">
                 <p>El algoritmo arma mesas según tus votos y te ofrece un lugar en ellas.</p>
                 <p>Ahí las podés aceptar o rechazar, y también es donde votás qué juegos te interesan.</p>
+                <p>El número indica cuántas mesas están esperando tu respuesta.</p>
               </HelpPopover>
             </Link>
             <Link href={`/event/${code}/postulated?ticket=${player.ticketCode}`}
               className="flex items-center justify-center gap-1.5 text-sm border border-purple-800 text-purple-300 rounded-xl px-2 py-2 hover:bg-purple-950/30">
               <span>📣 Mesas postuladas</span>
+              {countBadge(joinablePostedCount, 'bg-purple-400 text-black', joinablePostedCount === 1 ? 'mesa abierta de un juego que querés jugar' : 'mesas abiertas de juegos que querés jugar')}
               <HelpPopover title="📣 Mesas postuladas">
                 <p>Acá vas a ver las mesas que vos mismo postulaste, y las que postularon otros jugadores para sumarte con un toque.</p>
                 <p>Cuando una mesa junta el mínimo de jugadores necesario, se confirma sola.</p>
+                <p>El número indica cuántas mesas abiertas son de juegos que votaste 👍, todavía tienen lugar y te quedan libres en ese horario.</p>
               </HelpPopover>
             </Link>
           </div>
