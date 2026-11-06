@@ -10,6 +10,13 @@ interface BeforeInstallPromptEvent extends Event {
 
 type Mode = 'android' | 'ios' | 'manual';
 
+declare global {
+  interface Window {
+    /** Set by the early script in the root layout when the browser announced the install prompt. */
+    __mmInstallPrompt?: BeforeInstallPromptEvent | null;
+  }
+}
+
 const SNOOZE_KEY = 'mm_install_snoozed_until';
 const INSTALLED_KEY = 'mm_install_done';
 const SNOOZE_DAYS = 7;
@@ -44,6 +51,7 @@ export default function InstallPrompt({ startPath }: { startPath: string }) {
   }, [startPath]);
 
   useEffect(() => {
+    if (isStandalone()) writeStore(INSTALLED_KEY, '1'); // running inside the app: it is installed
     if (readStore(INSTALLED_KEY) || isStandalone() || !isPhone()) return;
     const autoPopup = Number(readStore(SNOOZE_KEY) ?? 0) <= Date.now();
 
@@ -53,25 +61,27 @@ export default function InstallPrompt({ startPath }: { startPath: string }) {
       timers.push(setTimeout(() => { setMode(m); setOpen(true); }, after));
     };
 
-    const onBeforeInstall = (e: Event) => {
-      e.preventDefault(); // keep the browser's own mini-bar away; we show ours
-      deferredPrompt.current = e as BeforeInstallPromptEvent;
+    const onInstallable = () => {
+      if (!window.__mmInstallPrompt) return;
+      deferredPrompt.current = window.__mmInstallPrompt;
       setMode('android'); // upgrades the popup if the instructions version was already up
       reveal('android', SHOW_DELAY_MS);
     };
     const onInstalled = () => { writeStore(INSTALLED_KEY, '1'); setOpen(false); setEligible(false); };
 
-    if (isIOS()) {
+    if (window.__mmInstallPrompt) {
+      onInstallable(); // the browser already announced it while the page was loading
+    } else if (isIOS()) {
       reveal('ios', SHOW_DELAY_MS);
     } else {
       // If the browser never announces the install prompt (or isn't Chrome), show how to do it by hand
       timers.push(setTimeout(() => { if (!deferredPrompt.current) reveal('manual', 0); }, FALLBACK_AFTER_MS));
     }
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('mm:installprompt', onInstallable);
     window.addEventListener('appinstalled', onInstalled);
     return () => {
       timers.forEach(clearTimeout);
-      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('mm:installprompt', onInstallable);
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
@@ -101,6 +111,13 @@ export default function InstallPrompt({ startPath }: { startPath: string }) {
   }
 
   const dismiss = () => close(mode === 'manual' ? SNOOZE_DAYS_MANUAL : SNOOZE_DAYS);
+
+  // A website can't ask the browser whether it is installed, so people can tell us: stops the popup and the button
+  function alreadyInstalled() {
+    writeStore(INSTALLED_KEY, '1');
+    setOpen(false);
+    setEligible(false);
+  }
 
   return (
     <>
@@ -184,6 +201,9 @@ export default function InstallPrompt({ startPath }: { startPath: string }) {
                 <button onClick={dismiss}
                   className="w-full bg-indigo-600 text-white rounded-lg py-2.5 font-semibold hover:bg-indigo-700">
                   Entendido
+                </button>
+                <button onClick={alreadyInstalled} className="w-full text-xs text-gray-400 hover:text-gray-200">
+                  Ya la tengo instalada
                 </button>
               </>
             )}
