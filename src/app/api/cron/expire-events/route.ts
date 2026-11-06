@@ -7,8 +7,10 @@ const EXPIRY_DAYS = 7;
 // Triggered daily by Vercel Cron (see vercel.json). Deletes events whose date is more than
 // EXPIRY_DAYS in the past, along with their subcollections and Cloudinary payment-proof images.
 export async function GET(request: NextRequest) {
+  // Refuse when the secret isn't configured: otherwise the expected value would be the literal "Bearer undefined"
+  const secret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!secret || authHeader !== `Bearer ${secret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

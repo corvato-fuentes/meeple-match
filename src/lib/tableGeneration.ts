@@ -4,6 +4,7 @@ import {
 } from '@/lib/firestore';
 import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
 import { isEventOver, toMinutes, toTimeString } from '@/lib/timeUtils';
+import { requestPushSync } from '@/lib/pushClient';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
 /** True when the table's time slot isn't fully inside the event's current schedule. */
@@ -115,6 +116,8 @@ export async function runTableGeneration(
     );
     if (proposals.length > 0) await saveProposedTables(eventCode, proposals);
     for (const update of candidateUpdates) await updateTableCandidates(eventCode, update.tableId, update.candidateIds);
+    // New offers / seats just got written: let the server send the matching push notifications
+    if (proposals.length > 0 || candidateUpdates.length > 0 || fills.length > 0) requestPushSync(eventCode);
 
     const filledSeats = fills.reduce((n, f) => {
       const before = activeTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0;

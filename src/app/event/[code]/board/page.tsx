@@ -7,7 +7,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
-import { assignPhysicalSlots } from '@/lib/physicalSlots';
+import { assignPhysicalSlots, slotMapFor } from '@/lib/physicalSlots';
 import { estimatedDuration } from '@/lib/tableAlgorithm';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
@@ -180,10 +180,10 @@ export default function BoardPage() {
 
   // Physical table number (not the sequential session id) — same assignment used by the grid,
   // so "Mesa #N" means the same thing in both views.
-  const physicalSlotByTableId = useMemo(() => {
-    const { assignments } = assignPhysicalSlots(scheduledTables, event?.settings.bufferMinutes ?? 0);
-    return new Map(assignments.map((a) => [a.table.id, a.slot + 1]));
-  }, [scheduledTables, event]);
+  const physicalSlotByTableId = useMemo(
+    () => slotMapFor(scheduledTables, event?.settings.bufferMinutes ?? 0),
+    [scheduledTables, event]
+  );
 
   function knowledgeLevelFor(gameId: string): KnowledgeLevel {
     if (!viewer) return 'never';

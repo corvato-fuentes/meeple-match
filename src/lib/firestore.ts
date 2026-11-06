@@ -9,6 +9,7 @@ import type { FakePlayerDraft, FakePlayerForTables, FakeGameForTables } from './
 import { randomInterest, randomOwnGameInterest, generateFakePostulatedTables } from './fakeData';
 import { generateTicketCodeCandidate } from './ticketCode';
 import { toMinutes, toTimeString } from './timeUtils';
+import { requestPushSync } from './pushClient';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -692,6 +693,7 @@ export async function respondToRecommendation(
       tx.update(ref, { candidateIds, rejectedIds });
     }
   });
+  if (accept) requestPushSync(eventCode); // the table may have just reached its minimum
 }
 
 /**
@@ -717,6 +719,7 @@ export async function joinPostedTable(
     const playerIds = [...table.playerIds, playerId];
     tx.update(ref, { playerIds, ...(playerIds.length >= minPlayers && { status: 'confirmed' as const }) });
   });
+  requestPushSync(eventCode); // the table may have just reached its minimum
 }
 
 /**
@@ -806,6 +809,7 @@ export async function updateTableStatus(
     status,
     ...(isManuallyEdited && { isManuallyEdited: true }),
   });
+  if (status === 'confirmed') requestPushSync(eventCode); // the admin confirmed it by hand
 }
 
 export async function updateTable(
@@ -817,6 +821,7 @@ export async function updateTable(
     ...fields,
     isManuallyEdited: true,
   });
+  requestPushSync(eventCode); // roster / time changes can mean new players on a confirmed table
 }
 
 export function subscribeTables(eventCode: string, cb: (tables: Table[]) => void) {

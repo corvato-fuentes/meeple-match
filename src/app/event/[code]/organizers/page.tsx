@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, getPlayerByTicketCode, getPlayers } from '@/lib/firestore';
+import { whatsappLink } from '@/lib/whatsapp';
 import type { MeepleEvent, Player } from '@/lib/types';
 
 // Unlike the public roster, this shows organizers' phone numbers — so it requires a valid ticket
@@ -13,6 +14,7 @@ export default function OrganizersPage() {
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [organizers, setOrganizers] = useState<Player[] | null>(null);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const [myName, setMyName] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -24,6 +26,7 @@ export default function OrganizersPage() {
       setEvent(ev);
       if (!ev || !me) { setAuthorized(false); return; }
       setAuthorized(true);
+      setMyName(me.firstName || me.name);
       const players = await getPlayers(code);
       setOrganizers(players.filter((p) => p.isOrganizer).sort((a, b) => a.name.localeCompare(b.name)));
     }
@@ -49,6 +52,16 @@ export default function OrganizersPage() {
             <div key={p.id} className="border border-gray-700 rounded-xl p-3 bg-gray-800">
               <p className="font-semibold">{p.firstName} {p.lastName}{p.alias && <span className="text-gray-400 font-normal"> · {p.alias}</span>}</p>
               <p className="text-sm text-gray-400">{p.phone ?? 'sin teléfono cargado'}</p>
+              {(() => {
+                // Opens a WhatsApp chat with a short greeting already typed; hidden if the number can't be read
+                const link = whatsappLink(p.phone, `Hola ${p.firstName}! Soy ${myName}, estoy anotado en ${event.name}.`);
+                return link && (
+                  <a href={link} target="_blank" rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium rounded-lg px-3 py-1.5 bg-green-700 text-white hover:bg-green-600">
+                    💬 Contactar por WhatsApp
+                  </a>
+                );
+              })()}
             </div>
           ))}
         </div>

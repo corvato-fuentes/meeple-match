@@ -82,3 +82,8 @@ export function assignPhysicalSlots(
 
   return { assignments, slotCount: columns.length };
 }
+
+/** Physical table number (1-based) per table id — the numbering the full schedule and the tickets use. */
+export function slotMapFor(tables: Table[], bufferMinutes = 0): Map<string, number> {
+  return new Map(assignPhysicalSlots(tables, bufferMinutes).assignments.map((a) => [a.table.id, a.slot + 1]));
+}

@@ -12,6 +12,7 @@ import { useAutoSaveWishlist } from '@/hooks/useAutoSaveWishlist';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import SaveStatusPill from '@/components/ui/SaveStatus';
 import FilterChip from '@/components/ui/FilterChip';
+import PushOptIn from '@/components/ui/PushOptIn';
 import GameVoteCard from '@/components/ui/GameVoteCard';
 import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
@@ -39,6 +40,8 @@ export default function RecommendedTablesPage() {
   const [respondingTableId, setRespondingTableId] = useState<string | null>(null);
   const [repeatPromptGameId, setRepeatPromptGameId] = useState<string | null>(null);
   const [viewingTableId, setViewingTableId] = useState<string | null>(null);
+  // Set once the player accepts a table: that's the moment to offer notifications about it
+  const [acceptedOne, setAcceptedOne] = useState(false);
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
   const [canExplain, setCanExplain] = useState<string[]>([]);
   const [playedGameIds, setPlayedGameIds] = useState<string[]>([]);
@@ -177,6 +180,7 @@ export default function RecommendedTablesPage() {
     setRespondingTableId(t.id);
     try {
       await respondToRecommendation(code, t.id, player.id, accept, game.minPlayers, game.maxPlayers);
+      if (accept) setAcceptedOne(true);
       if (accept && !(player.repeatGameIds ?? []).includes(t.gameId)) setRepeatPromptGameId(t.gameId);
     } finally {
       setRespondingTableId(null);
@@ -294,6 +298,8 @@ export default function RecommendedTablesPage() {
         <Link href={`/event/${code}/me?ticket=${player.ticketCode}`} className="text-gray-500 hover:text-gray-300">←</Link>
         <h1 className="text-xl font-bold">🟡 Mesas recomendadas</h1>
       </div>
+
+      {acceptedOne && <PushOptIn code={code} ticketCode={player.ticketCode} variant="prompt" />}
 
       <section>
         <div className="flex flex-wrap gap-2 mb-2">

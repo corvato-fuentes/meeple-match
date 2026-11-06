@@ -10,12 +10,13 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
-import { assignPhysicalSlots } from '@/lib/physicalSlots';
+import { slotMapFor } from '@/lib/physicalSlots';
 import { savePlayerEvent } from '@/lib/myEvents';
 import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import GameCover from '@/components/ui/GameCover';
 import NextTableCard from '@/components/ui/NextTableCard';
 import InstallPrompt from '@/components/ui/InstallPrompt';
+import PushOptIn from '@/components/ui/PushOptIn';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import TablesHelp from '@/components/ui/TablesHelp';
 import HelpPopover from '@/components/ui/HelpPopover';
@@ -380,10 +381,7 @@ export default function MyTicketPage() {
 
   // Physical table number per session — the same numbering the full schedule (grilla) uses, so
   // "Mesa #3" here is the table you actually walk to.
-  const slotByTableId = new Map(
-    assignPhysicalSlots(allTables.filter((t) => t.status !== 'recommended'), event.settings.bufferMinutes)
-      .assignments.map((a) => [a.table.id, a.slot + 1] as const)
-  );
+  const slotByTableId = slotMapFor(allTables.filter((t) => t.status !== 'recommended'), event.settings.bufferMinutes);
 
   const confirmedTables = myTables
     .filter((t) => ['confirmed', 'in-progress'].includes(t.status))
@@ -397,72 +395,74 @@ export default function MyTicketPage() {
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
-      <div className="max-w-sm mx-auto space-y-6">
-        <div className="text-center">
-          <p className="text-sm text-gray-500 mb-1">{event.name}</p>
-          <p className="text-4xl font-mono font-bold tracking-widest text-indigo-400">
-            {player.ticketCode}
-          </p>
-          <button onClick={copyCode} className="text-xs text-gray-500 mt-1 hover:text-indigo-400">
-            {copied ? '✓ Copiado' : 'Copiar código'}
+      {/* Same layout as before, just framed as a card like the other sections */}
+      <section className="max-w-sm mx-auto border border-gray-700 bg-gray-800 rounded-2xl p-5 text-center">
+        <p className="text-sm text-gray-500 mb-1">{event.name}</p>
+        <p className="text-4xl font-mono font-bold tracking-widest text-indigo-400">
+          {player.ticketCode}
+        </p>
+        <button onClick={copyCode} className="text-xs text-gray-500 mt-1 hover:text-indigo-400">
+          {copied ? '✓ Copiado' : 'Copiar código'}
+        </button>
+        <p className="text-sm mt-2 text-gray-400">
+          Hola, <strong>{player.name}</strong> · {player.arrivalTime}–{player.departureTime}
+        </p>
+        {!editingTimes ? (
+          <button onClick={startEditTimes} className="block mx-auto text-xs text-indigo-400 hover:underline mt-0.5">
+            ✏️ Editar horario
           </button>
-          <p className="text-sm mt-2 text-gray-400">
-            Hola, <strong>{player.name}</strong> · {player.arrivalTime}–{player.departureTime}
-          </p>
-          {!editingTimes ? (
-            <button onClick={startEditTimes} className="block mx-auto text-xs text-indigo-400 hover:underline mt-0.5">
-              ✏️ Editar horario
-            </button>
-          ) : (
-            <div className="mt-2 border border-gray-700 rounded-xl p-3 bg-gray-800 space-y-2 text-left">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-gray-400">Llego</label>
-                  <TimeWheelPicker value={draftArrival} onChange={setDraftArrival}
-                    minTime={event.startTime} maxTime={event.endTime} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">Me voy</label>
-                  <TimeWheelPicker value={draftDeparture} onChange={setDraftDeparture}
-                    minTime={event.startTime} maxTime={event.endTime} />
-                </div>
+        ) : (
+          <div className="mt-2 border border-gray-700 rounded-xl p-3 bg-gray-900 space-y-2 text-left">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-400">Llego</label>
+                <TimeWheelPicker value={draftArrival} onChange={setDraftArrival}
+                  minTime={event.startTime} maxTime={event.endTime} />
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setEditingTimes(false)}
-                  className="flex-1 border border-gray-700 rounded-lg py-1.5 text-sm font-medium">
-                  Cancelar
-                </button>
-                <button onClick={saveTimes} disabled={savingTimes}
-                  className="flex-1 bg-indigo-600 rounded-lg py-1.5 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-                  {savingTimes ? 'Guardando...' : 'Guardar'}
-                </button>
+              <div>
+                <label className="text-xs text-gray-400">Me voy</label>
+                <TimeWheelPicker value={draftDeparture} onChange={setDraftDeparture}
+                  minTime={event.startTime} maxTime={event.endTime} />
               </div>
             </div>
-          )}
-          {event.location && (
-            <p className="text-sm text-gray-400 mt-1">📍 {event.location}</p>
-          )}
-          {event.mapUrl && (
-            <a href={event.mapUrl} target="_blank" rel="noopener noreferrer"
-              className="text-indigo-400 text-sm hover:underline inline-block mt-1">
-              Ver ubicación en el mapa →
-            </a>
-          )}
-          <div className="flex justify-center gap-2 mt-3">
-            <Link href={`/event/${code}/roster`}
-              className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800">
-              👥 Ver inscriptos
-            </Link>
-            <Link href={`/event/${code}/organizers?ticket=${player.ticketCode}`}
-              className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800">
-              🧑‍💼 Organizadores
-            </Link>
+            <div className="flex gap-2">
+              <button onClick={() => setEditingTimes(false)}
+                className="flex-1 border border-gray-700 rounded-lg py-1.5 text-sm font-medium">
+                Cancelar
+              </button>
+              <button onClick={saveTimes} disabled={savingTimes}
+                className="flex-1 bg-indigo-600 rounded-lg py-1.5 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                {savingTimes ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
           </div>
+        )}
+        {event.location && (
+          <p className="text-sm text-gray-400 mt-1">📍 {event.location}</p>
+        )}
+        {event.mapUrl && (
+          <a href={event.mapUrl} target="_blank" rel="noopener noreferrer"
+            className="text-indigo-400 text-sm hover:underline inline-block mt-1">
+            Ver ubicación en el mapa →
+          </a>
+        )}
+        <div className="flex flex-wrap justify-center gap-2 mt-3">
+          <Link href={`/event/${code}/roster`}
+            className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-700">
+            👥 Ver inscriptos
+          </Link>
+          <Link href={`/event/${code}/organizers?ticket=${player.ticketCode}`}
+            className="text-center text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-700">
+            🧑‍💼 Organizadores
+          </Link>
+          <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} />
         </div>
-      </div>
+      </section>
 
       <NextTableCard myTables={myTables} eventDate={event.date} games={games} players={players}
         myId={player.id} slotByTableId={slotByTableId} />
+
+      <PushOptIn code={code} ticketCode={player.ticketCode} />
 
       <div className="space-y-6">
         <section className="border-t border-gray-800 pt-6">
@@ -797,7 +797,6 @@ export default function MyTicketPage() {
         </section>
       </div>
 
-      <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} />
     </main>
   );
 }
