@@ -7,7 +7,8 @@ import { parseCheckinPayload } from '@/lib/checkin';
 import QrScanner from '@/components/ui/QrScanner';
 import type { MeepleEvent } from '@/lib/types';
 
-interface Row { id: string; name: string; checkedInAt: number | null }
+interface Row { id: string; name: string; checkedInAt: number | null; hasProof: boolean }
+interface Review { id: string; name: string; proofUrl: string | null }
 type Filter = 'missing' | 'arrived' | 'all';
 type Banner = { kind: 'ok' | 'already' | 'error'; text: string };
 
@@ -28,6 +29,10 @@ export default function CheckInPage() {
   const [manual, setManual] = useState('');
   const [filter, setFilter] = useState<Filter>('missing');
   const [search, setSearch] = useState('');
+  // Events that ask for a payment proof: a scan opens this card instead of checking the player in right away
+  const [review, setReview] = useState<Review | null>(null);
+  const [proofOpen, setProofOpen] = useState(false);
+  const reviewing = useRef(false);
   const busy = useRef(false);
   const lastScan = useRef({ text: '', at: 0 });
 
@@ -77,8 +82,49 @@ export default function CheckInPage() {
     }
   }
 
+  function closeReview() {
+    reviewing.current = false;
+    setReview(null);
+    setProofOpen(false);
+  }
+
+  /**
+   * Checks someone in. When the event asks for a payment proof, nothing is written yet: the organizer first gets a
+   * card to look at the proof and decide (see `review`). Someone who already arrived just gets the usual notice.
+   */
+  async function process(ref: { ticketCode?: string; playerId?: string }): Promise<Banner | null> {
+    if (!event?.settings.paymentRequired) return send(ref);
+    try {
+      const res = await fetch('/api/admin/checkin', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, adminToken, preview: true, ...ref }),
+      });
+      if (res.status === 404) return { kind: 'error', text: 'No hay ningún jugador con ese ticket en este evento.' };
+      const json = await res.json().catch(() => null) as { ok?: boolean; player?: { id: string; name: string; proofUrl: string | null; checkedInAt: number | null } } | null;
+      if (!res.ok || !json?.ok || !json.player) return { kind: 'error', text: 'No se pudo consultar el ticket. Intentá de nuevo.' };
+      const p = json.player;
+      if (p.checkedInAt != null) return { kind: 'already', text: `${p.name} ya había hecho el check-in a las ${timeOf(p.checkedInAt)}.` };
+      reviewing.current = true;
+      setBanner(null);
+      setReview({ id: p.id, name: p.name, proofUrl: p.proofUrl });
+      return null;
+    } catch {
+      return { kind: 'error', text: 'No se pudo consultar el ticket. Revisá tu conexión e intentá de nuevo.' };
+    }
+  }
+
+  async function confirmReview() {
+    if (!review || busy.current) return;
+    busy.current = true;
+    try {
+      setBanner(await send({ playerId: review.id }));
+      closeReview();
+    } finally {
+      busy.current = false;
+    }
+  }
+
   async function handleScan(text: string) {
-    if (busy.current) return;
+    if (busy.current || reviewing.current) return;
     if (text === lastScan.current.text && Date.now() - lastScan.current.at < RESCAN_IGNORE_MS) return;
     lastScan.current = { text, at: Date.now() };
     busy.current = true;
@@ -86,7 +132,7 @@ export default function CheckInPage() {
       const parsed = parseCheckinPayload(text);
       if (!parsed) setBanner({ kind: 'error', text: 'Ese QR no es de un ticket de Meeple Loop.' });
       else if (parsed.eventCode.toUpperCase() !== code.toUpperCase()) setBanner({ kind: 'error', text: 'Ese QR es de otro evento.' });
-      else setBanner(await send({ ticketCode: parsed.ticketCode }));
+      else { const result = await process({ ticketCode: parsed.ticketCode }); if (result) setBanner(result); }
     } finally {
       busy.current = false;
     }
@@ -95,10 +141,11 @@ export default function CheckInPage() {
   async function handleManual(e: React.FormEvent) {
     e.preventDefault();
     const ticketCode = manual.trim().toUpperCase();
-    if (!ticketCode || busy.current) return;
+    if (!ticketCode || busy.current || reviewing.current) return;
     busy.current = true;
     try {
-      setBanner(await send({ ticketCode }));
+      const result = await process({ ticketCode });
+      if (result) setBanner(result);
       setManual('');
     } finally {
       busy.current = false;
@@ -106,10 +153,11 @@ export default function CheckInPage() {
   }
 
   async function handleRow(row: Row) {
-    if (busy.current) return;
+    if (busy.current || reviewing.current) return;
     busy.current = true;
     try {
-      setBanner(await send({ playerId: row.id, undo: row.checkedInAt != null }));
+      const result = row.checkedInAt != null ? await send({ playerId: row.id, undo: true }) : await process({ playerId: row.id });
+      if (result) setBanner(result);
     } finally {
       busy.current = false;
     }
@@ -155,7 +203,30 @@ export default function CheckInPage() {
             📷 Escanear QR de un ticket
           </button>
         )}
-        {banner && <p className={`border rounded-lg px-3 py-2 text-sm ${bannerStyle[banner.kind]}`} role="status">{banner.text}</p>}
+        {review && (
+          <div className="border border-indigo-500/60 bg-indigo-950/30 rounded-xl p-3 space-y-3" role="group" aria-label="Revisar comprobante">
+            <p className="font-semibold text-gray-100">{review.name}</p>
+            {review.proofUrl ? (
+              <button onClick={() => setProofOpen(true)}
+                className="w-full border border-indigo-500 text-indigo-300 rounded-lg py-2 text-sm font-medium hover:bg-indigo-950/60">
+                🧾 Ver comprobante de pago
+              </button>
+            ) : (
+              <p className="text-sm text-amber-300 bg-amber-950/30 border border-amber-800 rounded-lg px-3 py-2">⚠️ No hay comprobante de pago cargado.</p>
+            )}
+            <div className="flex gap-2">
+              <button onClick={closeReview}
+                className="flex-1 border border-gray-700 rounded-lg py-2 text-sm text-gray-300 hover:bg-gray-800">
+                No registrar
+              </button>
+              <button onClick={confirmReview}
+                className="flex-1 bg-green-700 text-white rounded-lg py-2 text-sm font-semibold hover:bg-green-600">
+                ✅ Marcar presente
+              </button>
+            </div>
+          </div>
+        )}
+        {banner && !review && <p className={`border rounded-lg px-3 py-2 text-sm ${bannerStyle[banner.kind]}`} role="status">{banner.text}</p>}
         <form onSubmit={handleManual} className="flex gap-2">
           <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="O escribí el código del ticket" maxLength={8}
             autoCapitalize="characters" autoComplete="off"
@@ -191,16 +262,26 @@ export default function CheckInPage() {
                 <div className="min-w-0">
                   <p className="text-sm truncate">{r.name}</p>
                   {r.checkedInAt != null && <p className="text-xs text-green-400">Llegó a las {timeOf(r.checkedInAt)}</p>}
+                  {event.settings.paymentRequired && r.checkedInAt == null && !r.hasProof && <p className="text-xs text-amber-400">Sin comprobante</p>}
                 </div>
                 <button onClick={() => handleRow(r)}
                   className={`shrink-0 text-xs rounded-lg px-3 py-1.5 border ${r.checkedInAt != null ? 'border-gray-700 text-gray-400 hover:bg-gray-800' : 'border-green-700 text-green-300 hover:bg-green-950/40'}`}>
-                  {r.checkedInAt != null ? 'Deshacer' : 'Marcar llegada'}
+                  {r.checkedInAt != null ? 'Deshacer' : event.settings.paymentRequired ? 'Revisar y marcar' : 'Marcar llegada'}
                 </button>
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {proofOpen && review?.proofUrl && (
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" onClick={() => setProofOpen(false)}
+          role="dialog" aria-modal="true" aria-label="Comprobante de pago">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={review.proofUrl} alt={`Comprobante de pago de ${review.name}`} className="max-h-full max-w-full rounded-lg" />
+          <button onClick={() => setProofOpen(false)} aria-label="Cerrar" className="absolute top-4 right-4 text-white text-2xl leading-none">✕</button>
+        </div>
+      )}
     </main>
   );
 }

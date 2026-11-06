@@ -10,6 +10,8 @@ export interface AttendanceRow {
   name: string;
   /** When the player was checked in (ms), or null if they haven't arrived. */
   checkedInAt: number | null;
+  /** Whether the player uploaded a payment proof (the image itself is only served by `previewPlayer`). */
+  hasProof: boolean;
 }
 
 /** Every registered player with their check-in time, sorted by name. */
@@ -20,8 +22,38 @@ export async function listAttendance(code: string): Promise<AttendanceRow[]> {
   ]);
   const at = new Map(arrivals.docs.map((d) => [d.id, d.data().at as number]));
   return players.docs
-    .map((d) => ({ id: d.id, name: (d.data().name as string) ?? '', checkedInAt: at.get(d.id) ?? null }))
+    .map((d) => ({ id: d.id, name: (d.data().name as string) ?? '', checkedInAt: at.get(d.id) ?? null, hasProof: !!d.data().paymentProofUrl }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export interface PlayerPreview {
+  id: string;
+  name: string;
+  proofUrl: string | null;
+  checkedInAt: number | null;
+}
+
+/**
+ * What the door needs to decide about one player before letting them in — their payment proof and whether they
+ * already arrived. Looked up by ticket code or player id; writes nothing. Null if there is no such player.
+ */
+export async function previewPlayer(code: string, ref: { ticketCode?: string; playerId?: string }): Promise<PlayerPreview | null> {
+  let snap;
+  if (ref.ticketCode?.trim()) {
+    const q = await adminDb.collection(`events/${code}/players`).where('ticketCode', '==', ref.ticketCode.trim().toUpperCase()).limit(1).get();
+    snap = q.empty ? null : q.docs[0];
+  } else if (ref.playerId) {
+    const d = await adminDb.doc(`events/${code}/players/${ref.playerId}`).get();
+    snap = d.exists ? d : null;
+  }
+  if (!snap) return null;
+  const data = snap.data()!;
+  return {
+    id: snap.id,
+    name: (data.name as string) ?? '',
+    proofUrl: (data.paymentProofUrl as string | null) ?? null,
+    checkedInAt: await getCheckInTime(code, snap.id),
+  };
 }
 
 /** Players looked up by ticket code (case-insensitive), or null. */

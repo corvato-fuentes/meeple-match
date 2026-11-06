@@ -3,7 +3,7 @@ import { adminDb } from '@/lib/firebaseAdmin';
 import { checkAdminToken } from '@/lib/adminTokenServer';
 import { isValidEventCode } from '@/lib/pushServer';
 import { rateLimited, clientIp } from '@/lib/rateLimit';
-import { listAttendance, findPlayerByTicket, checkIn, undoCheckIn } from '@/lib/checkinServer';
+import { listAttendance, findPlayerByTicket, checkIn, undoCheckIn, previewPlayer } from '@/lib/checkinServer';
 
 export const runtime = 'nodejs';
 
@@ -26,9 +26,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (rateLimited(`checkin-post:${clientIp(request)}`, 240, 60_000)) return NextResponse.json({ ok: false }, { status: 429 });
   const body = await request.json().catch(() => null) as
-    { code?: string; adminToken?: string; ticketCode?: string; playerId?: string; undo?: boolean } | null;
+    { code?: string; adminToken?: string; ticketCode?: string; playerId?: string; undo?: boolean; preview?: boolean } | null;
   if (!body || !isValidEventCode(body.code)) return NextResponse.json({ ok: false }, { status: 400 });
   if (!(await checkAdminToken(body.code, body.adminToken))) return NextResponse.json({ ok: false }, { status: 401 });
+
+  // Events that ask for a payment proof: the door looks at the proof first and then decides, so this only reads.
+  if (body.preview) {
+    const player = await previewPlayer(body.code, { ticketCode: body.ticketCode, playerId: body.playerId });
+    if (!player) return NextResponse.json({ ok: false, reason: 'unknown-player' }, { status: 404 });
+    return NextResponse.json({ ok: true, player }, { headers: { 'Cache-Control': 'no-store' } });
+  }
 
   let player: { id: string; name: string } | null = null;
   if (typeof body.ticketCode === 'string' && body.ticketCode.trim()) {
