@@ -10,7 +10,8 @@ import type { MeepleEvent } from '@/lib/types';
 interface Row { id: string; name: string; checkedInAt: number | null; hasProof: boolean }
 interface Review { id: string; name: string; proofUrl: string | null }
 type Filter = 'missing' | 'arrived' | 'all';
-type Banner = { kind: 'ok' | 'already' | 'error'; text: string };
+/** `undoId`: the player the message is about, so the banner can offer to take that check-in back right there. */
+type Banner = { kind: 'ok' | 'already' | 'error'; text: string; undoId?: string };
 
 const REFRESH_MS = 15_000;
 // While the camera stays pointed at a QR it keeps reading it: the same ticket is ignored for this long after a scan,
@@ -69,16 +70,28 @@ export default function CheckInPage() {
       const res = await fetch('/api/admin/checkin', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, adminToken, ...payload }),
       });
-      const json = await res.json().catch(() => null) as { ok?: boolean; player?: { name: string }; at?: number; already?: boolean; undone?: boolean } | null;
+      const json = await res.json().catch(() => null) as { ok?: boolean; player?: { id: string; name: string }; at?: number; already?: boolean; undone?: boolean } | null;
       if (res.status === 404) return { kind: 'error', text: 'No hay ningún jugador con ese ticket en este evento.' };
       if (!res.ok || !json?.ok || !json.player) return { kind: 'error', text: 'No se pudo registrar. Intentá de nuevo.' };
       await reload();
       if (json.undone) return { kind: 'ok', text: `Se deshizo el check-in de ${json.player.name}.` };
-      if (json.already) return { kind: 'already', text: `${json.player.name} ya había hecho el check-in a las ${timeOf(json.at!)}.` };
+      if (json.already) return { kind: 'already', text: `${json.player.name} ya había hecho el check-in a las ${timeOf(json.at!)}.`, undoId: json.player.id };
       navigator.vibrate?.(60);
-      return { kind: 'ok', text: `✅ ${json.player.name} — check-in hecho (${timeOf(json.at!)})` };
+      return { kind: 'ok', text: `✅ ${json.player.name} — check-in hecho (${timeOf(json.at!)})`, undoId: json.player.id };
     } catch {
       return { kind: 'error', text: 'No se pudo registrar. Revisá tu conexión e intentá de nuevo.' };
+    }
+  }
+
+  /** "Deshacer" on the message that follows a check-in (a scan or a typed code), so a wrong one can be undone at once. */
+  async function undoFromBanner(playerId: string) {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      lastScan.current = { text: '', at: 0 }; // so the same QR can be scanned again right away
+      setBanner(await send({ playerId, undo: true }));
+    } finally {
+      busy.current = false;
     }
   }
 
@@ -226,7 +239,17 @@ export default function CheckInPage() {
             </div>
           </div>
         )}
-        {banner && !review && <p className={`border rounded-lg px-3 py-2 text-sm ${bannerStyle[banner.kind]}`} role="status">{banner.text}</p>}
+        {banner && !review && (
+          <div className={`flex items-center justify-between gap-3 border rounded-lg px-3 py-2 text-sm ${bannerStyle[banner.kind]}`}>
+            <p role="status">{banner.text}</p>
+            {banner.undoId && (
+              <button onClick={() => undoFromBanner(banner.undoId!)}
+                className="shrink-0 border border-current rounded-lg px-3 py-1 text-xs font-medium hover:bg-white/10">
+                Deshacer
+              </button>
+            )}
+          </div>
+        )}
         <form onSubmit={handleManual} className="flex gap-2">
           <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="O escribí el código del ticket" maxLength={8}
             autoCapitalize="characters" autoComplete="off"
