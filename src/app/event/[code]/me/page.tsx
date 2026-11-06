@@ -15,6 +15,7 @@ import { savePlayerEvent } from '@/lib/myEvents';
 import { searchBgg, getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import GameCover from '@/components/ui/GameCover';
 import NextTableCard from '@/components/ui/NextTableCard';
+import InstallPrompt from '@/components/ui/InstallPrompt';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import TablesHelp from '@/components/ui/TablesHelp';
 import HelpPopover from '@/components/ui/HelpPopover';
@@ -796,6 +797,7 @@ export default function MyTicketPage() {
         </section>
       </div>
 
+      <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} />
     </main>
   );
 }
