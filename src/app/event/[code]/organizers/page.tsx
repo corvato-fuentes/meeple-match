@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, getPlayerByTicketCode, getPlayers } from '@/lib/firestore';
 import { whatsappLink } from '@/lib/whatsapp';
+import { formatPhoneDisplay } from '@/lib/phone';
 import type { MeepleEvent, Player } from '@/lib/types';
 
 // Unlike the public roster, this shows organizers' phone numbers — so it requires a valid ticket
@@ -51,7 +52,14 @@ export default function OrganizersPage() {
           {organizers.map((p) => (
             <div key={p.id} className="border border-gray-700 rounded-xl p-3 bg-gray-800">
               <p className="font-semibold">{p.firstName} {p.lastName}{p.alias && <span className="text-gray-400 font-normal"> · {p.alias}</span>}</p>
-              <p className="text-sm text-gray-400">{p.phone ?? 'sin teléfono cargado'}</p>
+              {(() => {
+                // Every number shown the same way (no leading 0, no 15); tapping it calls
+                if (!p.phone) return <p className="text-sm text-gray-500">📞 sin teléfono cargado</p>;
+                const { text, tel } = formatPhoneDisplay(p.phone);
+                return tel
+                  ? <a href={`tel:${tel}`} className="block w-fit text-sm text-gray-300 hover:text-white hover:underline">📞 {text}</a>
+                  : <p className="text-sm text-gray-400">📞 {text}</p>;
+              })()}
               {(() => {
                 // Opens a WhatsApp chat with a short greeting already typed; hidden if the number can't be read
                 const link = whatsappLink(p.phone, `Hola ${p.firstName}! Soy ${myName}, estoy anotado en ${event.name}.`);

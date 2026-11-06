@@ -6,7 +6,7 @@ import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables,
   respondToRecommendation, updatePlayerWishlist,
 } from '@/lib/firestore';
-import { estimatedDuration, findConflictingTable } from '@/lib/tableAlgorithm';
+import { estimatedDuration } from '@/lib/tableAlgorithm';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import { useAutoSaveWishlist } from '@/hooks/useAutoSaveWishlist';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
@@ -42,6 +42,8 @@ export default function RecommendedTablesPage() {
   const [viewingTableId, setViewingTableId] = useState<string | null>(null);
   // Set once the player accepts a table: that's the moment to offer notifications about it
   const [acceptedOne, setAcceptedOne] = useState(false);
+  // The table whose Aceptar opened the overlap popup (so its "Rechazar" knows which table to decline)
+  const [acceptingTable, setAcceptingTable] = useState<Table | null>(null);
   const [interests, setInterests] = useState<Record<string, InterestLevel>>({});
   const [canExplain, setCanExplain] = useState<string[]>([]);
   const [playedGameIds, setPlayedGameIds] = useState<string[]>([]);
@@ -176,7 +178,12 @@ export default function RecommendedTablesPage() {
     if (!player || respondingTableId) return;
     const game = gameMap.get(t.gameId);
     if (!game) return;
-    if (accept && !(await resolveScheduleConflict(t))) return;
+    if (accept) {
+      setAcceptingTable(t);
+      const ok = await resolveScheduleConflict(t); // pops up the overlap warning when there is one
+      setAcceptingTable(null);
+      if (!ok) return;
+    }
     setRespondingTableId(t.id);
     try {
       await respondToRecommendation(code, t.id, player.id, accept, game.minPlayers, game.maxPlayers);
@@ -185,6 +192,13 @@ export default function RecommendedTablesPage() {
     } finally {
       setRespondingTableId(null);
     }
+  }
+
+  // "Rechazar" inside the overlap popup: closes it (cancelling the accept) and declines that table
+  async function rejectFromConflictPopup() {
+    const t = acceptingTable;
+    await handleConflictChoice(false);
+    if (t) await handleRespondToRecommendation(t, false);
   }
 
   const myRecommendedTables = allTables
@@ -237,15 +251,11 @@ export default function RecommendedTablesPage() {
   );
 
   const tableCard = (t: Table, kind: TableKind) => {
-    // A table I already hold a seat on at an overlapping time. Still-open ones are a soft
-    // commitment (accepting this one offers to swap); confirmed ones can't be left.
-    const clash = kind === 'pending' ? findConflictingTable(myId, t.startTime, t.endTime, allTables, t.id) : null;
-    const hardClash = !!clash && clash.status !== 'recommended';
     const minPlayers = gameMap.get(t.gameId)?.minPlayers ?? '?';
     const border = kind === 'confirmed' ? 'border-green-800 bg-green-950/10'
       : kind === 'waiting' ? 'border-amber-800 bg-amber-950/10' : 'border-amber-700 bg-amber-950/20';
     return (
-      <div key={t.id} className={`border rounded-xl px-3 py-2 ${border} ${hardClash ? 'opacity-60' : ''}`}>
+      <div key={t.id} className={`border rounded-xl px-3 py-2 ${border}`}>
         <div className="flex justify-between items-start gap-2">
           <span className="flex items-center gap-2 min-w-0">
             {coverFor(t.gameId)}
@@ -261,20 +271,13 @@ export default function RecommendedTablesPage() {
         )}
         {kind === 'waiting' && <p className="text-xs text-gray-400 mt-1">Mínimo {minPlayers} para confirmar</p>}
         {rosterSummary(t)}
-        {clash && (
-          <p className="text-[11px] text-orange-300 mt-1.5">
-            {hardClash
-              ? `⛔ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya está confirmada.`
-              : `⚠️ Se pisa con ${clash.gameName} (${clash.startTime}–${clash.endTime}), que ya aceptaste. Si aceptás esta, salís de aquella.`}
-          </p>
-        )}
         {kind === 'pending' && (
           <div className="flex gap-2 mt-2">
             <button onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}
               className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800 disabled:opacity-50">
               ❌ Rechazar
             </button>
-            <button onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id || hardClash}
+            <button onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id}
               className="flex-1 bg-amber-600 rounded-lg py-1.5 text-xs font-medium hover:bg-amber-700 disabled:opacity-50">
               {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
             </button>
@@ -431,7 +434,7 @@ export default function RecommendedTablesPage() {
         );
       })()}
 
-      <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} />
+      <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} onReject={rejectFromConflictPopup} />
     </main>
   );
 }
