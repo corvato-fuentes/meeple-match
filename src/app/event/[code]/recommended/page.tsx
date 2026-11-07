@@ -4,8 +4,9 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables,
-  respondToRecommendation, updatePlayerWishlist,
+  respondToRecommendation, updatePlayerWishlist, leaveTable,
 } from '@/lib/firestore';
+import LeaveTableConfirm from '@/components/ui/LeaveTableConfirm';
 import WaitingTableInfo, { ActionButton, RecommendedWho } from '@/components/ui/WaitingTableInfo';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import { useAutoSaveWishlist } from '@/hooks/useAutoSaveWishlist';
@@ -41,6 +42,8 @@ export default function RecommendedTablesPage() {
   const [loading, setLoading] = useState(true);
   const [respondingTableId, setRespondingTableId] = useState<string | null>(null);
   const [repeatPromptGameId, setRepeatPromptGameId] = useState<string | null>(null);
+  const [leavingTable, setLeavingTable] = useState<Table | null>(null);
+  const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
   // Set once the player accepts a table: that's the moment to offer notifications about it
   const [acceptedOne, setAcceptedOne] = useState(false);
@@ -171,6 +174,21 @@ export default function RecommendedTablesPage() {
     }
   }
 
+  // "Bajarme de la mesa": a table already accepted (or confirmed) can be given up too. Re-checks the waiting tables after,
+  // because the freed seat (or the explainer who left) changes what the others can do.
+  async function handleLeaveTable() {
+    const t = leavingTable;
+    setLeavingTable(null);
+    if (!t || !player || leavingTableId) return;
+    setLeavingTableId(t.id);
+    try {
+      await leaveTable(code, t, player.id, gameMap.get(t.gameId)?.minPlayers ?? 1);
+      if (event) runTableGeneration(code, event).catch(() => {});
+    } finally {
+      setLeavingTableId(null);
+    }
+  }
+
   // "Rechazar" inside the overlap popup: closes it (cancelling the accept) and declines that table
   async function rejectFromConflictPopup() {
     const t = acceptingTable;
@@ -263,10 +281,12 @@ export default function RecommendedTablesPage() {
             </div>
           ) : kind === 'queued' ? (
             <ActionButton tone="muted">⏳ Esperando que alguien confirme que la explica</ActionButton>
-          ) : kind === 'waiting' ? (
-            <ActionButton tone="muted">⏳ Ya aceptaste — esperando jugadores</ActionButton>
+          ) : kind === 'confirmed' && t.status === 'in-progress' ? (
+            <ActionButton tone="done">▶️ Mesa en curso</ActionButton>
           ) : (
-            <ActionButton tone="done">✅ Mesa confirmada</ActionButton>
+            <ActionButton tone="neutral" onClick={() => setLeavingTable(t)} disabled={leavingTableId === t.id}>
+              {leavingTableId === t.id ? 'Saliendo...' : '🚪 Bajarme de la mesa'}
+            </ActionButton>
           )}
         </div>
       </div>
@@ -422,6 +442,7 @@ export default function RecommendedTablesPage() {
         );
       })()}
 
+      <LeaveTableConfirm table={leavingTable} myId={myId} onConfirm={handleLeaveTable} onCancel={() => setLeavingTable(null)} />
       <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} onReject={rejectFromConflictPopup} />
     </main>
   );

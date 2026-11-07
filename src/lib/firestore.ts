@@ -818,20 +818,50 @@ export async function joinPostedTable(
 }
 
 /**
- * Removes a player from a table they're already seated at, but only while it's still
- * 'recommended' (not yet confirmed) — used to resolve a time conflict when they choose a
- * different, overlapping table instead. No-ops if the table got confirmed in the meantime
- * (e.g. someone else took the last seat right as this player was deciding to leave).
+ * Steps down from an algorithm-recommended table the player had accepted — still waiting for people or already
+ * confirmed (a confirmed one that drops under the minimum goes back to waiting for players). They are marked as having
+ * rejected it, so that exact table is not offered to them again. If they were the explainer, another seated player who
+ * can explain the game takes over; with nobody able to, the table is cancelled (its people go back to the pool).
+ * Tables already underway or finished are left alone.
  */
-export async function leaveRecommendedTable(eventCode: string, tableId: string, playerId: string): Promise<void> {
+export async function leaveAlgorithmTable(eventCode: string, tableId: string, playerId: string, minPlayers: number): Promise<void> {
   const ref = doc(db, 'events', eventCode, 'tables', tableId);
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) return;
     const table = snap.data() as Table;
-    if (table.status !== 'recommended') return;
-    tx.update(ref, { playerIds: table.playerIds.filter((id) => id !== playerId) });
+    if (table.postedByOwner || (table.status !== 'recommended' && table.status !== 'confirmed')) return;
+    if (!table.playerIds.includes(playerId)) return;
+
+    const remaining = table.playerIds.filter((id) => id !== playerId);
+    const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
+    const cancel = { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], rejectedIds };
+    if (remaining.length === 0) { tx.update(ref, cancel); return; }
+
+    let explainerId = table.explainerId;
+    if (table.explainerId === playerId) {
+      // Reads first, then the write: the new explainer has to be someone seated who can actually teach this game
+      const docs = await Promise.all(remaining.map((id) => tx.get(doc(db, 'events', eventCode, 'players', id))));
+      const next = docs.find((d) => d.exists() && ((d.data() as Player).canExplain ?? []).includes(table.gameId));
+      if (!next) { tx.update(ref, cancel); return; }
+      explainerId = next.id;
+    }
+    tx.update(ref, {
+      playerIds: remaining, explainerId, rejectedIds,
+      ...(table.status === 'confirmed' && remaining.length < Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'recommended' as const }),
+    });
   });
+}
+
+/** Leaves any table the player is seated at — a posted one or one the algorithm recommended. */
+export async function leaveTable(eventCode: string, table: Table, playerId: string, minPlayersGiven?: number): Promise<void> {
+  // Callers that don't have the games at hand (the overlap popup) leave the minimum out: it is read from the game
+  const minPlayers = minPlayersGiven
+    ?? ((await getDoc(doc(db, 'events', eventCode, 'games', table.gameId))).data() as Game | undefined)?.minPlayers
+    ?? MIN_TABLE_SEATS;
+  if (table.postedByOwner) await leavePostedTable(eventCode, table.id, playerId, minPlayers);
+  else await leaveAlgorithmTable(eventCode, table.id, playerId, minPlayers);
+  requestPushSync(eventCode); // the table may have dropped back to waiting, or gone
 }
 
 /**

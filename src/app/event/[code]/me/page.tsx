@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, autoMergeDuplicates,
   updatePlayerWishlist, subscribeTables, getPlayerTables, addPlayerGame, updateGame, removePlayerGame, updatePlayerTimes,
-  postTable, updatePlayerProfile,
+  postTable, updatePlayerProfile, leaveTable,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
@@ -17,6 +17,7 @@ import { useBggSearch } from '@/hooks/useBggSearch';
 import GameCover from '@/components/ui/GameCover';
 import NextTableCard from '@/components/ui/NextTableCard';
 import InstallPrompt from '@/components/ui/InstallPrompt';
+import LeaveTableConfirm from '@/components/ui/LeaveTableConfirm';
 import TicketQr from '@/components/ui/TicketQr';
 import PushOptIn from '@/components/ui/PushOptIn';
 import AnnouncementBanner from '@/components/ui/AnnouncementBanner';
@@ -73,6 +74,8 @@ export default function MyTicketPage() {
   const [draftArrival, setDraftArrival] = useState('');
   const [draftDeparture, setDraftDeparture] = useState('');
   const [savingTimes, setSavingTimes] = useState(false);
+  const [leavingTable, setLeavingTable] = useState<Table | null>(null);
+  const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [draftProfile, setDraftProfile] = useState({ firstName: '', lastName: '', alias: '', email: '', phone: '' });
   const [savingProfile, setSavingProfile] = useState(false);
@@ -308,6 +311,20 @@ export default function MyTicketPage() {
     }
   }
 
+  // "Bajarme de la mesa" on a confirmed table: gives up the seat (and re-checks the waiting tables, since it changes them).
+  async function handleLeaveTable() {
+    const t = leavingTable;
+    setLeavingTable(null);
+    if (!t || !player || leavingTableId) return;
+    setLeavingTableId(t.id);
+    try {
+      await leaveTable(code, t, player.id, games.find((g) => g.id === t.gameId)?.minPlayers ?? 1);
+      if (event) runTableGeneration(code, event).catch(() => {});
+    } finally {
+      setLeavingTableId(null);
+    }
+  }
+
   // A player is free for a window if it fits their own arrival/departure and doesn't overlap
   // (with buffer) any table they're already seated at or explaining.
   function isPlayerFreeFor(start: string, end: string): boolean {
@@ -435,6 +452,8 @@ export default function MyTicketPage() {
           </Link>
         )}
       </div>
+
+      <LeaveTableConfirm table={leavingTable} myId={player.id} onConfirm={handleLeaveTable} onCancel={() => setLeavingTable(null)} />
 
       <AnnouncementBanner code={code} />
 
@@ -631,6 +650,12 @@ export default function MyTicketPage() {
                         <span className="text-xs bg-purple-900 text-purple-300 px-1.5 rounded">🎓 Explicador</span>
                       )}
                     </div>
+                    {t.status === 'confirmed' && (
+                      <button onClick={() => setLeavingTable(t)} disabled={leavingTableId === t.id}
+                        className="mt-2 w-full text-xs border border-gray-700 text-gray-400 rounded-lg px-2.5 py-1.5 font-medium hover:bg-gray-700 disabled:opacity-50">
+                        {leavingTableId === t.id ? 'Saliendo...' : t.postedByOwner && isExplainer ? '🚫 Cancelar mesa' : '🚪 Bajarme de la mesa'}
+                      </button>
+                    )}
                   </div>
                 );
               })}

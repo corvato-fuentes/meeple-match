@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, getPlayerTables, deletePlayer, updatePlayerTimes, setPlayerOrganizer } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, deletePlayer, updatePlayerTimes, setPlayerOrganizer } from '@/lib/firestore';
+import { countByState, playerTableEntries, type PlayerTableState } from '@/lib/playerTables';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
@@ -17,6 +18,7 @@ export default function PlayersPage() {
   const [viewingProof, setViewingProof] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedVotesId, setExpandedVotesId] = useState<string | null>(null);
+  const [expandedTablesId, setExpandedTablesId] = useState<string | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resendingAll, setResendingAll] = useState(false);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
@@ -106,6 +108,13 @@ export default function PlayersPage() {
   const gameMap = new Map(games.map((g) => [g.id, g]));
 
   const VOTE_LABEL: Record<string, string> = { yes: '👍 Quiero jugarlo', no: '👎 No me interesa' };
+  const TABLE_STATE_LABEL: Record<PlayerTableState, { label: string; cls: string }> = {
+    confirmed: { label: '✅ Confirmada', cls: 'text-green-400' },
+    accepted: { label: '⏳ Aceptó, esperando jugadores', cls: 'text-amber-300' },
+    offered: { label: '🤔 Sin responder', cls: 'text-gray-300' },
+    queued: { label: '⏳ En cola, espera a quien explica', cls: 'text-gray-400' },
+    rejected: { label: '🚫 Rechazó', cls: 'text-gray-500' },
+  };
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10'>
@@ -127,7 +136,8 @@ export default function PlayersPage() {
       ) : (
         <div className='space-y-3'>
           {players.map((p) => {
-            const myTables = getPlayerTables(p.id, tables);
+            const tableEntries = playerTableEntries(p.id, tables);
+            const tableCounts = countByState(tableEntries);
             const votedCount = Object.values(p.interests).filter((v) => v === 'yes' || v === 'no').length;
             const likedCount = Object.values(p.interests).filter((v) => v === 'yes').length;
             return (
@@ -176,8 +186,18 @@ export default function PlayersPage() {
                     <p className={'text-xs mt-0.5 ' + (votedCount === 0 ? 'text-amber-400' : 'text-gray-500')}>
                       {votedCount === 0 ? '⚠️ No votó ningún juego' : `Votó ${votedCount} juego${votedCount !== 1 ? 's' : ''} · le gustaron ${likedCount}`}
                     </p>
+                    {/* What they did with the tables: confirmed ones, accepted ones still short of people, unanswered offers */}
+                    <p className='text-xs mt-0.5 text-gray-500'>
+                      {tableEntries.length === 0 ? 'Sin mesas todavía' : [
+                        tableCounts.confirmed > 0 && `✅ ${tableCounts.confirmed} confirmada${tableCounts.confirmed !== 1 ? 's' : ''}`,
+                        tableCounts.accepted > 0 && `⏳ ${tableCounts.accepted} esperando jugadores`,
+                        tableCounts.offered > 0 && `🤔 ${tableCounts.offered} sin responder`,
+                        tableCounts.queued > 0 && `⏳ ${tableCounts.queued} en cola`,
+                        tableCounts.rejected > 0 && `🚫 ${tableCounts.rejected} rechazada${tableCounts.rejected !== 1 ? 's' : ''}`,
+                      ].filter(Boolean).join(' · ')}
+                    </p>
                   </div>
-                  <span className='text-xs text-gray-500'>{myTables.length} mesa{myTables.length !== 1 ? 's' : ''}</span>
+                  <span className='text-xs text-green-400 shrink-0'>✅ {tableCounts.confirmed} confirmada{tableCounts.confirmed !== 1 ? 's' : ''}</span>
                 </div>
                 <div className='flex items-center gap-3 mt-2'>
                   {p.paymentProofUrl && (
@@ -208,6 +228,27 @@ export default function PlayersPage() {
                         {gameMap.get(gid)?.name ?? gid}
                       </span>
                     ))}
+                  </div>
+                )}
+                {tableEntries.length > 0 && (
+                  <div className='mt-2'>
+                    <button onClick={() => setExpandedTablesId((cur) => cur === p.id ? null : p.id)}
+                      className='text-xs text-gray-500 hover:text-gray-300'>
+                      {expandedTablesId === p.id ? '▾' : '▸'} Ver mesas ({tableEntries.length})
+                    </button>
+                    {expandedTablesId === p.id && (
+                      <div className='mt-1.5 space-y-1'>
+                        {tableEntries.map(({ table: t, state, explains }) => (
+                          <div key={t.id} className='flex items-center justify-between gap-2 text-xs text-gray-300 bg-gray-900 rounded-lg px-2 py-1'>
+                            <span className='min-w-0 truncate'>
+                              {t.gameName} <span className='text-gray-500'>· {t.startTime}–{t.endTime}</span>
+                              {explains && <span className='text-purple-300'> · explica</span>}
+                            </span>
+                            <span className={'shrink-0 ' + TABLE_STATE_LABEL[state].cls}>{TABLE_STATE_LABEL[state].label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 {votedCount > 0 && (
