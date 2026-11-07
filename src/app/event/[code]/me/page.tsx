@@ -569,6 +569,28 @@ export default function MyTicketPage() {
               </HelpPopover>
             </Link>
           </div>
+          {/* What is waiting for you, right under the title where you look first (the counters on the two buttons below
+              are easy to miss): only shown when there is something to do, and each line goes to that screen. */}
+          {(pendingRecommendedCount > 0 || joinablePostedCount > 0) && (
+            <div className="space-y-2 mb-3">
+              {pendingRecommendedCount > 0 && (
+                <Link href={`/event/${code}/recommended?ticket=${player.ticketCode}`}
+                  className="flex items-center justify-between gap-3 border border-amber-700 bg-amber-950/30 text-amber-200 rounded-xl px-3 py-2.5 text-sm hover:bg-amber-950/50">
+                  <span>🟡 Tenés <strong>{pendingRecommendedCount}</strong> {pendingRecommendedCount === 1 ? 'mesa' : 'mesas'} por aceptar</span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
+              {joinablePostedCount > 0 && (
+                <Link href={`/event/${code}/postulated?ticket=${player.ticketCode}`}
+                  className="flex items-center justify-between gap-3 border border-purple-700 bg-purple-950/30 text-purple-200 rounded-xl px-3 py-2.5 text-sm hover:bg-purple-950/50">
+                  <span>
+                    📣 Hay <strong>{joinablePostedCount}</strong> {joinablePostedCount === 1 ? 'mesa postulada abierta' : 'mesas postuladas abiertas'} para vos
+                  </span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
+            </div>
+          )}
           {confirmedTables.length === 0 ? (
             <div className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 space-y-2 text-left">
               <p>Todavía no tenés mesas confirmadas.</p>

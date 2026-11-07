@@ -160,6 +160,17 @@ export default function PostulatedTablesPage() {
   }
   const joinableTables = openTablesWithSeats.filter((t) => !blockedReason.has(t.id));
   const blockedTables = openTablesWithSeats.filter((t) => blockedReason.has(t.id));
+  // Of the ones that fit, the ones for a game the player voted 👍 are the ones meant "for them" (the same count the
+  // ticket page announces); the rest are still shown, just after those, since they might like them too.
+  const forYouTables = joinableTables.filter((t) => player.interests[t.gameId] === 'yes');
+  const forYouIds = new Set(forYouTables.map((t) => t.id));
+  type OpenGroup = 'forYou' | 'others' | 'blocked';
+  const openGroupOf = (t: Table): OpenGroup => (blockedReason.has(t.id) ? 'blocked' : forYouIds.has(t.id) ? 'forYou' : 'others');
+  const OPEN_GROUP_TITLE: Record<OpenGroup, string> = {
+    forYou: `👍 Para vos — de juegos que votaste (${forYouTables.length})`,
+    others: `Otras abiertas que te quedan libres (${joinableTables.length - forYouTables.length})`,
+    blocked: `No te quedan libres (${blockedTables.length})`,
+  };
 
   // Postulated tables (mine or joined) that already hit the minimum and got confirmed — also
   // shown on the main ticket page, but useful here too to see the whole postulated flow through.
@@ -182,13 +193,14 @@ export default function PostulatedTablesPage() {
   ].sort((a, b) => a.t.startTime.localeCompare(b.t.startTime));
   // Opens on what you can still join; falls back to everything when nothing is open.
   const activeTableFilter: TableFilter = tableFilter ?? (joinableTables.length > 0 ? 'open' : 'all');
-  // "Abiertas" lists the ones you can join first, then the ones that don't fit (each in time order).
+  // "Abiertas" lists the ones meant for you first, then the other ones that fit, then the ones that don't (each in time order).
+  const OPEN_GROUP_ORDER: OpenGroup[] = ['forYou', 'others', 'blocked'];
   const visibleEntries = activeTableFilter === 'open'
-    ? [...tableEntries.filter((e) => e.kind === 'open'), ...tableEntries.filter((e) => e.kind === 'blocked')]
+    ? OPEN_GROUP_ORDER.flatMap((g) => tableEntries.filter((e) => (e.kind === 'open' || e.kind === 'blocked') && openGroupOf(e.t) === g))
     : tableEntries.filter((e) => activeTableFilter === 'all' || e.kind === activeTableFilter);
 
   const TABLE_FILTER_HINT: Record<TableFilter, string> = {
-    open: 'Las que ofrecen otros jugadores — sumate con un toque. Las que no te quedan libres aparecen abajo, con el motivo.',
+    open: 'Las que ofrecen otros jugadores — sumate con un toque. Primero las de juegos que votaste, después las otras que te quedan libres, y al final las que no (con el motivo).',
     joined: 'Mesas de otros jugadores a las que ya te sumaste, esperando que se llenen.',
     own: 'Las mesas que postulaste vos, esperando que se sumen jugadores.',
     confirmed: 'Ya llegaron al mínimo — también las vas a ver en la pantalla principal.',
@@ -219,7 +231,9 @@ export default function PostulatedTablesPage() {
         <WaitingTableInfo t={t} game={gameMap.get(t.gameId)} accent={accent} interested={null}
           seatWord={kind === 'confirmed' ? 'jugadores' : 'anotados'} onView={() => setViewingTableId(t.id)}
           who={<PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} />}
-          badge={<span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>} />
+          badge={<span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>
+            {kind === 'open' && forYouIds.has(t.id) ? '👍 De un juego que votaste' : KIND_BADGE[kind].label}
+          </span>} />
         <div className="mt-3">
           {kind === 'blocked' ? (
             <ActionButton tone="warn">⛔ {blockedReason.get(t.id)}</ActionButton>
@@ -260,8 +274,10 @@ export default function PostulatedTablesPage() {
           <div className="space-y-2">
             {visibleEntries.map((e, i) => (
               <div key={e.t.id}>
-                {activeTableFilter === 'open' && e.kind === 'blocked' && visibleEntries[i - 1]?.kind !== 'blocked' && (
-                  <p className="text-xs font-semibold text-gray-400 mt-3 mb-2">No te quedan libres ({blockedTables.length})</p>
+                {activeTableFilter === 'open' && (i === 0 || openGroupOf(visibleEntries[i - 1].t) !== openGroupOf(e.t)) && (
+                  <p className={`text-xs font-semibold mb-2 ${i === 0 ? '' : 'mt-3'} ${openGroupOf(e.t) === 'forYou' ? 'text-purple-300' : 'text-gray-400'}`}>
+                    {OPEN_GROUP_TITLE[openGroupOf(e.t)]}
+                  </p>
                 )}
                 {tableCard(e.t, e.kind)}
               </div>
