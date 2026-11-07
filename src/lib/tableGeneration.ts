@@ -1,8 +1,8 @@
 import {
   getPlayers, getGames, getTables, saveProposedTables, updateTableCandidates, fillTableSeats,
-  acquireGenerationLock, releaseGenerationLock, deleteStaleTables,
+  acquireGenerationLock, releaseGenerationLock, deleteStaleTables, applyWaitingTableReviews,
 } from '@/lib/firestore';
-import { generateTables, fillExistingTables } from '@/lib/tableAlgorithm';
+import { generateTables, fillExistingTables, reviewWaitingTables } from '@/lib/tableAlgorithm';
 import { isEventOver, toMinutes, toTimeString } from '@/lib/timeUtils';
 import { requestPushSync } from '@/lib/pushClient';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
@@ -100,7 +100,16 @@ export async function runTableGeneration(
     );
     const keptConfirmed = stale.length > 0 ? await deleteStaleTables(eventCode, stale.map((t) => t.id)) : [];
     const removedIds = new Set(stale.map((t) => t.id).filter((id) => !keptConfirmed.includes(id)));
-    const activeTables = allTables.filter((t) => t.status !== 'cancelled' && !removedIds.has(t.id));
+    let activeTables = allTables.filter((t) => t.status !== 'cancelled' && !removedIds.has(t.id));
+
+    // A table still waiting for its explainer to confirm: if that person can no longer do it (accepted another table at
+    // that time, left, dropped the vote…) it goes to the next one who can explain it, or is cancelled right away.
+    const reviews = reviewWaitingTables(allPlayers, activeTables, event.settings.bufferMinutes);
+    if (reviews.length > 0) {
+      await applyWaitingTableReviews(eventCode, reviews);
+      const cancelled = new Set(reviews.filter((r) => r.action === 'cancel').map((r) => r.tableId));
+      activeTables = (await getTables(eventCode)).filter((t) => t.status !== 'cancelled' && !removedIds.has(t.id) && !cancelled.has(t.id));
+    }
 
     // Late "yes" voters can join an already-confirmed table's open seats directly, no accept needed.
     const fills = fillExistingTables(allPlayers, allGames, activeTables, event.settings.bufferMinutes);
@@ -115,9 +124,9 @@ export async function runTableGeneration(
       event.settings.bufferMinutes, event.settings.physicalTables, batchNumber, event.settings.breaks
     );
     if (proposals.length > 0) await saveProposedTables(eventCode, proposals);
-    for (const update of candidateUpdates) await updateTableCandidates(eventCode, update.tableId, update.candidateIds);
+    for (const update of candidateUpdates) await updateTableCandidates(eventCode, update.tableId, update);
     // New offers / seats just got written: let the server send the matching push notifications
-    if (proposals.length > 0 || candidateUpdates.length > 0 || fills.length > 0) requestPushSync(eventCode);
+    if (proposals.length > 0 || candidateUpdates.length > 0 || fills.length > 0 || reviews.length > 0) requestPushSync(eventCode);
 
     const filledSeats = fills.reduce((n, f) => {
       const before = activeTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0;

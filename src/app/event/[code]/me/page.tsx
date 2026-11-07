@@ -350,7 +350,7 @@ export default function MyTicketPage() {
       await postTable(code, {
         gameId: primaryId, gameName: game.name, startTime: start, endTime: end,
         explainerId: player.id, playerIds: [player.id],
-        status: game.minPlayers <= 1 ? 'confirmed' : 'recommended', postedByOwner: true,
+        status: 'recommended', postedByOwner: true,
         isManuallyEdited: false, batchNumber: latestBatch, tableNumber: nextTableNumber,
       });
       setProposingGameId(null);

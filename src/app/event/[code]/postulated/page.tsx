@@ -6,17 +6,17 @@ import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables, getPlayerTables,
   joinPostedTable, leavePostedTable,
 } from '@/lib/firestore';
-import { estimatedDuration } from '@/lib/tableAlgorithm';
+import WaitingTableInfo, { ActionButton, PostedWho } from '@/components/ui/WaitingTableInfo';
 import { toMinutes } from '@/lib/timeUtils';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import FilterChip from '@/components/ui/FilterChip';
-import type { MeepleEvent, Player, Game, Table, GameComplexity } from '@/lib/types';
+import { minSeats } from '@/lib/seats';
+import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 
-const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
 
 type TableFilter = 'open' | 'joined' | 'own' | 'confirmed' | 'all';
 
@@ -70,67 +70,18 @@ export default function PostulatedTablesPage() {
   const otherPlayerMap = new Map(otherPlayers.map((p) => [p.id, p]));
   const myId = player.id;
 
-  // Until the table is confirmed, show the full worst-case estimate (everyone seated, e.g. ~135min);
-  // once confirmed it shrinks to the real roster and updates if someone else joins.
-  function gameMetaLine(gameId: string, t: Table): string | null {
-    const game = gameMap.get(gameId);
-    if (!game) return null;
-    const players = t.status === 'confirmed' ? Math.max(t.playerIds.length, game.minPlayers) : game.maxPlayers;
-    return `${COMPLEXITY_LABEL[game.complexity]} · ~${estimatedDuration(game, players)}min`;
-  }
-
   const nameOf = (id: string) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? 'alguien');
 
-  // "Trae" is whoever posted the table with their own copy; explainers are the seated players who
-  // know how to teach this game — they can differ, and a table can have no explainer yet.
-  const whoLines = (t: Table) => {
-    const explainers = t.playerIds.filter((id) => otherPlayerMap.get(id)?.canExplain.includes(t.gameId)).map(nameOf);
-    return (
-      <div className="mt-1 space-y-0.5">
-        <p className="text-xs text-gray-400">📦 Trae: <span className="text-gray-300">{nameOf(t.explainerId)}</span></p>
-        <p className="text-xs text-gray-400">🎓 Explica: <span className="text-gray-300">{explainers.length > 0 ? explainers.join(', ') : 'nadie todavía'}</span></p>
-      </div>
-    );
-  };
-
-  // Two different numbers: the minimum that confirms the table, and the free seats up to the
-  // game's maximum. Every person who joins uses up one free seat.
-  const seatLines = (t: Table) => {
-    const game = gameMap.get(t.gameId);
-    const seated = t.playerIds.length;
-    const missing = game ? Math.max(0, game.minPlayers - seated) : null;
-    const free = game ? Math.max(0, game.maxPlayers - seated) : null;
-    return (
-      <>
-        <p className="text-xs text-gray-400">
-          👥 {seated} anotado{seated === 1 ? '' : 's'}
-          {missing != null && (missing > 0 ? ` · faltan ${missing} para confirmar` : ' · ya se confirma')}
-        </p>
-        {free != null && game && (
-          <p className="text-xs text-gray-400">🪑 {free} lugar{free === 1 ? '' : 'es'} libre{free === 1 ? '' : 's'} de {game.maxPlayers}</p>
-        )}
-      </>
-    );
-  };
-
-  const coverFor = (gameId: string) => (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={gameMap.get(gameId)?.imageUrl || '/cover-placeholder.png'} alt=""
-      className="w-9 h-11 rounded object-cover border border-gray-700 bg-gray-900 shrink-0" />
-  );
+  // The poster brings the game; the explainers are whoever is seated and knows how to teach it (there may be none yet).
+  const explainerNamesOf = (t: Table) => t.playerIds
+    .filter((id) => (id === myId ? player.canExplain : otherPlayerMap.get(id)?.canExplain ?? []).includes(t.gameId))
+    .map(nameOf);
 
   // The poster can't leave their own table (they bring the game) — for them it means cancelling it.
   const leaveBtn = (t: Table) => (
-    <button onClick={() => setLeavingTable(t)} disabled={leavingTableId === t.id}
-      className="mt-2 w-full text-xs border border-gray-700 text-gray-400 rounded-lg px-2.5 py-1.5 font-medium hover:bg-gray-800 disabled:opacity-50">
+    <ActionButton tone="neutral" onClick={() => setLeavingTable(t)} disabled={leavingTableId === t.id}>
       {leavingTableId === t.id ? 'Saliendo...' : t.explainerId === myId ? '🚫 Cancelar mesa' : '🚪 Salirme de la mesa'}
-    </button>
-  );
-
-  const viewBtn = (t: Table) => (
-    <button onClick={() => setViewingTableId(t.id)} className="text-xs text-purple-300 hover:underline shrink-0">
-      👀 Ver inscriptos
-    </button>
+    </ActionButton>
   );
 
   // Why a window doesn't work for this player — null when it fits. It has to sit inside their own
@@ -262,36 +213,22 @@ export default function PostulatedTablesPage() {
     const border = kind === 'open' ? 'border-indigo-800 bg-indigo-950/20'
       : kind === 'blocked' ? 'border-gray-700 bg-gray-900/40 opacity-70'
       : kind === 'confirmed' ? 'border-green-800 bg-green-950/10' : 'border-purple-800 bg-purple-950/20';
-    const timeCls = kind === 'open' ? 'text-indigo-300' : kind === 'blocked' ? 'text-gray-400'
-      : kind === 'confirmed' ? 'text-green-400' : 'text-purple-400';
+    const accent = kind === 'open' ? 'indigo' : kind === 'blocked' ? 'gray' : kind === 'confirmed' ? 'green' : 'purple';
     return (
-      <div key={t.id} className={`border rounded-xl px-3 py-2 ${border}`}>
-        <div className="flex justify-between items-start gap-2">
-          <span className="flex items-center gap-2 min-w-0">
-            {coverFor(t.gameId)}
-            <span className="min-w-0">
-              <span className="block font-medium text-sm">{t.gameName}</span>
-              <span className={`inline-block mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>
-            </span>
-          </span>
-          <span className={`text-xs shrink-0 ${timeCls}`}>{t.startTime}–{t.endTime}</span>
+      <div key={t.id} className={`border rounded-xl p-3 ${border}`}>
+        <WaitingTableInfo t={t} game={gameMap.get(t.gameId)} accent={accent} interested={null}
+          seatWord={kind === 'confirmed' ? 'jugadores' : 'anotados'} onView={() => setViewingTableId(t.id)}
+          who={<PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} />}
+          badge={<span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>} />
+        <div className="mt-3">
+          {kind === 'blocked' ? (
+            <ActionButton tone="warn">⛔ {blockedReason.get(t.id)}</ActionButton>
+          ) : kind === 'open' ? (
+            <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}>
+              {joiningTableId === t.id ? 'Sumando...' : '+ Sumarme'}
+            </ActionButton>
+          ) : leaveBtn(t)}
         </div>
-        {gameMetaLine(t.gameId, t) && (
-          <p className="text-[11px] text-gray-500 mt-1">{gameMetaLine(t.gameId, t)}</p>
-        )}
-        {whoLines(t)}
-        <div className="space-y-0.5 mt-1">
-          {kind === 'confirmed' ? <p className="text-xs text-gray-400">✅ {t.playerIds.length} jugadores</p> : seatLines(t)}
-          {viewBtn(t)}
-        </div>
-        {kind === 'blocked' ? (
-          <p className="text-[11px] text-orange-300 mt-1.5">⛔ {blockedReason.get(t.id)}</p>
-        ) : kind === 'open' ? (
-          <button onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}
-            className="mt-2 w-full text-xs bg-indigo-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-indigo-700 disabled:opacity-50">
-            {joiningTableId === t.id ? 'Sumando...' : '+ Sumarme'}
-          </button>
-        ) : leaveBtn(t)}
       </div>
     );
   };
@@ -340,7 +277,7 @@ export default function PostulatedTablesPage() {
         const game = gameMap.get(t.gameId);
         const close = () => setViewingTableId(null);
         const names = t.playerIds.map((id) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? '?'));
-        const missing = game ? Math.max(0, game.minPlayers - t.playerIds.length) : null;
+        const missing = game ? Math.max(0, minSeats(game) - t.playerIds.length) : null;
         return (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={close}>
             <div className="max-w-sm w-full max-h-[80vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
@@ -349,7 +286,6 @@ export default function PostulatedTablesPage() {
                 <h3 className="font-semibold text-gray-100">{t.gameName}</h3>
                 <p className="text-xs text-gray-500">{t.startTime}–{t.endTime}</p>
               </div>
-              {whoLines(t)}
               <div>
                 <p className="text-xs font-semibold text-gray-300 mb-1">✅ Anotados ({names.length})</p>
                 <ul className="text-xs text-gray-400 grid grid-cols-2 gap-x-3 gap-y-0.5">

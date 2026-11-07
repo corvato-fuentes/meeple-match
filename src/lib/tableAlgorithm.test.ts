@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeIdleGaps, estimatedDuration, estimatedDurationRange, fillExistingTables, findConflictingTable, generateTables, overlaps,
+  reviewWaitingTables,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
 
@@ -20,6 +21,10 @@ const table = (id: string, o: Partial<Table> = {}): Table =>
     id, tableNumber: 1, gameId: 'g1', gameName: 'g1', startTime: '10:00', endTime: '11:00', explainerId: 'p1', playerIds: [],
     status: 'recommended', isManuallyEdited: false, batchNumber: 1, candidateIds: [], rejectedIds: [], ...o,
   }) as Table;
+
+/** Everyone a proposed table was built for — whoever is seated, offered it, or queued behind the explainer — sorted. */
+const seated = (t: { playerIds: string[]; candidateIds: string[]; queuedIds?: string[] }) =>
+  [...new Set([...t.playerIds, ...t.candidateIds, ...(t.queuedIds ?? [])])].sort();
 
 /** n players who all want game g1; the first one can explain it. */
 const voters = (n: number, gameId = 'g1', o: Partial<Player> = {}) =>
@@ -68,10 +73,41 @@ describe('generateTables — forming a table', () => {
     const { proposals } = generate(voters(4), [game('g1')]);
     expect(proposals).toHaveLength(1);
     const t = proposals[0];
-    expect(t.candidateIds.sort()).toEqual(['p1', 'p2', 'p3', 'p4']);
     expect(t.explainerId).toBe('p1');
     expect(t.status).toBe('recommended');
-    expect(t.playerIds).toEqual([]); // nobody has accepted yet
+    expect(seated(t)).toEqual(['p1', 'p2', 'p3', 'p4']);
+  });
+
+  it('offers the table FIRST to the people who can explain it — the rest wait in a queue and are not offered it yet', () => {
+    const [t] = generate(voters(4), [game('g1')]).proposals;
+    expect(t.awaitingExplainer).toBe(true);
+    expect(t.candidateIds).toEqual(['p1']);                     // p1 is the only one who can explain it
+    expect(t.queuedIds.sort()).toEqual(['p2', 'p3', 'p4']);     // everybody else waits for them
+    expect(t.explainerId).toBe('p1');                           // provisional
+    expect(t.playerIds).toEqual([]);
+    expect(t.rejectedIds).toEqual([]);
+  });
+
+  it('asks everyone who can explain the game at the same time, not one after another', () => {
+    const players = voters(4).map((p) => (p.id === 'p3' ? { ...p, canExplain: ['g1'] } : p));
+    const [t] = generate(players, [game('g1')]).proposals;
+    expect(t.candidateIds.sort()).toEqual(['p1', 'p3']);
+    expect(t.queuedIds.sort()).toEqual(['p2', 'p4']);
+  });
+
+  it('a game that allows one player still needs two people — this is a social event', () => {
+    expect(generate(voters(1), [game('g1', { minPlayers: 1, maxPlayers: 4 })]).proposals).toHaveLength(0);
+    const [t] = generate(voters(2), [game('g1', { minPlayers: 1, maxPlayers: 4 })]).proposals;
+    expect(t.status).toBe('recommended');
+    expect(seated(t)).toEqual(['p1', 'p2']);
+  });
+
+  it('does not offer someone to explain a game again after they declined it (the table was cancelled)', () => {
+    const cancelled = table('t0', { gameId: 'g1', status: 'cancelled', awaitingExplainer: true, rejectedIds: ['p1'], candidateIds: [], queuedIds: [] });
+    const players = voters(3).map((p) => (p.id === 'p2' ? { ...p, canExplain: ['g1'] } : p));
+    const { proposals } = generate(players, [game('g1')], [cancelled]);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].explainerId).toBe('p2');
   });
 
   it('starts after arrival plus the buffer (rounded up to the 15-minute grid) and lasts the game duration', () => {
@@ -99,9 +135,9 @@ describe('generateTables — forming a table', () => {
     const players = voters(6).map((p, i) => (i === 4 ? { ...p, canExplain: ['g1'] } : p));
     const { proposals } = generate(players, [game('g1', { minPlayers: 2, maxPlayers: 4 })]);
     expect(proposals).toHaveLength(2);
-    expect(proposals[0].candidateIds).toHaveLength(4);
-    expect(proposals[1].candidateIds).toHaveLength(2);
-    expect(new Set([...proposals[0].candidateIds, ...proposals[1].candidateIds]).size).toBe(6); // nobody twice
+    expect(seated(proposals[0])).toHaveLength(4);
+    expect(seated(proposals[1])).toHaveLength(2);
+    expect(new Set([...seated(proposals[0]), ...seated(proposals[1])]).size).toBe(6); // nobody twice
   });
 });
 
@@ -111,8 +147,8 @@ describe('generateTables — availability', () => {
     players[3] = { ...players[3], arrivalTime: '18:00', departureTime: '19:00' }; // can't play 10:15–11:15
     const { proposals } = generate(players, [game('g1', { minPlayers: 3 })]);
     expect(proposals).toHaveLength(1);
-    expect(proposals[0].candidateIds).not.toContain('p4');
-    expect(proposals[0].candidateIds).toHaveLength(3);
+    expect(seated(proposals[0])).not.toContain('p4');
+    expect(seated(proposals[0])).toHaveLength(3);
   });
 
   it('respects the departure time', () => {
@@ -167,7 +203,7 @@ describe('generateTables — resources', () => {
     const { proposals } = generate(players, [game('g1', { ownerPlayerId: 'owner' })]);
     expect(proposals).toHaveLength(1);
     expect(proposals[0].startTime >= '14:00').toBe(true);
-    expect(proposals[0].candidateIds).toContain('owner'); // not lent out: the owner has to sit at the table
+    expect(seated(proposals[0])).toContain('owner'); // not lent out: the owner has to sit at the table
   });
 });
 
@@ -185,6 +221,13 @@ describe('generateTables — what was already offered', () => {
     expect(candidateUpdates).toEqual([{ tableId: 'open', candidateIds: ['p1', 'p2', 'p3'] }]);
   });
 
+  it('a late voter for a table still waiting on its explainer joins the queue, not the offer', () => {
+    const existing = [table('open', { gameId: 'g1', awaitingExplainer: true, candidateIds: ['p1'], queuedIds: ['p2'], startTime: '10:15', endTime: '11:15' })];
+    const { proposals, candidateUpdates } = generate(voters(3), [game('g1', { maxPlayers: 4 })], existing);
+    expect(proposals).toHaveLength(0);
+    expect(candidateUpdates).toEqual([{ tableId: 'open', queuedIds: ['p2', 'p3'] }]);
+  });
+
   it('does not re-offer a player who rejected the open table', () => {
     const existing = [table('open', { gameId: 'g1', candidateIds: ['p1'], rejectedIds: ['p3'], startTime: '10:15', endTime: '11:15' })];
     const { candidateUpdates } = generate(voters(3), [game('g1', { maxPlayers: 4 })], existing);
@@ -194,6 +237,44 @@ describe('generateTables — what was already offered', () => {
   it('ignores cancelled tables when deciding who was offered', () => {
     const existing = [table('gone', { gameId: 'g1', candidateIds: ['p1', 'p2'], status: 'cancelled' })];
     expect(generate(voters(2), [game('g1')], existing).proposals).toHaveLength(1);
+  });
+});
+
+// ── reviewWaitingTables ─────────────────────────────────────────────────────
+describe('reviewWaitingTables — tables waiting for someone to confirm they explain them', () => {
+  const waiting = (o: Partial<Table> = {}) => table('w', {
+    gameId: 'g1', status: 'recommended', awaitingExplainer: true, explainerId: 'p1', candidateIds: ['p1', 'p2'],
+    queuedIds: ['p3'], startTime: '12:00', endTime: '13:00', ...o,
+  });
+  const people = () => voters(3).map((p) => (p.id === 'p2' ? { ...p, canExplain: ['g1'] } : p));
+  const busyWith = (id: string) => table('o', { gameId: 'g2', status: 'confirmed', playerIds: [id, 'p9'], startTime: '12:30', endTime: '13:30' });
+
+  it('leaves the table alone while everyone it was offered to can still explain it', () => {
+    expect(reviewWaitingTables(people(), [waiting()], 10)).toEqual([]);
+  });
+
+  it('drops from the offer someone who accepted another table at that hour, keeping the others', () => {
+    expect(reviewWaitingTables(people(), [waiting(), busyWith('p1')], 10)).toEqual([
+      { tableId: 'w', action: 'update', explainerId: 'p2', candidateIds: ['p2'] },
+    ]);
+  });
+
+  it('cancels it right away when nobody who was asked can explain it any more', () => {
+    expect(reviewWaitingTables(people(), [waiting({ candidateIds: ['p1'] }), busyWith('p1')], 10)).toEqual([{ tableId: 'w', action: 'cancel' }]);
+  });
+
+  it('reacts when someone dropped the vote, can no longer explain it, or is gone from the event', () => {
+    const noVote = people().map((p) => (p.id === 'p1' ? { ...p, interests: {} } : p));
+    const noExplain = people().map((p) => (p.id === 'p1' ? { ...p, canExplain: [] } : p));
+    const gone = people().filter((p) => p.id !== 'p1');
+    for (const ps of [noVote, noExplain, gone]) {
+      expect(reviewWaitingTables(ps, [waiting()], 10)).toEqual([{ tableId: 'w', action: 'update', explainerId: 'p2', candidateIds: ['p2'] }]);
+    }
+  });
+
+  it('ignores tables that are not waiting for an explainer', () => {
+    const plain = table('plain', { gameId: 'g1', status: 'recommended', explainerId: 'p1', candidateIds: ['p1', 'p2'] });
+    expect(reviewWaitingTables([], [plain, table('c', { status: 'confirmed', awaitingExplainer: true })], 10)).toEqual([]);
   });
 });
 

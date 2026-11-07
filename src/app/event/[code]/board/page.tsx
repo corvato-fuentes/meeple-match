@@ -1,26 +1,21 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, subscribeTables, getPlayers, getGames, getPlayerByTicketCode, updatePlayerWishlist, joinPostedTable,
+  respondToRecommendation,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots, slotMapFor } from '@/lib/physicalSlots';
-import { estimatedDurationRange } from '@/lib/tableAlgorithm';
+import WaitingTableInfo, { ActionButton, PostedWho, RecommendedWho } from '@/components/ui/WaitingTableInfo';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import GameCover from '@/components/ui/GameCover';
 import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
-import type { MeepleEvent, Table, Player, ScheduledBreak, Game, GameComplexity, InterestLevel } from '@/lib/types';
-
-const COMPLEXITY_LABEL: Record<GameComplexity, string> = {
-  light: 'Liviano',
-  medium: 'Intermedio',
-  heavy: 'Pesado',
-};
+import type { MeepleEvent, Table, Player, ScheduledBreak, Game, InterestLevel } from '@/lib/types';
 
 const STATUS_LABEL: Record<Table['status'], string> = {
   recommended: 'Recomendada',
@@ -92,6 +87,9 @@ export default function BoardPage() {
   const [viewer, setViewer] = useState<Player | null>(null);
   const [knowledgePromptGameId, setKnowledgePromptGameId] = useState<string | null>(null);
   const [joiningTableId, setJoiningTableId] = useState<string | null>(null);
+  const [respondingTableId, setRespondingTableId] = useState<string | null>(null);
+  // The table whose Aceptar opened the overlap popup (so its "Rechazar" knows which table to decline)
+  const [acceptingTable, setAcceptingTable] = useState<Table | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
   // Which table's people are being listed: just those who confirmed, or just those who are interested (not yet confirmed)
   const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
@@ -131,6 +129,7 @@ export default function BoardPage() {
   }, []);
 
   const playerMap = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
+  const nameOfPlayer = (id: string) => (id === viewer?.id ? 'Vos' : playerMap.get(id)?.name ?? '?');
   const gameMap = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const nowStr = toTimeString(nowMinutes);
@@ -150,7 +149,8 @@ export default function BoardPage() {
     for (const t of recommendedTables) {
       if (!viewer) groups.other.push(t);
       else if (t.playerIds.includes(viewer.id)) groups.accepted.push(t);
-      else if ((t.candidateIds ?? []).includes(viewer.id) && !(t.rejectedIds ?? []).includes(viewer.id)) groups.pending.push(t);
+      // Offered it, or about to be (queued behind an explainer who hasn't confirmed): both are "mine to follow" first
+      else if (([...(t.candidateIds ?? []), ...(t.queuedIds ?? [])]).includes(viewer.id) && !(t.rejectedIds ?? []).includes(viewer.id)) groups.pending.push(t);
       else groups.other.push(t);
     }
     return groups;
@@ -248,6 +248,35 @@ export default function BoardPage() {
     });
     if (event) runTableGeneration(code, event).catch(() => {});
     setKnowledgePromptGameId(gameId);
+  }
+
+  // Aceptar / Rechazar on a recommended card — the same answer as on the Mesas recomendadas page, so it can be given
+  // right here. Accepting first checks the overlap popup, and re-checks the waiting tables afterwards (it takes the
+  // viewer's time, so a table that was waiting for them to explain something else at that hour has to move on).
+  async function handleRespondToRecommendation(t: Table, accept: boolean) {
+    if (!viewer || respondingTableId) return;
+    const game = games.find((g) => g.id === t.gameId);
+    if (!game) return;
+    if (accept) {
+      setAcceptingTable(t);
+      const ok = await resolveScheduleConflict(t);
+      setAcceptingTable(null);
+      if (!ok) return;
+    }
+    setRespondingTableId(t.id);
+    try {
+      await respondToRecommendation(code, t.id, viewer.id, accept, game.minPlayers, game.maxPlayers);
+      if (accept && event) runTableGeneration(code, event).catch(() => {});
+    } finally {
+      setRespondingTableId(null);
+    }
+  }
+
+  // "Rechazar" inside the overlap popup: closes it (cancelling the accept) and declines that table
+  async function rejectFromConflictPopup() {
+    const t = acceptingTable;
+    await handleConflictChoice(false);
+    if (t) await handleRespondToRecommendation(t, false);
   }
 
   // "Unirme" on a postulated card actually seats the viewer right away (same join flow as the
@@ -390,36 +419,46 @@ export default function BoardPage() {
               <div className='space-y-2'>
                 {visibleRecommended.map((t) => {
                   const game = games.find((g) => g.id === t.gameId);
-                  const interested = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id)).length;
+                  // Offered it, plus the people waiting in the queue until the explainer accepts
+                  const interested = [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])].filter((id) => !t.playerIds.includes(id)).length;
+                  // What this means for the viewer is where they stand on THIS table — having voted yes on the game only
+                  // makes them a candidate; they still have to accept the table. The note sits with the info lines and
+                  // every card ends in one big button: the action you can take, or the state you are in.
+                  const mine: { note?: string; button: ReactNode } | null = !viewer ? null
+                    : t.explainerId === viewer.id && t.playerIds.includes(viewer.id)
+                      ? { button: <ActionButton tone='done'>🎓 Confirmaste: vas a explicar y jugar</ActionButton> }
+                    : t.playerIds.includes(viewer.id)
+                      ? { button: <ActionButton tone='done'>✅ Ya confirmaste tu lugar en esta mesa</ActionButton> }
+                    : (t.rejectedIds ?? []).includes(viewer.id)
+                      ? { button: <ActionButton tone='muted'>🚫 Rechazaste esta mesa</ActionButton> }
+                    : (t.candidateIds ?? []).includes(viewer.id)
+                      ? {
+                          note: t.awaitingExplainer ? '🎓 Podés explicar este juego — si lo explicás, jugás en la mesa' : undefined,
+                          button: (
+                            <div className='grid grid-cols-2 gap-2'>
+                              <ActionButton tone='neutral' onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}>
+                                {t.awaitingExplainer ? '❌ No puedo explicarlo' : '❌ Rechazar'}
+                              </ActionButton>
+                              <ActionButton tone='amber' onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id}>
+                                {respondingTableId === t.id ? 'Guardando...' : t.awaitingExplainer ? '✅ Explico y juego' : '✅ Aceptar'}
+                              </ActionButton>
+                            </div>
+                          ),
+                        }
+                    : (t.queuedIds ?? []).includes(viewer.id)
+                      ? { button: <ActionButton tone='muted'>⏳ Esperando que alguien confirme que la explica</ActionButton> }
+                    : viewer.interests[t.gameId] === 'yes'
+                      ? { button: <ActionButton tone='muted'>👍 Votaste que sí, pero no estás en esta mesa</ActionButton> }
+                      : {
+                          note: '🙋 No mostraste interés en este juego, pero estás a tiempo de unirte',
+                          button: <ActionButton tone='amber' onClick={() => handleQuickVoteYes(t.gameId)}>🙋 Unirme</ActionButton>,
+                        };
                   return (
                     <div key={t.id} className='border border-amber-700 rounded-xl p-3 bg-amber-950/20'>
-                      <WaitingTableInfo t={t} game={game} playerMap={playerMap} accent='amber' interested={interested} seatWord='confirmados'
+                      <WaitingTableInfo t={t} game={game} accent='amber' interested={interested} seatWord='confirmados' note={mine?.note}
+                        who={<RecommendedWho t={t} game={game} nameOf={nameOfPlayer} />}
                         onView={(kind) => setViewing({ tableId: t.id, kind })} />
-                      {viewer && (() => {
-                        // What this means for the viewer is where they stand on THIS table — having voted yes on the
-                        // game only makes them a candidate; they still have to accept the table.
-                        if (t.playerIds.includes(viewer.id)) return <p className='text-xs text-green-400 mt-2'>✅ Ya confirmaste tu lugar en esta mesa</p>;
-                        if ((t.rejectedIds ?? []).includes(viewer.id)) return <p className='text-xs text-gray-500 mt-2'>🚫 Rechazaste esta mesa</p>;
-                        if ((t.candidateIds ?? []).includes(viewer.id)) return (
-                          <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1'>
-                            <p className='text-xs text-amber-300'>🤔 Te ofrecieron esta mesa — falta que la aceptes</p>
-                            <Link href={`/event/${code}/recommended?ticket=${viewer.ticketCode}`}
-                              className='text-xs bg-amber-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-amber-700'>
-                              Ver y aceptar →
-                            </Link>
-                          </div>
-                        );
-                        if (viewer.interests[t.gameId] === 'yes') return <p className='text-xs text-gray-400 mt-2'>👍 Votaste que sí a este juego, pero no estás en esta mesa</p>;
-                        return (
-                          <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1'>
-                            <p className='text-xs text-gray-400'>🙋 No mostraste interés en este juego, pero estás a tiempo de unirte</p>
-                            <button onClick={() => handleQuickVoteYes(t.gameId)}
-                              className='text-xs bg-amber-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-amber-700'>
-                              Unirme
-                            </button>
-                          </div>
-                        );
-                      })()}
+                      {mine && <div className='mt-3'>{mine.button}</div>}
                     </div>
                   );
                 })}
@@ -439,17 +478,22 @@ export default function BoardPage() {
                   const seatsLeft = game ? game.maxPlayers - t.playerIds.length : null;
                   return (
                     <div key={t.id} className='border border-indigo-700 rounded-xl p-3 bg-indigo-950/20'>
-                      <WaitingTableInfo t={t} game={game} playerMap={playerMap} accent='indigo' interested={null} seatWord='anotados'
+                      <WaitingTableInfo t={t} game={game} accent='indigo' interested={null} seatWord='anotados'
+                        who={<PostedWho t={t} nameOf={nameOfPlayer}
+                          explainerNames={t.playerIds.filter((id) => playerMap.get(id)?.canExplain.includes(t.gameId)).map(nameOfPlayer)} />}
                         onView={(kind) => setViewing({ tableId: t.id, kind })} />
                       {viewer && (
-                        t.playerIds.includes(viewer.id) ? (
-                          <p className='text-xs text-green-400 mt-2'>✅ Ya estás anotado</p>
-                        ) : seatsLeft != null && seatsLeft <= 0 ? null : (
-                          <button onClick={() => handleQuickJoinPostulated(t)} disabled={joiningTableId === t.id}
-                            className='text-xs bg-indigo-600 rounded-lg px-2.5 py-1.5 font-medium hover:bg-indigo-700 disabled:opacity-50 mt-2'>
-                            {joiningTableId === t.id ? 'Sumando...' : '🙋 Unirme'}
-                          </button>
-                        )
+                        <div className='mt-3'>
+                          {t.playerIds.includes(viewer.id) ? (
+                            <ActionButton tone='done'>✅ Ya estás anotado</ActionButton>
+                          ) : seatsLeft != null && seatsLeft <= 0 ? (
+                            <ActionButton tone='muted'>🪑 La mesa está completa</ActionButton>
+                          ) : (
+                            <ActionButton tone='indigo' onClick={() => handleQuickJoinPostulated(t)} disabled={joiningTableId === t.id}>
+                              {joiningTableId === t.id ? 'Sumando...' : '🙋 Unirme'}
+                            </ActionButton>
+                          )}
+                        </div>
                       )}
                     </div>
                   );
@@ -483,7 +527,7 @@ export default function BoardPage() {
         const t = tables.find((x) => x.id === viewing.tableId);
         if (!t) return null;
         const close = () => setViewing(null);
-        const pending = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id));
+        const pending = [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])].filter((id) => !t.playerIds.includes(id));
         const nameOf = (id: string) => (id === viewer?.id ? 'Vos' : playerMap.get(id)?.name ?? '?');
         const group = (title: string, ids: string[], empty: string, tag: string, tagClass: string) => (
           <div>
@@ -521,78 +565,8 @@ export default function BoardPage() {
         );
       })()}
 
-      <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} />
+      <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} onReject={rejectFromConflictPopup} />
     </main>
-  );
-}
-
-const WAITING_ACCENT = {
-  amber: { title: 'text-amber-300', link: 'text-amber-400' },
-  indigo: { title: 'text-indigo-300', link: 'text-indigo-400' },
-} as const;
-
-/**
- * The info block shared by both kinds of table that are still waiting (recommended by the algorithm / posted by an
- * owner), so they read the same: game, estimated time, who brings it, who explains it, and how full it is. The
- * seat line spells out that the confirmed count is measured against a MINIMUM — the table can take more people.
- */
-function WaitingTableInfo({ t, game, playerMap, accent, interested, seatWord, onView }: {
-  t: Table;
-  game: Game | undefined;
-  playerMap: Map<string, Player>;
-  accent: keyof typeof WAITING_ACCENT;
-  /** People offered the table who haven't answered yet; null when the table has no offer step (posted tables). */
-  interested: number | null;
-  seatWord: string;
-  onView: (kind: 'confirmed' | 'interested') => void;
-}) {
-  const a = WAITING_ACCENT[accent];
-  const explainerName = playerMap.get(t.explainerId)?.name ?? 'alguien';
-  const bringsAndExplains = game ? game.ownerPlayerId === t.explainerId : false;
-  const [shortest, longest] = game ? estimatedDurationRange(game) : [null, null];
-  const seatsLeft = game ? Math.max(0, game.maxPlayers - t.playerIds.length) : null;
-  const missing = game ? Math.max(0, game.minPlayers - t.playerIds.length) : null;
-  const range = game ? (game.minPlayers === game.maxPlayers ? `se juega con ${game.maxPlayers}` : `mínimo ${game.minPlayers}, hasta ${game.maxPlayers}`) : '';
-  return (
-    <>
-      <div className='flex justify-between items-start gap-3'>
-        <span className='flex items-start gap-3 min-w-0'>
-          <GameCover imageUrl={game?.imageUrl} size='ml' />
-          <span className='min-w-0 space-y-0.5'>
-            <p className={`font-semibold ${a.title}`}>{t.gameName}</p>
-            {game && shortest != null && (
-              <p className='text-xs text-gray-500'>
-                ⏱ ~{shortest === longest ? shortest : `${shortest}–${longest}`} min · {COMPLEXITY_LABEL[game.complexity]}
-              </p>
-            )}
-            {bringsAndExplains ? (
-              <p className='text-xs text-gray-400'>🎒🎓 Lo trae y lo explica: <span className='text-gray-300'>{explainerName}</span></p>
-            ) : (
-              <>
-                {game && <p className='text-xs text-gray-400'>🎒 Lo trae: <span className='text-gray-300'>{game.ownerName || '?'}</span></p>}
-                <p className='text-xs text-gray-400'>🎓 Lo explica: <span className='text-gray-300'>{explainerName}</span></p>
-              </>
-            )}
-          </span>
-        </span>
-        <span className={`text-xs ${a.link} shrink-0`}>{t.startTime}–{t.endTime}</span>
-      </div>
-      <div className='mt-2 space-y-1'>
-        {interested != null && (
-          <button onClick={() => onView('interested')} className={`block text-xs ${a.link} hover:underline text-left`}>
-            🤔 {interested} interesados →
-          </button>
-        )}
-        <button onClick={() => onView('confirmed')} className={`block text-xs ${a.link} hover:underline text-left`}>
-          🪑 {t.playerIds.length} {seatWord}{range && ` · ${range}`} →
-        </button>
-        {missing != null && seatsLeft != null && (
-          <p className='text-xs text-gray-500'>
-            {missing > 0 ? `Faltan ${missing} para confirmar` : 'Ya alcanza el mínimo'} · {seatsLeft} lugar{seatsLeft === 1 ? '' : 'es'} libre{seatsLeft === 1 ? '' : 's'}
-          </p>
-        )}
-      </div>
-    </>
   );
 }
 

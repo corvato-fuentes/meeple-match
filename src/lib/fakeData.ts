@@ -253,7 +253,7 @@ export function generateFakePostulatedTables(
       startTime: toTimeString(start),
       endTime: toTimeString(end),
       playerIds,
-      status: playerIds.length >= game.minPlayers ? 'confirmed' : 'recommended',
+      status: playerIds.length >= Math.max(2, game.minPlayers) ? 'confirmed' : 'recommended',
     });
   }
 

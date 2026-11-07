@@ -119,6 +119,14 @@ export interface Table {
   // Players who rejected THIS specific recommended table — their underlying vote isn't touched,
   // they just won't be re-offered this exact table instance again.
   rejectedIds?: string[];
+  // Explainer-first offers: the table is first offered ONLY to the people who can explain the game, all at once. While
+  // `awaitingExplainer` is true `candidateIds` holds exactly those people, `explainerId` is just a placeholder (one of
+  // them) and everyone else the table was built for waits in `queuedIds` (they see it, but aren't asked yet). The first
+  // of them to accept becomes `explainerId` and takes a seat; the rest of the pool and the queue then become the normal
+  // candidates. If all of them decline (or can no longer do it) the table is cancelled.
+  // Tables created before this existed have none of these fields and keep working as plain offers.
+  awaitingExplainer?: boolean;
+  queuedIds?: string[];
   // True for a table the game's owner posted directly ("I'm bringing this, join me at 4pm")
   // instead of one the algorithm assembled from votes — players join directly, no candidate pool.
   postedByOwner?: boolean;

@@ -11,6 +11,8 @@ import { generateTicketCodeCandidate } from './ticketCode';
 import { toMinutes, toTimeString } from './timeUtils';
 import { requestPushSync } from './pushClient';
 import { displayNameOf } from './playerName';
+import { MIN_TABLE_SEATS } from './seats';
+import type { WaitingTableReview } from './tableAlgorithm';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -682,9 +684,37 @@ export async function saveProposedTables(
   await batch.commit();
 }
 
-/** Adds fresh voters to an already-open 'recommended' table's candidate pool (full updated list). */
-export async function updateTableCandidates(eventCode: string, tableId: string, candidateIds: string[]): Promise<void> {
-  await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), { candidateIds });
+/**
+ * Adds fresh voters to an already-open 'recommended' table: to its candidate pool, or — while the table still waits on
+ * its explainer — to the queue behind them (full updated lists).
+ */
+export async function updateTableCandidates(
+  eventCode: string,
+  tableId: string,
+  update: { candidateIds?: string[]; queuedIds?: string[] }
+): Promise<void> {
+  const fields: Record<string, string[]> = {};
+  if (update.candidateIds) fields.candidateIds = update.candidateIds;
+  if (update.queuedIds) fields.queuedIds = update.queuedIds;
+  if (Object.keys(fields).length > 0) await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), fields);
+}
+
+/**
+ * Applies the outcome of `reviewWaitingTables`: people who can no longer explain a waiting table are dropped from its
+ * offer, and a table with nobody left who can explain it is cancelled.
+ */
+export async function applyWaitingTableReviews(eventCode: string, reviews: WaitingTableReview[]): Promise<void> {
+  if (reviews.length === 0) return;
+  const batch = writeBatch(db);
+  for (const r of reviews) {
+    const ref = doc(db, 'events', eventCode, 'tables', r.tableId);
+    if (r.action === 'cancel') {
+      batch.update(ref, { status: 'cancelled' as const, candidateIds: [], queuedIds: [] });
+    } else {
+      batch.update(ref, { explainerId: r.explainerId, candidateIds: r.candidateIds });
+    }
+  }
+  await batch.commit();
 }
 
 /**
@@ -704,6 +734,11 @@ export async function postTable(eventCode: string, table: Omit<Table, 'id'>): Pr
  * them again — their underlying vote is untouched, so a future regeneration can still propose a
  * different table for the same game. Runs as a transaction so two players responding at the same
  * instant can't both see the same stale candidate pool and overshoot maxPlayers.
+ *
+ * Explainer first: a table that is still `awaitingExplainer` is offered only to the people who can explain the game, all at
+ * once. The first of them to accept becomes the explainer and takes a seat (the explainer plays too); everyone else it
+ * was built for — the other explainers and the people in the queue — is then offered the table. When one declines the
+ * others still have it; when the last one declines the table is cancelled and its people go back to the pool.
  */
 export async function respondToRecommendation(
   eventCode: string,
@@ -714,22 +749,46 @@ export async function respondToRecommendation(
   maxPlayers: number
 ): Promise<void> {
   const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  const minSeats = Math.max(MIN_TABLE_SEATS, minPlayers);
+  let somethingToAnnounce = accept;
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) return;
     const table = snap.data() as Table;
     if (table.status !== 'recommended') return;
     const candidateIds = (table.candidateIds ?? []).filter((id) => id !== playerId);
+
+    if (table.awaitingExplainer && candidateIds.length + 1 === (table.candidateIds ?? []).length) {
+      // `playerId` is one of the people the table was offered to explain (the filter above removed exactly one id)
+      const queued = table.queuedIds ?? [];
+      if (accept) {
+        if (table.playerIds.includes(playerId)) return;
+        tx.update(ref, {
+          awaitingExplainer: false, explainerId: playerId, playerIds: [...table.playerIds, playerId],
+          candidateIds: [...candidateIds, ...queued], queuedIds: [],
+        });
+        return;
+      }
+      const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
+      somethingToAnnounce = candidateIds.length === 0; // the last explainer said no: the table is gone
+      if (candidateIds.length === 0) {
+        tx.update(ref, { status: 'cancelled' as const, candidateIds: [], queuedIds: [], rejectedIds });
+      } else {
+        tx.update(ref, { candidateIds, rejectedIds, ...(table.explainerId === playerId && { explainerId: candidateIds[0] }) });
+      }
+      return;
+    }
+
     if (accept) {
       if (table.playerIds.includes(playerId) || table.playerIds.length >= maxPlayers) return;
       const playerIds = [...table.playerIds, playerId];
-      tx.update(ref, { candidateIds, playerIds, ...(playerIds.length >= minPlayers && { status: 'confirmed' as const }) });
+      tx.update(ref, { candidateIds, playerIds, ...(playerIds.length >= minSeats && { status: 'confirmed' as const }) });
     } else {
       const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
       tx.update(ref, { candidateIds, rejectedIds });
     }
   });
-  if (accept) requestPushSync(eventCode); // the table may have just reached its minimum
+  if (somethingToAnnounce) requestPushSync(eventCode); // the table may have just reached its minimum, or reached its other people
 }
 
 /**
@@ -753,7 +812,7 @@ export async function joinPostedTable(
     const table = snap.data() as Table;
     if (table.status !== 'recommended' || table.playerIds.includes(playerId) || table.playerIds.length >= maxPlayers) return;
     const playerIds = [...table.playerIds, playerId];
-    tx.update(ref, { playerIds, ...(playerIds.length >= minPlayers && { status: 'confirmed' as const }) });
+    tx.update(ref, { playerIds, ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }) });
   });
   requestPushSync(eventCode); // the table may have just reached its minimum
 }
@@ -802,7 +861,7 @@ export async function leavePostedTable(
     const playerIds = table.playerIds.filter((id) => id !== playerId);
     tx.update(ref, {
       playerIds,
-      ...(table.status === 'confirmed' && playerIds.length < minPlayers && { status: 'recommended' as const }),
+      ...(table.status === 'confirmed' && playerIds.length < Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'recommended' as const }),
     });
   });
 }

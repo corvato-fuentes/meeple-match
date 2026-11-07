@@ -1,5 +1,6 @@
 import type { Player, Game, Table } from './types';
 import { toMinutes, toTimeString, windowDuration, roundUp5 } from './timeUtils';
+import { minSeats } from './seats';
 
 interface TableProposal {
   gameId: string;
@@ -7,8 +8,12 @@ interface TableProposal {
   startTime: string;
   endTime: string;
   explainerId: string;
-  playerIds: string[]; // always empty at creation — nobody has accepted a recommended table yet
+  playerIds: string[]; // always empty at creation — nobody has accepted yet
+  // Explainer first (see Table.awaitingExplainer): the table is offered only to the people who can explain the game, all
+  // at once (`candidateIds`); the others wait in `queuedIds` until one of them accepts. `explainerId` is provisional.
   candidateIds: string[];
+  queuedIds: string[];
+  awaitingExplainer: true;
   rejectedIds: string[];
   status: 'recommended';
   isManuallyEdited: boolean;
@@ -18,7 +23,10 @@ interface TableProposal {
 
 export interface CandidateUpdate {
   tableId: string;
-  candidateIds: string[]; // full updated list (existing + newly added)
+  // Full updated list (existing + newly added). For a table still waiting on its explainer the newcomers go to the
+  // queue (`queuedIds`) instead of being offered it straight away.
+  candidateIds?: string[];
+  queuedIds?: string[];
 }
 
 export interface GenerateTablesResult {
@@ -198,11 +206,22 @@ export function generateTables(
   // Everyone already offered a seat (candidate, accepted, or rejected) on ANY non-cancelled table
   // for a game — a fresh proposal never re-offers these people unless they opted into a repeat.
   const offeredByGame = new Map<string, Set<string>>();
+  // People who turned down explaining a game: a table that fell through for that reason is cancelled, and without this
+  // the next pass would just offer them to explain the same game again.
+  const declinedExplainers = new Map<string, Set<string>>();
   existingTables.forEach((t) => {
-    if (t.status === 'cancelled') return;
+    if (t.status === 'cancelled') {
+      if (t.awaitingExplainer) {
+        const declined = declinedExplainers.get(t.gameId) ?? new Set<string>();
+        (t.rejectedIds ?? []).forEach((id) => declined.add(id));
+        declinedExplainers.set(t.gameId, declined);
+      }
+      return;
+    }
     const offered = offeredByGame.get(t.gameId) ?? new Set<string>();
     t.playerIds.forEach((id) => offered.add(id));
     (t.candidateIds ?? []).forEach((id) => offered.add(id));
+    (t.queuedIds ?? []).forEach((id) => offered.add(id));
     (t.rejectedIds ?? []).forEach((id) => offered.add(id));
     offeredByGame.set(t.gameId, offered);
   });
@@ -218,7 +237,7 @@ export function generateTables(
     if (!offered || offered.size === 0) return false;
     const voters = players.filter((p) => p.interests[game.id] === 'yes');
     const freshVoters = voters.filter((p) => !offered.has(p.id));
-    return freshVoters.length < game.minPlayers;
+    return freshVoters.length < minSeats(game);
   }
 
   const sorted = [...games].sort((a, b) => {
@@ -232,16 +251,16 @@ export function generateTables(
     // it either happens now or never. A game with enough demand for several tables degrades
     // gracefully instead (just forms fewer of them), so it keeps competing on raw popularity
     // like before instead of being treated as equally "at risk".
-    const singleShotA = totA < 2 * a.minPlayers;
-    const singleShotB = totB < 2 * b.minPlayers;
+    const singleShotA = totA < 2 * minSeats(a);
+    const singleShotB = totB < 2 * minSeats(b);
     if (singleShotA !== singleShotB) return singleShotA ? -1 : 1;
     if (singleShotA && singleShotB) {
-      const slackA = totA - a.minPlayers;
-      const slackB = totB - b.minPlayers;
+      const slackA = totA - minSeats(a);
+      const slackB = totB - minSeats(b);
       if (slackA !== slackB) return slackA - slackB;
     }
     if (totB !== totA) return totB - totA;
-    return a.minPlayers - b.minPlayers;
+    return minSeats(a) - minSeats(b);
   })
     // Secondary copies of a merged game (admin marked them as duplicates of a primary) never get
     // their own table-forming pass — the primary's pass below books up to `copies` concurrent
@@ -280,13 +299,25 @@ export function generateTables(
       (t) => t.gameId === game.id && t.status === 'recommended' && !t.postedByOwner && t.playerIds.length < game.maxPlayers
     );
     for (const ot of openTables) {
-      const known = new Set([...(ot.candidateIds ?? []), ...ot.playerIds, ...(ot.rejectedIds ?? [])]);
+      const known = new Set([...(ot.candidateIds ?? []), ...(ot.queuedIds ?? []), ...ot.playerIds, ...(ot.rejectedIds ?? [])]);
       const fresh = players.filter((p) =>
         p.interests[game.id] === 'yes' && !known.has(p.id) &&
         isAvailable(p, ot.startTime, ot.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
       );
       if (fresh.length === 0) continue;
-      candidateUpdates.push({ tableId: ot.id, candidateIds: [...(ot.candidateIds ?? []), ...fresh.map((p) => p.id)] });
+      if (ot.awaitingExplainer) {
+        // Still waiting on an explainer: a newcomer who can explain the game is asked to as well; the rest queue up
+        const declined = declinedExplainers.get(game.id);
+        const asExplainers = fresh.filter((p) => p.canExplain.includes(game.id) && !declined?.has(p.id));
+        const asPlayers = fresh.filter((p) => !asExplainers.includes(p));
+        candidateUpdates.push({
+          tableId: ot.id,
+          ...(asExplainers.length > 0 && { candidateIds: [...(ot.candidateIds ?? []), ...asExplainers.map((p) => p.id)] }),
+          ...(asPlayers.length > 0 && { queuedIds: [...(ot.queuedIds ?? []), ...asPlayers.map((p) => p.id)] }),
+        });
+      } else {
+        candidateUpdates.push({ tableId: ot.id, candidateIds: [...(ot.candidateIds ?? []), ...fresh.map((p) => p.id)] });
+      }
       fresh.forEach((p) => offered.add(p.id));
     }
 
@@ -294,7 +325,7 @@ export function generateTables(
     while (true) {
       const eligibleForAnotherTable = (p: Player) => !offered.has(p.id) || (p.repeatGameIds ?? []).includes(game.id);
       const interested = players.filter((p) => p.interests[game.id] === 'yes' && eligibleForAnotherTable(p));
-      if (interested.length < game.minPlayers) break;
+      if (interested.length < minSeats(game)) break;
 
       // Whoever arrives earliest goes first — a late arrival shouldn't get pulled ahead of
       // someone who's been free since the morning, which would needlessly delay the table.
@@ -343,7 +374,8 @@ export function generateTables(
       // explain the game; keeps whichever seed grows the biggest compatible group.
       function tryFindGroup(pool: Player[], minSize: number, maxSize: number): GroupResult | null {
         if (pool.length < minSize) return null;
-        const explainerSeeds = pool.filter((p) => p.canExplain.includes(game.id));
+        const declined = declinedExplainers.get(game.id);
+        const explainerSeeds = pool.filter((p) => p.canExplain.includes(game.id) && !declined?.has(p.id));
 
         let best: GroupResult | null = null;
         for (const seed of explainerSeeds) {
@@ -357,18 +389,27 @@ export function generateTables(
         return best;
       }
 
-      const best = tryFindGroup(byFlexibility, game.minPlayers, game.maxPlayers);
+      const best = tryFindGroup(byFlexibility, minSeats(game), game.maxPlayers);
       if (!best) break;
       const { group, window, explainer } = best;
 
+      const declined = declinedExplainers.get(game.id);
+      // Everyone in the group who can explain the game is asked at the same time (the first to accept takes the table);
+      // the rest wait until one of them has.
+      const explainerPool = group.filter((p) => p.canExplain.includes(game.id) && !declined?.has(p.id));
       proposals.push({
         gameId: game.id,
         gameName: game.name,
         startTime: window.start,
         endTime: window.end,
-        explainerId: explainer.id,
+        explainerId: explainer.id, // provisional: whoever accepts first becomes the explainer
         playerIds: [],
-        candidateIds: group.map((p) => p.id),
+        // Explainer first: without someone to explain it nothing else about the table matters, so only the people who
+        // can explain it are offered it now. The rest wait in the queue and are offered it once one of them accepts
+        // (and that explainer also plays: they take a seat like everyone else).
+        candidateIds: explainerPool.map((p) => p.id),
+        queuedIds: group.filter((p) => !explainerPool.includes(p)).map((p) => p.id),
+        awaitingExplainer: true,
         rejectedIds: [],
         status: 'recommended',
         isManuallyEdited: false,
@@ -382,6 +423,37 @@ export function generateTables(
   }
 
   return { proposals, candidateUpdates };
+}
+
+/** What to do with a table that is waiting on explainers who may no longer be able to explain it. */
+export type WaitingTableReview =
+  | { tableId: string; action: 'cancel' }
+  | { tableId: string; action: 'update'; explainerId: string; candidateIds: string[] };
+
+/**
+ * Looks at every recommended table still waiting for someone to confirm they explain it and checks each person it was
+ * offered to can still do it: still at the event, still wants the game and can explain it, and isn't now busy with
+ * another table at that time (e.g. they accepted one). People who can't are dropped from the offer; with nobody left
+ * the table is cancelled right away, so it doesn't sit there waiting for an explainer who can't come.
+ */
+export function reviewWaitingTables(players: Player[], tables: Table[], bufferMinutes: number): WaitingTableReview[] {
+  const reviews: WaitingTableReview[] = [];
+  const canStillExplain = (id: string, t: Table): boolean => {
+    const p = players.find((x) => x.id === id);
+    return !!p && p.interests[t.gameId] === 'yes' && p.canExplain.includes(t.gameId) &&
+      isAvailable(p, t.startTime, t.endTime, getBusyWindows(p.id, tables.filter((o) => o.id !== t.id)), bufferMinutes);
+  };
+
+  for (const t of tables) {
+    if (t.status !== 'recommended' || t.postedByOwner || !t.awaitingExplainer) continue;
+    const pool = t.candidateIds ?? [];
+    const stillAble = pool.filter((id) => canStillExplain(id, t));
+    if (stillAble.length === 0) reviews.push({ tableId: t.id, action: 'cancel' });
+    else if (stillAble.length !== pool.length) {
+      reviews.push({ tableId: t.id, action: 'update', explainerId: stillAble.includes(t.explainerId) ? t.explainerId : stillAble[0], candidateIds: stillAble });
+    }
+  }
+  return reviews;
 }
 
 export interface TableFill {

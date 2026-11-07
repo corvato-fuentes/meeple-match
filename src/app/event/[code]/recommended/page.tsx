@@ -6,7 +6,7 @@ import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables,
   respondToRecommendation, updatePlayerWishlist,
 } from '@/lib/firestore';
-import { estimatedDuration } from '@/lib/tableAlgorithm';
+import WaitingTableInfo, { ActionButton, RecommendedWho } from '@/components/ui/WaitingTableInfo';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import { useAutoSaveWishlist } from '@/hooks/useAutoSaveWishlist';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
@@ -19,11 +19,11 @@ import GameVoteCard from '@/components/ui/GameVoteCard';
 import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
 import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
-import type { MeepleEvent, Player, Game, Table, GameComplexity, InterestLevel } from '@/lib/types';
+import { runTableGeneration } from '@/lib/tableGeneration';
+import type { MeepleEvent, Player, Game, Table, InterestLevel } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 
-const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
 
 type TableFilter = 'pending' | 'waiting' | 'confirmed' | 'all';
 type GameFilter = 'available' | 'wishlist' | 'hidden';
@@ -41,7 +41,7 @@ export default function RecommendedTablesPage() {
   const [loading, setLoading] = useState(true);
   const [respondingTableId, setRespondingTableId] = useState<string | null>(null);
   const [repeatPromptGameId, setRepeatPromptGameId] = useState<string | null>(null);
-  const [viewingTableId, setViewingTableId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
   // Set once the player accepts a table: that's the moment to offer notifications about it
   const [acceptedOne, setAcceptedOne] = useState(false);
   // The table whose Aceptar opened the overlap popup (so its "Rechazar" knows which table to decline)
@@ -105,37 +105,7 @@ export default function RecommendedTablesPage() {
   const availableGames = primaryGames.filter((g) => interests[g.id] !== 'yes' && interests[g.id] !== 'no');
   const dismissedGames = primaryGames.filter((g) => interests[g.id] === 'no');
 
-  // Until the table is confirmed, show the full worst-case estimate (everyone seated, e.g. ~135min);
-  // once confirmed it shrinks to the real roster and updates if someone else joins.
-  function gameMetaLine(gameId: string, t: Table): string | null {
-    const game = gameMap.get(gameId);
-    if (!game) return null;
-    const seated = t.status === 'confirmed' ? Math.max(t.playerIds.length, game.minPlayers) : game.maxPlayers;
-    return `${COMPLEXITY_LABEL[game.complexity]} · ~${estimatedDuration(game, seated)}min`;
-  }
-
-  // "✅ N confirmados · 🤔 N interesados" + the popup button, shared by every recommended-table card
-  // so the same table reads the same wherever it shows up. Interesados = offered the seat, not accepted yet.
-  const rosterSummary = (t: Table) => {
-    const interested = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id)).length;
-    return (
-      <>
-        <p className="text-xs text-gray-400 mt-1 flex flex-wrap gap-x-2">
-          <span className="whitespace-nowrap">✅ {t.playerIds.length} confirmados</span>
-          <span className="whitespace-nowrap">🤔 {interested} interesados</span>
-        </p>
-        <button onClick={() => setViewingTableId(t.id)} className="text-xs text-amber-400 hover:underline mt-0.5">
-          👀 Ver interesados
-        </button>
-      </>
-    );
-  };
-
-  const coverFor = (gameId: string) => (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={gameMap.get(gameId)?.imageUrl || '/cover-placeholder.png'} alt=""
-      className="w-9 h-11 rounded object-cover border border-gray-700 bg-gray-900 shrink-0" />
-  );
+  const nameOfPlayer = (id: string) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? '?');
 
   function knowledgeLevelFor(gameId: string): KnowledgeLevel {
     if (canExplain.includes(gameId)) return 'explains';
@@ -191,6 +161,9 @@ export default function RecommendedTablesPage() {
     setRespondingTableId(t.id);
     try {
       await respondToRecommendation(code, t.id, player.id, accept, game.minPlayers, game.maxPlayers);
+      // Accepting takes this person's time: a table that was waiting for them to explain something else at that hour
+      // can no longer count on them, so re-check the waiting tables (it moves them on to someone else or cancels them).
+      if (accept && event) runTableGeneration(code, event).catch(() => {});
       if (accept) setAcceptedOne(true);
       if (accept && !(player.repeatGameIds ?? []).includes(t.gameId)) setRepeatPromptGameId(t.gameId);
     } finally {
@@ -213,6 +186,12 @@ export default function RecommendedTablesPage() {
     .filter((t) => t.status === 'recommended' && !t.postedByOwner && t.playerIds.includes(player.id))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
+  // Tables built for me that are still waiting for their explainer to confirm: not offered to me yet, but shown so they
+  // don't look hidden — with who hasn't confirmed.
+  const myQueuedTables = allTables
+    .filter((t) => t.status === 'recommended' && !t.postedByOwner && !!t.awaitingExplainer && (t.queuedIds ?? []).includes(player.id))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
   // Ones I accepted that already hit the minimum and got confirmed — also shown on the main
   // ticket page, but useful here too to see the whole recommendation flow through.
   const myConfirmedRecommendedTables = allTables
@@ -221,31 +200,35 @@ export default function RecommendedTablesPage() {
 
   // One list with filter chips instead of three columns: a table keeps its place when it changes
   // state (only its badge changes) and overlapping tables sit next to each other, sorted by time.
-  type TableKind = 'pending' | 'waiting' | 'confirmed';
+  type TableKind = 'pending' | 'waiting' | 'queued' | 'confirmed';
   const tableEntries: { t: Table; kind: TableKind }[] = [
     ...myRecommendedTables.map((t) => ({ t, kind: 'pending' as const })),
     ...myAcceptedRecommendedTables.map((t) => ({ t, kind: 'waiting' as const })),
+    ...myQueuedTables.map((t) => ({ t, kind: 'queued' as const })),
     ...myConfirmedRecommendedTables.map((t) => ({ t, kind: 'confirmed' as const })),
   ].sort((a, b) => a.t.startTime.localeCompare(b.t.startTime));
   // Opens on what needs an answer; falls back to everything when nothing is pending.
   const activeTableFilter: TableFilter = tableFilter ?? (myRecommendedTables.length > 0 ? 'pending' : 'all');
-  const visibleEntries = tableEntries.filter((e) => activeTableFilter === 'all' || e.kind === activeTableFilter);
+  // The "Esperando" chip covers both: tables I accepted that need more people, and tables waiting for their explainer
+  const visibleEntries = tableEntries.filter((e) =>
+    activeTableFilter === 'all' || e.kind === activeTableFilter || (activeTableFilter === 'waiting' && e.kind === 'queued'));
 
   const TABLE_FILTER_HINT: Record<TableFilter, string> = {
     pending: 'El algoritmo te ofrece un lugar acá según tus votos — aceptá para sumarte o rechazá si ya no te interesa.',
-    waiting: 'Ya aceptaste, pero todavía no se llega al mínimo — en cuanto se complete, pasa a confirmada.',
+    waiting: 'Mesas donde ya aceptaste y todavía no se llega al mínimo, o que esperan que quien las explica confirme para ofrecértelas.',
     confirmed: 'Ya llegaron al mínimo — también las vas a ver en la pantalla principal.',
     all: 'Todas tus mesas recomendadas, ordenadas por horario.',
   };
   const TABLE_FILTER_EMPTY: Record<TableFilter, string> = {
     pending: 'No tenés mesas por aceptar. Van a aparecer acá cuando tus votos coincidan con un horario en común.',
-    waiting: 'Todavía no aceptaste ninguna mesa recomendada.',
+    waiting: 'No tenés mesas esperando: ni aceptadas ni a la espera de quien explica.',
     confirmed: 'Todavía ninguna mesa recomendada se confirmó.',
     all: 'Todavía no hay mesas recomendadas para vos. Votá juegos abajo para que aparezcan.',
   };
   const KIND_BADGE: Record<TableKind, { label: string; cls: string }> = {
     pending: { label: '🟡 Por aceptar', cls: 'bg-amber-900/60 text-amber-300' },
     waiting: { label: '⏳ Esperando jugadores', cls: 'bg-gray-800 text-gray-300' },
+    queued: { label: '⏳ Falta que confirme quien explica', cls: 'bg-gray-800 text-amber-300' },
     confirmed: { label: '✅ Confirmada', cls: 'bg-green-900/60 text-green-300' },
   };
 
@@ -255,38 +238,37 @@ export default function RecommendedTablesPage() {
   );
 
   const tableCard = (t: Table, kind: TableKind) => {
-    const minPlayers = gameMap.get(t.gameId)?.minPlayers ?? '?';
+    const game = gameMap.get(t.gameId);
     const border = kind === 'confirmed' ? 'border-green-800 bg-green-950/10'
-      : kind === 'waiting' ? 'border-amber-800 bg-amber-950/10' : 'border-amber-700 bg-amber-950/20';
+      : kind === 'waiting' || kind === 'queued' ? 'border-amber-800 bg-amber-950/10' : 'border-amber-700 bg-amber-950/20';
+    // While nobody has confirmed explaining it, the people who can explain it get a different offer than everyone else
+    const asExplainer = t.awaitingExplainer && (t.candidateIds ?? []).includes(myId);
+    const interested = [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])].filter((id) => !t.playerIds.includes(id)).length;
     return (
-      <div key={t.id} className={`border rounded-xl px-3 py-2 ${border}`}>
-        <div className="flex justify-between items-start gap-2">
-          <span className="flex items-center gap-2 min-w-0">
-            {coverFor(t.gameId)}
-            <span className="min-w-0">
-              <span className={`block font-medium text-sm ${kind === 'confirmed' ? 'text-gray-100' : 'text-amber-300'}`}>{t.gameName}</span>
-              <span className={`inline-block mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>
-            </span>
-          </span>
-          <span className={`text-xs shrink-0 ${kind === 'confirmed' ? 'text-green-400' : 'text-amber-400'}`}>{t.startTime}–{t.endTime}</span>
+      <div key={t.id} className={`border rounded-xl p-3 ${border}`}>
+        <WaitingTableInfo t={t} game={game} accent={kind === 'confirmed' ? 'green' : 'amber'} interested={interested}
+          seatWord='confirmados' onView={(k) => setViewing({ tableId: t.id, kind: k })}
+          note={kind === 'pending' && asExplainer ? '🎓 Podés explicar este juego — si aceptás primero, jugás en la mesa y recién ahí se les ofrece a los demás' : undefined}
+          who={<RecommendedWho t={t} game={game} nameOf={nameOfPlayer} />}
+          badge={<span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>} />
+        <div className="mt-3">
+          {kind === 'pending' ? (
+            <div className="grid grid-cols-2 gap-2">
+              <ActionButton tone="neutral" onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}>
+                {asExplainer ? '❌ No puedo explicarlo' : '❌ Rechazar'}
+              </ActionButton>
+              <ActionButton tone="amber" onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id}>
+                {respondingTableId === t.id ? 'Guardando...' : asExplainer ? '✅ Explico y juego' : '✅ Aceptar'}
+              </ActionButton>
+            </div>
+          ) : kind === 'queued' ? (
+            <ActionButton tone="muted">⏳ Esperando que alguien confirme que la explica</ActionButton>
+          ) : kind === 'waiting' ? (
+            <ActionButton tone="muted">⏳ Ya aceptaste — esperando jugadores</ActionButton>
+          ) : (
+            <ActionButton tone="done">✅ Mesa confirmada</ActionButton>
+          )}
         </div>
-        {gameMetaLine(t.gameId, t) && (
-          <p className="text-[11px] text-gray-500 mt-1">{gameMetaLine(t.gameId, t)}</p>
-        )}
-        {kind === 'waiting' && <p className="text-xs text-gray-400 mt-1">Mínimo {minPlayers} para confirmar</p>}
-        {rosterSummary(t)}
-        {kind === 'pending' && (
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}
-              className="flex-1 border border-gray-700 rounded-lg py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800 disabled:opacity-50">
-              ❌ Rechazar
-            </button>
-            <button onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id}
-              className="flex-1 bg-amber-600 rounded-lg py-1.5 text-xs font-medium hover:bg-amber-700 disabled:opacity-50">
-              {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
-            </button>
-          </div>
-        )}
       </div>
     );
   };
@@ -312,7 +294,7 @@ export default function RecommendedTablesPage() {
       <section>
         <div className="flex flex-wrap gap-2 mb-2">
           {filterChip(activeTableFilter === 'pending', () => setTableFilter('pending'), 'Por aceptar', myRecommendedTables.length, 'bg-amber-600 border-amber-600 text-black', true)}
-          {filterChip(activeTableFilter === 'waiting', () => setTableFilter('waiting'), '⏳ Esperando', myAcceptedRecommendedTables.length, 'bg-gray-200 border-gray-200 text-gray-900')}
+          {filterChip(activeTableFilter === 'waiting', () => setTableFilter('waiting'), '⏳ Esperando', myAcceptedRecommendedTables.length + myQueuedTables.length, 'bg-gray-200 border-gray-200 text-gray-900')}
           {filterChip(activeTableFilter === 'confirmed', () => setTableFilter('confirmed'), '✅ Confirmadas', myConfirmedRecommendedTables.length, 'bg-green-600 border-green-600 text-black')}
           {filterChip(activeTableFilter === 'all', () => setTableFilter('all'), 'Todas', tableEntries.length, 'bg-gray-200 border-gray-200 text-gray-900')}
         </div>
@@ -377,11 +359,11 @@ export default function RecommendedTablesPage() {
         );
       })()}
 
-      {viewingTableId && (() => {
-        const t = allTables.find((x) => x.id === viewingTableId);
+      {viewing && (() => {
+        const t = allTables.find((x) => x.id === viewing.tableId);
         if (!t) return null;
-        const close = () => setViewingTableId(null);
-        const candidates = (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id));
+        const close = () => setViewing(null);
+        const candidates = [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])].filter((id) => !t.playerIds.includes(id));
         const nameList = (ids: string[]) => ids.map((id) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? '?'));
         const group = (title: string, ids: string[], empty: string) => (
           <div>
@@ -403,11 +385,9 @@ export default function RecommendedTablesPage() {
                 <h3 className="font-semibold text-gray-100">{t.gameName}</h3>
                 <p className="text-xs text-gray-500">{t.startTime}–{t.endTime}</p>
               </div>
-              {t.explainerId && (
-                <p className="text-xs text-gray-400">🎓 Explica: <span className="text-gray-300">{nameList([t.explainerId])[0]}</span></p>
-              )}
-              {group('✅ Confirmados', t.playerIds, 'Nadie todavía.')}
-              {group('🤔 Interesados (sin confirmar)', candidates, 'No quedan interesados pendientes.')}
+              {viewing.kind === 'confirmed'
+                ? group('🪑 Confirmados', t.playerIds, 'Nadie todavía.')
+                : group('🤔 Interesados (sin confirmar)', candidates, 'No quedan interesados pendientes.')}
               <button onClick={close} className="w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800">
                 Cerrar
               </button>

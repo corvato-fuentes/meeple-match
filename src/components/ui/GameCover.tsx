@@ -1,6 +1,6 @@
 'use client';
 
-const SIZE_CLASS = { sm: 'w-9 h-11', md: 'w-12 h-[3.75rem]', ml: 'w-16 h-20', lg: 'w-24 h-32' } as const;
+const SIZE_CLASS = { sm: 'w-9 h-11', md: 'w-12 h-[3.75rem]', ml: 'w-16 h-20', xl: 'w-20 h-[6.75rem]', fill: 'w-24 self-stretch min-h-32', lg: 'w-24 h-32' } as const;
 
 /** Portrait box-art thumbnail for cards (sm/md in table lists, lg where the cover is a main part of the card);
  *  falls back to the generic "SIN PORTADA" art. */

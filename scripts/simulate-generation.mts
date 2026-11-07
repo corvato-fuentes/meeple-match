@@ -45,7 +45,7 @@ for (const t of proposals) {
 console.log(`\n=== CANDIDATE UPDATES TO EXISTING OPEN TABLES (${candidateUpdates.length}) ===`);
 for (const u of candidateUpdates) {
   const table = allTables.find((t: any) => t.id === u.tableId);
-  const names = u.candidateIds.map((pid: string) => players.find((p: any) => p.id === pid)?.name ?? pid);
+  const names = (u.candidateIds ?? u.queuedIds ?? []).map((pid: string) => players.find((p: any) => p.id === pid)?.name ?? pid);
   console.log(`- ${table?.gameName ?? u.tableId}: candidates now [${names.join(', ')}]`);
 }
 
