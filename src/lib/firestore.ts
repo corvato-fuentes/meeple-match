@@ -891,6 +891,8 @@ export async function leavePostedTable(
     const playerIds = table.playerIds.filter((id) => id !== playerId);
     tx.update(ref, {
       playerIds,
+      // Remembered so the seat-filling pass doesn't put them straight back on (they still voted yes for the game)
+      rejectedIds: [...new Set([...(table.rejectedIds ?? []), playerId])],
       ...(table.status === 'confirmed' && playerIds.length < Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'recommended' as const }),
     });
   });

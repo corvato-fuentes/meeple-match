@@ -287,6 +287,13 @@ describe('fillExistingTables', () => {
     expect(fillExistingTables(players, [game('g1', { maxPlayers: 4 })], [confirmed], 10)).toEqual([{ tableId: 'c1', playerIds: ['p1', 'p2', 'p3'] }]);
   });
 
+  it('never puts back someone who stepped down from that table, even though they still vote yes', () => {
+    const players = [...voters(2), player('p3', { interests: { g1: 'yes' } }), player('p4', { interests: { g1: 'yes' } })];
+    const left = { ...confirmed, rejectedIds: ['p3'] };
+    expect(fillExistingTables(players, [game('g1', { maxPlayers: 4 })], [left], 10)).toEqual([{ tableId: 'c1', playerIds: ['p1', 'p2', 'p4'] }]);
+    expect(fillExistingTables([...voters(2), player('p3', { interests: { g1: 'yes' } })], [game('g1', { maxPlayers: 4 })], [left], 10)).toEqual([]);
+  });
+
   it('respects the maximum, earliest arrival first', () => {
     const players = [
       ...voters(2),

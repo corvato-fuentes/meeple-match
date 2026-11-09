@@ -463,7 +463,8 @@ export interface TableFill {
 
 /**
  * Late "yes" voters can directly join an already-CONFIRMED table with open seats — no accept
- * step needed since the table is already locked in. (Still-`recommended` tables instead grow
+ * step needed since the table is already locked in. Someone who stepped down from (or rejected) that table
+ * is never put back on it, however much they still like the game. (Still-`recommended` tables instead grow
  * their candidate pool via generateTables, and need an explicit accept from each new voter.)
  */
 export function fillExistingTables(players: Player[], games: Game[], existingTables: Table[], bufferMinutes: number): TableFill[] {
@@ -485,6 +486,7 @@ export function fillExistingTables(players: Player[], games: Game[], existingTab
     const candidates = players
       .filter((p) =>
         !table.playerIds.includes(p.id) &&
+        !(table.rejectedIds ?? []).includes(p.id) &&
         p.interests[table.gameId] === 'yes' &&
         isAvailable(p, table.startTime, table.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
       )
