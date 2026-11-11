@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateTable, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
+import { sameGameOverlaps } from '@/lib/tableAlgorithm';
 import type { MeepleEvent, Table, Player, Game } from '@/lib/types';
 
 const STATUS_OPTIONS: Table['status'][] = ['recommended', 'confirmed', 'in-progress', 'completed', 'cancelled'];
@@ -83,8 +84,20 @@ export default function TablesPage() {
     setAddPlayerId('');
   }
 
+  // Other tables of the same game this one can't share its copy with at the given time (empty when all fit)
+  function clashesFor(t: Table, start: string, end: string): Table[] {
+    return sameGameOverlaps({
+      tables, table: t, start, end, bufferMinutes: event!.settings.bufferMinutes,
+      gameCopies: games.filter((g) => (g.groupId ?? g.id) === t.gameId).length || 1,
+    });
+  }
+
   async function saveEdit(t: Table) {
     if (!draft) return;
+    const clashes = clashesFor(t, draft.startTime, draft.endTime);
+    if (clashes.length > 0 && !window.confirm(
+      `Ese horario se superpone con ${clashes.map((c) => `la mesa de ${c.gameName} de ${c.startTime} a ${c.endTime}`).join(' y ')}, y el juego no tiene otra copia libre. ¿Guardar igual?`
+    )) return;
     const explainerStillIn = draft.playerIds.includes(t.explainerId);
     await updateTable(code, t.id, {
       startTime: draft.startTime,
@@ -151,6 +164,14 @@ export default function TablesPage() {
                             <span className='mr-2 text-xs bg-green-900 text-green-300 px-1.5 rounded'>✅ ideal</span>
                           )}
                           <p className='font-medium'>{t.gameName}</p>
+                          {(t.status === 'recommended' || t.status === 'confirmed' || t.status === 'in-progress') && (() => {
+                            const clashes = clashesFor(t, t.startTime, t.endTime);
+                            return clashes.length > 0 && (
+                              <p className='text-xs text-amber-300'>
+                                ⚠️ Superpuesta con {clashes.map((c) => `la de ${c.startTime}–${c.endTime} (${STATUS_LABEL[c.status]})`).join(' y ')}: no hay otra copia del juego
+                              </p>
+                            );
+                          })()}
                           {isEditing && draft ? (
                             <div className='flex gap-2 mt-1'>
                               <input type='time' value={draft.startTime}

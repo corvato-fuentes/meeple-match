@@ -82,6 +82,26 @@ export function findConflictingTable(
   ) ?? null;
 }
 
+/**
+ * The other live tables of the same game that a table running [start, end) can't share its copy with: when more of them
+ * overlap it (buffer counted on both sides, the box has to be reset in between) than the game has copies, so they can't
+ * all happen. Empty when everything fits. Used to warn the admin — nothing is changed or blocked.
+ */
+export function sameGameOverlaps(args: {
+  tables: Table[];
+  table: Pick<Table, 'id' | 'gameId'>;
+  start: string;
+  end: string;
+  bufferMinutes: number;
+  gameCopies: number;
+}): Table[] {
+  const { tables, table, start, end, bufferMinutes, gameCopies } = args;
+  const others = tables.filter((t) =>
+    t.id !== table.id && t.gameId === table.gameId && (t.status === 'recommended' || t.status === 'confirmed' || t.status === 'in-progress') &&
+    overlaps(toTimeString(toMinutes(t.startTime) - bufferMinutes), toTimeString(toMinutes(t.endTime) + bufferMinutes), start, end));
+  return others.length + 1 > Math.max(1, gameCopies) ? others : [];
+}
+
 /** How many of the given tables are physically occupying a seat during [start, end) */
 function concurrentTableCount(occupied: { startTime: string; endTime: string }[], start: string, end: string): number {
   return occupied.filter((t) => overlaps(t.startTime, t.endTime, start, end)).length;

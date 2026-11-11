@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
-  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable,
+  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
 
@@ -331,6 +331,27 @@ describe('replaceableByPostedTable — suggestions a posted table takes the plac
   it('replaces nothing while another copy of the game is free for the suggestion', () => {
     expect(find({ gameCopies: 2 })).toEqual([]);
     expect(find({ gameCopies: 2, tables: [suggested, { ...suggested, id: 'c', status: 'confirmed' }] })).toEqual([suggested]);
+  });
+});
+
+// ── sameGameOverlaps ────────────────────────────────────────────────────────
+describe('sameGameOverlaps — same game running twice with one copy', () => {
+  const a = table('a', { gameId: 'g1', status: 'confirmed', startTime: '14:00', endTime: '15:30' });
+  const b = table('b', { gameId: 'g1', status: 'recommended', startTime: '15:00', endTime: '16:30' });
+  const find = (o: Partial<Parameters<typeof sameGameOverlaps>[0]> = {}) =>
+    sameGameOverlaps({ tables: [a, b], table: b, start: b.startTime, end: b.endTime, bufferMinutes: 10, gameCopies: 1, ...o });
+
+  it('lists the other tables that overlap it, buffer included', () => {
+    expect(find()).toEqual([a]);
+    expect(find({ start: '15:35', end: '16:30' })).toEqual([a]);
+    expect(find({ start: '15:45', end: '16:30' })).toEqual([]);
+  });
+  it('is empty with enough copies, for other games, and for cancelled or finished tables', () => {
+    expect(find({ gameCopies: 2 })).toEqual([]);
+    expect(find({ tables: [a, { ...b, gameId: 'g2' }], table: { id: 'b', gameId: 'g1' } })).toEqual([a]);
+    expect(find({ tables: [{ ...a, gameId: 'g2' }, b] })).toEqual([]);
+    expect(find({ tables: [{ ...a, status: 'cancelled' }, b] })).toEqual([]);
+    expect(find({ tables: [{ ...a, status: 'completed' }, b] })).toEqual([]);
   });
 });
 
