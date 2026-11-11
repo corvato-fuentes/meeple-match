@@ -9,6 +9,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor } from '@/lib/offers';
+import { countGames } from '@/lib/gameCounts';
 import { useOpenGameRequests } from '@/hooks/useOpenGameRequests';
 import { postedSlotConflict, replaceableByPostedTable } from '@/lib/tableAlgorithm';
 import ConfirmModal from '@/components/ui/ConfirmModal';
@@ -754,7 +755,7 @@ export default function MyTicketPage() {
             <h2 className="font-semibold text-gray-200">♟️ Tus juegos</h2>
             <Link href={`/event/${code}/games?ticket=${player.ticketCode}`}
               className="flex items-center gap-1 text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800 shrink-0">
-              <span>🎲 Juegos de todos</span>
+              <span>🎲 Juegos de todos ({countGames(games).games})</span>
               <HelpPopover title="🎲 Juegos de todos">
                 <p>Te lleva a la lista completa de juegos del evento (los tuyos y los de los demás), para que puedas votar tus intereses.</p>
               </HelpPopover>

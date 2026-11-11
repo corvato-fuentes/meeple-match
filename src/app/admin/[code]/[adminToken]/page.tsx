@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, clampPlayerTimesToEvent, subscribePlayers, subscribeTables, seedFakePlayers, resetEventData } from '@/lib/firestore';
+import { getEvent, verifyAdminToken, updateEventSettings, updateEventDetails, clampPlayerTimesToEvent, subscribePlayers, subscribeTables, subscribeGames, seedFakePlayers, resetEventData } from '@/lib/firestore';
 import { useOrigin } from '@/hooks/useOrigin';
 import { generateFakePlayers } from '@/lib/fakeData';
 import { saveMyEvent, findMyPlayerEvent, type SavedPlayerEvent } from '@/lib/myEvents';
@@ -13,7 +13,8 @@ import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import AnnounceCard from '@/components/ui/AnnounceCard';
-import type { MeepleEvent, Player, Table } from '@/lib/types';
+import { countGames } from '@/lib/gameCounts';
+import type { MeepleEvent, Player, Table, Game } from '@/lib/types';
 
 /** "2026-11-15" → "15/11/2026" */
 function formatDate(iso: string): string {
@@ -28,6 +29,7 @@ export default function AdminPage() {
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateMsg, setGenerateMsg] = useState<string | null>(null);
@@ -91,7 +93,8 @@ export default function AdminPage() {
       .catch(() => {});
     const unsubP = subscribePlayers(code, setPlayers);
     const unsubT = subscribeTables(code, setTables);
-    return () => { unsubP(); unsubT(); };
+    const unsubG = subscribeGames(code, setGames);
+    return () => { unsubP(); unsubT(); unsubG(); };
   }, [code, adminToken]);
 
   async function handleGenerate() {
@@ -288,6 +291,7 @@ export default function AdminPage() {
   if (!event || !settingsDraft) return <div className='p-8 text-center'>Cargando...</div>;
 
   const confirmedCount = tables.filter((t) => ['confirmed', 'in-progress'].includes(t.status)).length;
+  const gameCount = countGames(games);
   const recommendedCount = tables.filter((t) => t.status === 'recommended' && !t.postedByOwner).length;
   const postulatedCount = tables.filter((t) => t.status === 'recommended' && t.postedByOwner).length;
   const eventStatus = computeEventStatus(event.date, event.startTime, event.endTime);
@@ -348,6 +352,9 @@ export default function AdminPage() {
       {/* Stats */}
       <div className='grid grid-cols-2 gap-3'>
         <StatCard label='Inscriptos' value={players.length} sub={event.settings.maxPlayers ? `/ ${event.settings.maxPlayers}` : ''} />
+        <StatCard label='Juegos registrados' value={gameCount.games} sub={gameCount.copies > gameCount.games ? `(${gameCount.copies} copias)` : ''} />
+      </div>
+      <div className='grid grid-cols-3 gap-3'>
         <StatCard label='Mesas recomendadas' value={recommendedCount} />
         <StatCard label='Mesas postuladas' value={postulatedCount} />
         <StatCard label='Mesas confirmadas' value={confirmedCount} />

@@ -175,7 +175,9 @@ export default function GamesPage() {
       <div className='flex items-center gap-3 mb-6'>
         <Link href={`/admin/${code}/${adminToken}`} className='text-gray-500 hover:text-gray-300'>←</Link>
         <h1 className='text-xl font-bold'>Juegos — {event.name}</h1>
-        <span className='text-sm text-gray-500'>{activeGames.length}</span>
+        <span className='text-sm text-gray-500'>
+          {groups.size}{activeGames.length > groups.size && ` (${activeGames.length} copias)`}
+        </span>
       </div>
 
       <p className='text-xs text-gray-500 mb-4'>

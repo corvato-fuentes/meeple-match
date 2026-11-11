@@ -7,6 +7,7 @@ import {
   autoMergeDuplicates,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
+import { countGames } from '@/lib/gameCounts';
 import { computeEventStatus, roundUp5 } from '@/lib/timeUtils';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
@@ -695,7 +696,9 @@ export default function EventPage() {
                 ? 'Sos el primero en inscribirte 🎉 Todavía no hay personas registradas.'
                 : `Todavía nadie cargó juegos 🎉 Hasta ahora se registraron ${playerCount} persona${playerCount !== 1 ? 's' : ''}.`}
             </p>
-          : <p className="text-sm text-gray-400 mb-5">Hasta ahora se registraron {playerCount} persona{playerCount !== 1 ? 's' : ''}.</p>
+          : <p className="text-sm text-gray-400 mb-5">
+              Hasta ahora se registraron {playerCount} persona{playerCount !== 1 ? 's' : ''} y {countGames(games).games} juego{countGames(games).games !== 1 ? 's' : ''}.
+            </p>
         }
         {myGames.length > 0 && (
           <div className="space-y-2 mb-6">

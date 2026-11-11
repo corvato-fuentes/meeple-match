@@ -347,7 +347,7 @@ export default function RecommendedTablesPage() {
 
       <section>
         <div className="flex items-center justify-between mb-1">
-          <h2 className="font-semibold text-gray-200">Votá los juegos <VotingHelp /></h2>
+          <h2 className="font-semibold text-gray-200">Votá los juegos <span className="text-sm font-normal text-gray-500">({primaryGames.length})</span> <VotingHelp /></h2>
           <Link href={`/event/${code}/votes`}
             className="text-xs border border-gray-700 rounded-lg px-2.5 py-1 hover:bg-gray-800 shrink-0">
             📊 Votos totales

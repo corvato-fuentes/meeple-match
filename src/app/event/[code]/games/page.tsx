@@ -120,8 +120,7 @@ export default function GamesVotePage() {
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
       <div className="flex items-center gap-3">
         <Link href={`/event/${code}/me?ticket=${player.ticketCode}`} className="text-gray-500 hover:text-gray-300">←</Link>
-        <h1 className="text-xl font-bold">🎲 Juegos de todos</h1>
-      </div>
+        <h1 className="text-xl font-bold">🎲 Juegos de todos</h1>      </div>
 
       {/* Not seeing a game you would like to play? Ask for it: whoever has it can bring it */}
       <Link href={`/event/${code}/requests?ticket=${player.ticketCode}`}
@@ -137,7 +136,7 @@ export default function GamesVotePage() {
 
       <section>
         <div className="flex items-center justify-between mb-1">
-          <h2 className="font-semibold text-gray-200">Votá los juegos <VotingHelp /></h2>
+          <h2 className="font-semibold text-gray-200">Votá los juegos <span className="text-sm font-normal text-gray-500">({primaryGames.length})</span> <VotingHelp /></h2>
           <Link href={`/event/${code}/votes`}
             className="text-xs border border-gray-700 rounded-lg px-2.5 py-1 hover:bg-gray-800 shrink-0">
             📊 Votos totales
