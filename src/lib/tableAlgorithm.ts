@@ -127,6 +127,24 @@ export function estimatedDuration(game: Game, playerCount: number): number {
   return roundUp5((game.setupMinutes ?? 0) + (game.explanationMinutes ?? 0) + (game.perPlayerMinutes ?? 0) * playerCount);
 }
 
+/**
+ * When a table should end given who it is for now: an owner-posted one keeps the game's full duration (the owner picked
+ * its start); one the algorithm built is sized for everyone it is for — who is seated plus who is still offered it —
+ * never fewer than the game's minimum nor more than its maximum, the same way it was sized when it was created. The
+ * time is capped at the end of the day.
+ */
+export function expectedTableEnd(table: Pick<Table, 'startTime' | 'playerIds' | 'candidateIds' | 'rejectedIds' | 'postedByOwner'>, game: Game): string {
+  const start = toMinutes(table.startTime);
+  let minutes: number;
+  if (table.postedByOwner) {
+    minutes = roundUp5(game.durationMinutes);
+  } else {
+    const waiting = (table.candidateIds ?? []).filter((id) => !table.playerIds.includes(id) && !(table.rejectedIds ?? []).includes(id)).length;
+    minutes = estimatedDuration(game, Math.min(game.maxPlayers, Math.max(minSeats(game), table.playerIds.length + waiting)));
+  }
+  return toTimeString(Math.min(start + minutes, 24 * 60 - 1));
+}
+
 /** The game's full min↔max duration span — shortest at minPlayers, longest at maxPlayers seated. */
 export function estimatedDurationRange(game: Game): [number, number] {
   return [estimatedDuration(game, game.minPlayers), estimatedDuration(game, game.maxPlayers)];

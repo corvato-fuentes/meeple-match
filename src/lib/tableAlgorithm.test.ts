@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
-  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable,
+  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable, expectedTableEnd,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
 
@@ -357,6 +357,30 @@ describe('interestedInTable — who is interested in a table, offered or not yet
   });
   it('someone at another table at that time is busy', () => {
     expect(rows(posted, [table('x', { gameId: 'g2', status: 'confirmed', playerIds: ['p2'], startTime: '12:30', endTime: '13:30' })])).toContain('p2:busy');
+  });
+});
+
+// ── expectedTableEnd ────────────────────────────────────────────────────────
+describe('expectedTableEnd — when a table should end for the people it is for', () => {
+  // setup 15 + explanation 30 + 30 per player: 2 players 105 min, 4 players 165 min
+  const dune = game('g1', { minPlayers: 2, maxPlayers: 4, setupMinutes: 15, explanationMinutes: 30, perPlayerMinutes: 30, durationMinutes: 165 });
+  const t = (o: Partial<Table> = {}) => table('t', { startTime: '14:45', playerIds: ['a', 'b', 'c', 'd'], ...o });
+
+  it('sizes a table the algorithm built for who is seated plus who is still offered it', () => {
+    expect(expectedTableEnd(t(), dune)).toBe('17:30');
+    expect(expectedTableEnd(t({ playerIds: ['a', 'b'] }), dune)).toBe('16:30');
+    expect(expectedTableEnd(t({ playerIds: ['a', 'b'], candidateIds: ['c'], rejectedIds: [] }), dune)).toBe('17:00');
+  });
+  it('never goes under the minimum seats of the game nor over its maximum, and ignores whoever declined', () => {
+    expect(expectedTableEnd(t({ playerIds: [] }), dune)).toBe('16:30');
+    expect(expectedTableEnd(t({ playerIds: ['a', 'b', 'c'], candidateIds: ['d', 'e', 'f'] }), dune)).toBe('17:30');
+    expect(expectedTableEnd(t({ playerIds: ['a', 'b'], candidateIds: ['c'], rejectedIds: ['c'] }), dune)).toBe('16:30');
+  });
+  it('a table an owner posted keeps the whole duration of the game', () => {
+    expect(expectedTableEnd(t({ postedByOwner: true, playerIds: ['a'] }), dune)).toBe('17:30');
+  });
+  it('is capped at the end of the day', () => {
+    expect(expectedTableEnd(t({ startTime: '23:00' }), dune)).toBe('23:59');
   });
 });
 

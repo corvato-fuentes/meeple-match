@@ -13,6 +13,7 @@ import { requestPushSync } from './pushClient';
 import { displayNameOf } from './playerName';
 import { MIN_TABLE_SEATS } from './seats';
 import type { WaitingTableReview } from './tableAlgorithm';
+import { expectedTableEnd } from './tableAlgorithm';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,42 @@ export async function updateGame(
   >>
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'games', gameId), fields);
+  // The numbers that decide how long a table lasts changed: the tables already made for it follow them
+  const TIMING_FIELDS = ['perPlayerMinutes', 'setupMinutes', 'explanationMinutes', 'durationMinutes', 'minPlayers', 'maxPlayers'] as const;
+  if (TIMING_FIELDS.some((k) => k in fields)) await retimeGameTables(eventCode, gameId);
+}
+
+/** What marks a table the system cancelled while it was still waiting for players (see `Table.dissolved`). */
+function dissolvedIfWaiting(table: Pick<Table, 'status'>): { dissolved?: true } {
+  return table.status === 'recommended' ? { dissolved: true } : {};
+}
+
+/** Moves when a table ends (the admin's "Ajustar" on a table whose time doesn't match its duration). */
+export async function setTableEnd(eventCode: string, tableId: string, endTime: string): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), { endTime });
+}
+
+/**
+ * Recomputes when the tables of a game end (see `expectedTableEnd`), for the ones that haven't started: waiting for
+ * players or confirmed. Returns how many changed.
+ */
+export async function retimeGameTables(eventCode: string, gameId: string): Promise<number> {
+  const [gameSnap, tablesSnap] = await Promise.all([
+    getDoc(doc(db, 'events', eventCode, 'games', gameId)),
+    getDocs(collection(db, 'events', eventCode, 'tables')),
+  ]);
+  if (!gameSnap.exists()) return 0;
+  const game = { id: gameSnap.id, ...gameSnap.data() } as Game;
+  const batch = writeBatch(db);
+  let changed = 0;
+  for (const d of tablesSnap.docs) {
+    const t = d.data() as Table;
+    if (t.gameId !== gameId || (t.status !== 'recommended' && t.status !== 'confirmed')) continue;
+    const endTime = expectedTableEnd(t, game);
+    if (endTime !== t.endTime) { batch.update(d.ref, { endTime }); changed++; }
+  }
+  if (changed > 0) await batch.commit();
+  return changed;
 }
 
 const INTEREST_RANK: Record<InterestLevel, number> = { yes: 2, no: 1 };
@@ -307,7 +344,7 @@ export async function removePlayerGame(eventCode: string, playerId: string, game
     tablesSnap.docs.forEach((tableDoc) => {
       const table = tableDoc.data() as Table;
       if (table.gameId === gameId && table.status !== 'cancelled') {
-        batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [] });
+        batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [], ...dissolvedIfWaiting(table) });
       }
     });
   }
@@ -585,14 +622,14 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
       const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
       if (wasSeated) fields.playerIds = remainingPlayerIds;
       if (wasExplainer) {
-        if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
+        if (remainingPlayerIds.length === 0) { fields.status = 'cancelled'; Object.assign(fields, dissolvedIfWaiting(table)); }
         else fields.explainerId = remainingPlayerIds[0];
       }
       batch.update(tableDoc.ref, fields);
       return;
     }
     if (fullyRemovedGameIds.has(table.gameId) && table.status !== 'cancelled') {
-      batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [] });
+      batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [], ...dissolvedIfWaiting(table) });
       return;
     }
     if (!wasSeated && !wasExplainer) return;
@@ -709,7 +746,7 @@ export async function applyWaitingTableReviews(eventCode: string, reviews: Waiti
   for (const r of reviews) {
     const ref = doc(db, 'events', eventCode, 'tables', r.tableId);
     if (r.action === 'cancel') {
-      batch.update(ref, { status: 'cancelled' as const, candidateIds: [], queuedIds: [] });
+      batch.update(ref, { status: 'cancelled' as const, candidateIds: [], queuedIds: [], dissolved: true });
     } else {
       batch.update(ref, { explainerId: r.explainerId, candidateIds: r.candidateIds });
     }
@@ -736,7 +773,7 @@ export async function postTable(eventCode: string, table: Omit<Table, 'id'>, rep
     const snaps = await Promise.all(refs.map((r) => tx.get(r)));
     snaps.forEach((s, i) => {
       if (s.exists() && (s.data() as Table).status === 'recommended') {
-        tx.update(refs[i], { status: 'cancelled' as const, playerIds: [], candidateIds: [], queuedIds: [] });
+        tx.update(refs[i], { status: 'cancelled' as const, playerIds: [], candidateIds: [], queuedIds: [], dissolved: true });
       }
     });
     tx.set(newRef, table);
@@ -789,7 +826,7 @@ export async function respondToRecommendation(
       const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
       somethingToAnnounce = candidateIds.length === 0; // the last explainer said no: the table is gone
       if (candidateIds.length === 0) {
-        tx.update(ref, { status: 'cancelled' as const, candidateIds: [], queuedIds: [], rejectedIds });
+        tx.update(ref, { status: 'cancelled' as const, candidateIds: [], queuedIds: [], rejectedIds, dissolved: true });
       } else {
         tx.update(ref, { candidateIds, rejectedIds, ...(table.explainerId === playerId && { explainerId: candidateIds[0] }) });
       }
@@ -863,7 +900,7 @@ export async function leaveAlgorithmTable(eventCode: string, tableId: string, pl
 
     const remaining = table.playerIds.filter((id) => id !== playerId);
     const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
-    const cancel = { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], rejectedIds };
+    const cancel = { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], rejectedIds, ...dissolvedIfWaiting(table) };
     if (remaining.length === 0) { tx.update(ref, cancel); return; }
 
     let explainerId = table.explainerId;

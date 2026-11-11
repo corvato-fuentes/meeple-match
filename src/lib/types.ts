@@ -130,6 +130,10 @@ export interface Table {
   // True for a table the game's owner posted directly ("I'm bringing this, join me at 4pm")
   // instead of one the algorithm assembled from votes — players join directly, no candidate pool.
   postedByOwner?: boolean;
+  // Set when a table that was still waiting for players was cancelled by the system itself (nobody left to explain it,
+  // everyone who accepted left, the owner's own table took its place…). It never got confirmed and nobody cancelled it:
+  // the admin's table list doesn't show it as "cancelada". That state is for tables the admin cancels or confirmed ones.
+  dissolved?: boolean;
 }
 
 // Derived — never stored in Firestore
