@@ -6,7 +6,11 @@ import { fitInside, imageSize } from '@/lib/imageSize';
 
 // The picture WhatsApp (and others) show with a shared table's link: the cover and what the table needs, as a card.
 export const alt = 'Mesa compartida en Meeple Loop';
-export const size = { width: 1200, height: 630 };
+// Half of the usual 1200×630: the card is mostly the cover's artwork, which PNG compresses badly (about 750 KB at full size),
+// and WhatsApp drops preview pictures much over 300 KB. Everything below is laid out on the 1200×630 grid and scaled by px().
+const SCALE = 0.5;
+export const size = { width: 600, height: 315 };
+const px = (n: number) => Math.round(n * SCALE);
 export const contentType = 'image/png';
 // Seats change as people join: the card is made on every request, never served from an old copy
 export const dynamic = 'force-dynamic';
@@ -15,8 +19,8 @@ export const dynamic = 'force-dynamic';
 const COVER_HOSTS = /(^|\.)geekdo-images\.com$/;
 
 // The card has 48px of margin; the cover takes the biggest area of it that its own proportions allow
-const CARD_PADDING = 48;
-const COVER_MAX = { width: 520, height: size.height - 2 * CARD_PADDING };
+const CARD_PADDING = px(48);
+const COVER_MAX = { width: px(520), height: size.height - 2 * CARD_PADDING };
 
 /** The cover as an inline image (the card renderer reads jpeg/png) with its size, or null when it can't be had quickly and safely. */
 async function loadCover(url: string | null): Promise<{ uri: string; width: number; height: number } | null> {
@@ -62,11 +66,11 @@ const ICON_PATHS: Record<'calendar' | 'clock' | 'pin', ReactNode> = {
 function Row({ icon, fontSize, color, marginTop, children }: {
   icon: keyof typeof ICON_PATHS; fontSize: number; color: string; marginTop: number; children: ReactNode;
 }) {
-  const iconSize = Math.round(fontSize * 1.05);
+  const iconSize = Math.round(px(fontSize) * 1.05);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', fontSize, color, marginTop }}>
+    <div style={{ display: 'flex', alignItems: 'center', fontSize: px(fontSize), color, marginTop: px(marginTop) }}>
       <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-        style={{ marginRight: 16, flexShrink: 0 }}>
+        style={{ marginRight: px(16), flexShrink: 0 }}>
         {ICON_PATHS[icon]}
       </svg>
       <div style={{ display: 'flex' }}>{children}</div>
@@ -86,8 +90,8 @@ export default async function Image({ params }: { params: Promise<{ code: string
     return new ImageResponse(
       (
         <div style={{ ...shell, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ display: 'flex', fontSize: 84, color: '#818cf8' }}>Meeple Loop</div>
-          <div style={{ display: 'flex', fontSize: 36, color: '#9ca3af', marginTop: 16 }}>Mesas de juegos de mesa para tu evento</div>
+          <div style={{ display: 'flex', fontSize: px(84), color: '#818cf8' }}>Meeple Loop</div>
+          <div style={{ display: 'flex', fontSize: px(36), color: '#9ca3af', marginTop: px(16) }}>Mesas de juegos de mesa para tu evento</div>
         </div>
       ),
       { ...size }
@@ -102,22 +106,22 @@ export default async function Image({ params }: { params: Promise<{ code: string
       <div style={shell}>
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={cover.uri} alt="" width={cover.width} height={cover.height} style={{ width: cover.width, height: cover.height, borderRadius: 20 }} />
+          <img src={cover.uri} alt="" width={cover.width} height={cover.height} style={{ width: cover.width, height: cover.height, borderRadius: px(20) }} />
         ) : (
-          <div style={{ display: 'flex', width: 380, height: COVER_MAX.height, borderRadius: 24, background: '#1f2937', alignItems: 'center', justifyContent: 'center', fontSize: 40, color: '#6b7280' }}>
+          <div style={{ display: 'flex', width: px(380), height: COVER_MAX.height, borderRadius: px(24), background: '#1f2937', alignItems: 'center', justifyContent: 'center', fontSize: px(40), color: '#6b7280' }}>
             Sin portada
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, marginLeft: 52 }}>
-          <div style={{ display: 'flex', fontSize: 28, color: '#818cf8', letterSpacing: 4 }}>MEEPLE LOOP</div>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1, marginLeft: px(52) }}>
+          <div style={{ display: 'flex', fontSize: px(28), color: '#818cf8', letterSpacing: px(4) }}>MEEPLE LOOP</div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', fontSize: 40, color: '#fbbf24' }}>{sharePrompt()}</div>
-            <div style={{ display: 'flex', fontSize: nameSize, lineHeight: 1.1, marginTop: 12 }}>{t.gameName}</div>
+            <div style={{ display: 'flex', fontSize: px(40), color: '#fbbf24' }}>{sharePrompt()}</div>
+            <div style={{ display: 'flex', fontSize: px(nameSize), lineHeight: 1.1, marginTop: px(12) }}>{t.gameName}</div>
             <Row icon="calendar" fontSize={36} color="#e5e7eb" marginTop={28}>{dayText}</Row>
             <Row icon="clock" fontSize={36} color="#e5e7eb" marginTop={10}>{t.startTime} – {t.endTime}</Row>
             {t.location && <Row icon="pin" fontSize={32} color="#9ca3af" marginTop={10}>{t.location}</Row>}
           </div>
-          <div style={{ display: 'flex', fontSize: 28, color: '#9ca3af' }}>{t.eventName}</div>
+          <div style={{ display: 'flex', fontSize: px(28), color: '#9ca3af' }}>{t.eventName}</div>
         </div>
       </div>
     ),
