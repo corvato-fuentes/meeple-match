@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
-  reviewWaitingTables,
+  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
 
@@ -242,6 +242,29 @@ describe('generateTables — what was already offered', () => {
     expect(generate([...voters(2), player('p3', { interests: { g1: 'yes' } })], [game('g1', { maxPlayers: 4 })], [left]).candidateUpdates).toEqual([]);
   });
 
+  it('offers a table an owner posted to the people who voted that game and fit its slot', () => {
+    const posted = table('post', { gameId: 'g1', postedByOwner: true, status: 'recommended', explainerId: 'p1', playerIds: ['p1'], startTime: '12:00', endTime: '13:00' });
+    const players = [
+      player('p1', { interests: { g1: 'yes' }, canExplain: ['g1'] }),
+      player('p2', { interests: { g1: 'yes' } }),
+      player('p3', { interests: { g1: 'yes' }, departureTime: '12:30' }), // leaves before it ends
+      player('p4', { interests: { g1: 'no' } }),
+    ];
+    const { candidateUpdates } = generate(players, [game('g1', { maxPlayers: 4 })], [posted]);
+    expect(candidateUpdates).toEqual([{ tableId: 'post', candidateIds: ['p2'] }]);
+  });
+
+  it('does not offer a posted table to someone already seated at another table of that game, unless they would join a second one', () => {
+    const posted = table('post', { gameId: 'g1', postedByOwner: true, status: 'recommended', explainerId: 'p1', playerIds: ['p1'], startTime: '16:00', endTime: '17:00' });
+    const other = table('other', { gameId: 'g1', status: 'confirmed', playerIds: ['p2', 'p3'], startTime: '10:00', endTime: '11:00' });
+    const players = [
+      player('p1', { interests: { g1: 'yes' }, canExplain: ['g1'] }),
+      player('p2', { interests: { g1: 'yes' } }),
+      player('p3', { interests: { g1: 'yes' }, repeatGameIds: ['g1'] }),
+    ];
+    expect(generate(players, [game('g1', { maxPlayers: 6, minPlayers: 2 })], [posted, other]).candidateUpdates).toContainEqual({ tableId: 'post', candidateIds: ['p3'] });
+  });
+
   it('does not re-offer a player who rejected the open table', () => {
     const existing = [table('open', { gameId: 'g1', candidateIds: ['p1'], rejectedIds: ['p3'], startTime: '10:15', endTime: '11:15' })];
     const { candidateUpdates } = generate(voters(3), [game('g1', { maxPlayers: 4 })], existing);
@@ -251,6 +274,63 @@ describe('generateTables — what was already offered', () => {
   it('ignores cancelled tables when deciding who was offered', () => {
     const existing = [table('gone', { gameId: 'g1', candidateIds: ['p1', 'p2'], status: 'cancelled' })];
     expect(generate(voters(2), [game('g1')], existing).proposals).toHaveLength(1);
+  });
+});
+
+// ── postedSlotConflict ──────────────────────────────────────────────────────
+describe('postedSlotConflict — posting next to a table that already exists', () => {
+  const existing = table('e', { gameId: 'g1', status: 'confirmed', startTime: '14:00', endTime: '15:30' });
+  const check = (o: Partial<Parameters<typeof postedSlotConflict>[0]> = {}) =>
+    postedSlotConflict({ tables: [existing], gameId: 'g1', start: '14:30', end: '16:00', bufferMinutes: 10, gameCopies: 1, physicalTables: null, ...o });
+
+  it('refuses a slot that overlaps another table of the same game when there is a single copy', () => {
+    expect(check()).toEqual({ kind: 'copy', table: existing });
+  });
+  it('also needs the buffer between two tables of the same copy, on both sides', () => {
+    expect(check({ start: '15:35', end: '16:30' })).not.toBeNull(); // starts 5 min after the other ends: box not reset yet
+    expect(check({ start: '15:40', end: '16:30' })).toBeNull();
+    expect(check({ start: '12:30', end: '13:55' })).not.toBeNull();  // ends 5 min before the other starts
+    expect(check({ start: '12:30', end: '13:45' })).toBeNull();
+  });
+  it('lets two tables of the game run at once when there are two copies', () => {
+    expect(check({ gameCopies: 2 })).toBeNull();
+    expect(check({ gameCopies: 2, tables: [existing, { ...existing, id: 'e2' }] })).not.toBeNull();
+  });
+  it('only a CONFIRMED table blocks: one still waiting for people, or cancelled, does not', () => {
+    expect(check({ tables: [{ ...existing, status: 'recommended' }] })).toBeNull();
+    expect(check({ tables: [{ ...existing, status: 'in-progress' }] })).not.toBeNull();
+    expect(check({ tables: [{ ...existing, status: 'cancelled' }] })).toBeNull();
+  });
+  it('ignores other games', () => {
+    expect(check({ gameId: 'g2' })).toBeNull();
+  });
+  it('refuses a slot when every physical table of the venue is taken at that time', () => {
+    const other = table('o', { gameId: 'g9', status: 'confirmed', startTime: '14:00', endTime: '16:00' });
+    expect(check({ gameId: 'g2', tables: [other], physicalTables: 1 })).toEqual({ kind: 'physical' });
+    expect(check({ gameId: 'g2', tables: [other], physicalTables: 2 })).toBeNull();
+  });
+});
+
+// ── replaceableByPostedTable ────────────────────────────────────────────────
+describe('replaceableByPostedTable — suggestions a posted table takes the place of', () => {
+  const suggested = table('s', { gameId: 'g1', status: 'recommended', startTime: '14:00', endTime: '15:30' });
+  const find = (o: Partial<Parameters<typeof replaceableByPostedTable>[0]> = {}) =>
+    replaceableByPostedTable({ tables: [suggested], gameId: 'g1', start: '14:30', end: '16:00', bufferMinutes: 10, gameCopies: 1, ...o });
+
+  it('an overlapping suggestion of the same game is replaced (buffer counted on both sides)', () => {
+    expect(find()).toEqual([suggested]);
+    expect(find({ start: '15:35', end: '16:30' })).toEqual([suggested]);
+    expect(find({ start: '15:40', end: '16:30' })).toEqual([]);
+  });
+  it('leaves alone other games, confirmed tables, cancelled ones and tables other people posted', () => {
+    expect(find({ gameId: 'g2' })).toEqual([]);
+    expect(find({ tables: [{ ...suggested, status: 'confirmed' }] })).toEqual([]);
+    expect(find({ tables: [{ ...suggested, status: 'cancelled' }] })).toEqual([]);
+    expect(find({ tables: [{ ...suggested, postedByOwner: true }] })).toEqual([]);
+  });
+  it('replaces nothing while another copy of the game is free for the suggestion', () => {
+    expect(find({ gameCopies: 2 })).toEqual([]);
+    expect(find({ gameCopies: 2, tables: [suggested, { ...suggested, id: 'c', status: 'confirmed' }] })).toEqual([suggested]);
   });
 });
 

@@ -143,9 +143,12 @@ export default function RequestsPage() {
             )
           ) : (
             <>
-              <ActionButton tone="indigo" onClick={() => send(`claim-${r.id}`, { action: 'claim', id: r.id })} disabled={busyKey !== null}>
-                🎒 Yo lo llevo
-              </ActionButton>
+              {/* Whoever asked for it wants someone ELSE to bring it, so "Yo lo llevo" is for everyone but them */}
+              {!r.iRequested && (
+                <ActionButton tone="indigo" onClick={() => send(`claim-${r.id}`, { action: 'claim', id: r.id })} disabled={busyKey !== null}>
+                  🎒 Yo lo llevo
+                </ActionButton>
+              )}
               {r.iRequested ? (
                 <ActionButton tone="neutral" onClick={() => send(`unrequest-${r.id}`, { action: 'unrequest', id: r.id })} disabled={busyKey !== null}>
                   ✓ Lo pediste · quitar mi pedido

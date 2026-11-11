@@ -112,6 +112,56 @@ export function estimatedDurationRange(game: Game): [number, number] {
   return [estimatedDuration(game, game.minPlayers), estimatedDuration(game, game.maxPlayers)];
 }
 
+/** Why an owner-posted table can't take the slot it asked for. */
+export type SlotConflict = { kind: 'copy'; table: Table } | { kind: 'physical' };
+
+/**
+ * Does an owner-posted table at [start, end) fit? It doesn't when every copy of that game is already in use then by a
+ * CONFIRMED table (the box needs the buffer to be reset between two tables, so the buffer counts on both sides) or when
+ * every physical table of the venue is taken by confirmed tables. Tables that are only suggestions (still waiting for
+ * people) don't block it: they can coexist until one of them is set. Null when it fits.
+ */
+export function postedSlotConflict(args: {
+  tables: Table[];
+  gameId: string;
+  start: string;
+  end: string;
+  bufferMinutes: number;
+  gameCopies: number;
+  physicalTables: number | null;
+}): SlotConflict | null {
+  const { tables, gameId, start, end, bufferMinutes, gameCopies, physicalTables } = args;
+  const live = tables.filter((t) => t.status === 'confirmed' || t.status === 'in-progress' || t.status === 'completed');
+  const sameGame = live.filter(
+    (t) => t.gameId === gameId && overlaps(toTimeString(toMinutes(t.startTime) - bufferMinutes), toTimeString(toMinutes(t.endTime) + bufferMinutes), start, end)
+  );
+  if (sameGame.length >= Math.max(1, gameCopies)) return { kind: 'copy', table: sameGame[0] };
+  if (physicalTables != null && concurrentTableCount(live, start, end) >= physicalTables) return { kind: 'physical' };
+  return null;
+}
+
+/**
+ * The tables an owner-posted table at [start, end) takes the place of: suggestions for the same game that overlap it
+ * (buffer on both sides) and aren't confirmed yet — a copy can only be in one table at a time, and the one its owner
+ * posted wins. Nothing is replaced while a copy is still free for them (more copies than tables already using it), and
+ * tables other people posted are never replaced. Check `postedSlotConflict` first: confirmed tables block the post.
+ */
+export function replaceableByPostedTable(args: {
+  tables: Table[];
+  gameId: string;
+  start: string;
+  end: string;
+  bufferMinutes: number;
+  gameCopies: number;
+}): Table[] {
+  const { tables, gameId, start, end, bufferMinutes, gameCopies } = args;
+  const near = (t: Table) =>
+    t.gameId === gameId && overlaps(toTimeString(toMinutes(t.startTime) - bufferMinutes), toTimeString(toMinutes(t.endTime) + bufferMinutes), start, end);
+  const inUse = tables.filter((t) => near(t) && (t.status === 'confirmed' || t.status === 'in-progress' || t.status === 'completed')).length;
+  if (inUse + 1 < Math.max(1, gameCopies)) return []; // another copy is free for the suggestion
+  return tables.filter((t) => near(t) && t.status === 'recommended' && !t.postedByOwner);
+}
+
 function findEarliestWindow(
   players: Player[],
   game: Game,
@@ -293,16 +343,21 @@ export function generateTables(
       .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
       .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
 
-    // 1. Extend still-open tables (algorithm-generated, not owner-posted) with any fresh voter who fits the window
+    // 1. Extend still-open tables — the algorithm's and the ones owners posted — with any fresh voter who fits the window
     // already fixed for that table — never changes its time. A table that is already CONFIRMED but has free places
     // counts too: the late voter is OFFERED a place and has to accept it like everybody else, never seated without asking.
     const openTables = existingTables.filter(
-      (t) => t.gameId === game.id && (t.status === 'recommended' || t.status === 'confirmed') && !t.postedByOwner && t.playerIds.length < game.maxPlayers
+      (t) => t.gameId === game.id && (t.status === 'recommended' || t.status === 'confirmed') && t.playerIds.length < game.maxPlayers
     );
     for (const ot of openTables) {
       const known = new Set([...(ot.candidateIds ?? []), ...(ot.queuedIds ?? []), ...ot.playerIds, ...(ot.rejectedIds ?? [])]);
+      // A posted table is offered to the interested people like any other, but not to someone already seated at another
+      // table of this game (unless they said they would join a second one): they have their table for it.
+      const seatedElsewhere = (p: Player) => ot.postedByOwner &&
+        existingTables.some((o) => o.id !== ot.id && o.gameId === game.id && o.status !== 'cancelled' && o.playerIds.includes(p.id)) &&
+        !(p.repeatGameIds ?? []).includes(game.id);
       const fresh = players.filter((p) =>
-        p.interests[game.id] === 'yes' && !known.has(p.id) &&
+        p.interests[game.id] === 'yes' && !known.has(p.id) && !seatedElsewhere(p) &&
         isAvailable(p, ot.startTime, ot.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
       );
       if (fresh.length === 0) continue;

@@ -189,14 +189,14 @@ export default function TablesPage() {
                       </div>
 
                       <div className='space-y-1'>
+                        <p className='text-xs font-semibold text-gray-400'>✅ Confirmados ({currentIds.length})</p>
+                        {currentIds.length === 0 && <p className='text-xs text-gray-500'>Nadie todavía.</p>}
                         {currentIds.map((pid) => {
                           const p = playerMap.get(pid);
-                          const vote = p?.interests[t.gameId];
-                          const voteIcon = vote === 'yes' ? '👍 ' : '';
                           return (
                             <div key={pid} className='flex items-center justify-between text-sm'>
                               <span className='flex items-center gap-2'>
-                                {voteIcon}{p?.name ?? pid}
+                                {p?.name ?? pid}
                                 {pid === t.explainerId && <span className='text-xs bg-purple-900 text-purple-300 px-1.5 rounded'>explica</span>}
                               </span>
                               {isEditing && (
@@ -206,6 +206,27 @@ export default function TablesPage() {
                           );
                         })}
                       </div>
+
+                      {(() => {
+                        // Voted yes for the game and was offered this table, but hasn't accepted it (yet): interest, not a seat
+                        const seatedIds = new Set(currentIds);
+                        const offered = (t.candidateIds ?? []).filter((id) => !seatedIds.has(id));
+                        const queued = (t.queuedIds ?? []).filter((id) => !seatedIds.has(id) && !offered.includes(id));
+                        if (offered.length + queued.length === 0) return null;
+                        return (
+                          <div className='space-y-1 pt-2 border-t border-gray-700'>
+                            <p className='text-xs font-semibold text-gray-400'>👍 Interesados ({offered.length + queued.length})</p>
+                            {offered.map((pid) => (
+                              <p key={pid} className='text-sm text-gray-300'>{playerMap.get(pid)?.name ?? pid}
+                                <span className='text-xs text-gray-500'> · tiene la mesa ofrecida</span></p>
+                            ))}
+                            {queued.map((pid) => (
+                              <p key={pid} className='text-sm text-gray-300'>{playerMap.get(pid)?.name ?? pid}
+                                <span className='text-xs text-gray-500'> · espera que alguien acepte explicarla</span></p>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
                       {isEditing && (
                         <div className='flex gap-2 items-center pt-2 border-t border-gray-700'>

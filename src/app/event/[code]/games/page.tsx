@@ -4,6 +4,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, getPlayerByTicketCode, getGames } from '@/lib/firestore';
 import { useAutoSaveWishlist } from '@/hooks/useAutoSaveWishlist';
+import { useOpenGameRequests } from '@/hooks/useOpenGameRequests';
 import SaveStatusPill from '@/components/ui/SaveStatus';
 import FilterChip from '@/components/ui/FilterChip';
 import GameFilterBar from '@/components/ui/GameFilterBar';
@@ -59,6 +60,7 @@ export default function GamesVotePage() {
   // Votes and knowledge levels save themselves a moment after the last change.
   const { status: saveStatus, retry: retrySave } = useAutoSaveWishlist(code, player?.id, event,
     player ? { interests, canExplain, playedGameIds, repeatGameIds: player.repeatGameIds ?? [] } : null);
+  const openGameRequests = useOpenGameRequests(code, player?.ticketCode, games);
 
   if (loading) return <div className="p-8 text-center">Cargando...</div>;
   if (!player || !event) return null;
@@ -120,6 +122,18 @@ export default function GamesVotePage() {
         <Link href={`/event/${code}/me?ticket=${player.ticketCode}`} className="text-gray-500 hover:text-gray-300">←</Link>
         <h1 className="text-xl font-bold">🎲 Juegos de todos</h1>
       </div>
+
+      {/* Not seeing a game you would like to play? Ask for it: whoever has it can bring it */}
+      <Link href={`/event/${code}/requests?ticket=${player.ticketCode}`}
+        className="flex items-center justify-between gap-3 border border-purple-800 text-purple-200 rounded-xl px-3 py-2.5 text-sm hover:bg-purple-950/30">
+        <span>
+          🙏 Juegos pedidos
+          {openGameRequests != null && openGameRequests > 0 && (
+            <span className="ml-2 text-xs bg-purple-400 text-black font-bold rounded-full px-1.5 py-0.5">{openGameRequests} se buscan</span>
+          )}
+        </span>
+        <span aria-hidden="true">→</span>
+      </Link>
 
       <section>
         <div className="flex items-center justify-between mb-1">

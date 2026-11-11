@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -21,7 +21,8 @@ import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
 import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { isOfferFor } from '@/lib/offers';
+import { isOfferFor, otherOffersForGame } from '@/lib/offers';
+import OtherOffersPrompt from '@/components/ui/OtherOffersPrompt';
 import type { MeepleEvent, Player, Game, Table, InterestLevel } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
@@ -43,6 +44,9 @@ export default function RecommendedTablesPage() {
   const [loading, setLoading] = useState(true);
   const [respondingTableId, setRespondingTableId] = useState<string | null>(null);
   const [repeatPromptGameId, setRepeatPromptGameId] = useState<string | null>(null);
+  // Other tables of the same game the player was also offered, asked about right after they accept one
+  const [otherOffers, setOtherOffers] = useState<Table[]>([]);
+  const answeredOffers = useRef(new Set<string>());
   const [leavingTable, setLeavingTable] = useState<Table | null>(null);
   const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
@@ -150,9 +154,10 @@ export default function RecommendedTablesPage() {
     });
   }
 
-  // Accept/reject for an algorithm-recommended table. On accept, if the player hasn't already
-  // opted into a repeat for this game, ask right then whether they'd join a second table of it too.
-  async function handleRespondToRecommendation(t: Table, accept: boolean) {
+  // Accept/reject for an algorithm-recommended table. On accept, if they were also offered ANOTHER table of the same
+  // game, ask about that one right away (join it too, or turn it down); only when there is none, and they haven't opted
+  // into a repeat for this game yet, ask in general whether they'd join a second table of it.
+  async function handleRespondToRecommendation(t: Table, accept: boolean, fromPrompt = false) {
     if (!player || respondingTableId) return;
     const game = gameMap.get(t.gameId);
     if (!game) return;
@@ -169,10 +174,21 @@ export default function RecommendedTablesPage() {
       // can no longer count on them, so re-check the waiting tables (it moves them on to someone else or cancels them).
       if (accept && event) runTableGeneration(code, event).catch(() => {});
       if (accept) setAcceptedOne(true);
-      if (accept && !(player.repeatGameIds ?? []).includes(t.gameId)) setRepeatPromptGameId(t.gameId);
+      if (accept) {
+        answeredOffers.current.add(t.id);
+        const others = otherOffersForGame(allTables, player.id, t.gameId, t.id, (id) => gameMap.get(id)).filter((o) => !answeredOffers.current.has(o.id));
+        if (others.length > 0) setOtherOffers(others);
+        else if (!fromPrompt && !(player.repeatGameIds ?? []).includes(t.gameId)) setRepeatPromptGameId(t.gameId);
+      }
     } finally {
       setRespondingTableId(null);
     }
+  }
+
+  async function answerOtherOffer(t: Table, accept: boolean) {
+    answeredOffers.current.add(t.id);
+    setOtherOffers((q) => q.filter((o) => o.id !== t.id));
+    await handleRespondToRecommendation(t, accept, true);
   }
 
   // "Bajarme de la mesa": a table already accepted (or confirmed) can be given up too. Re-checks the waiting tables after,
@@ -416,6 +432,9 @@ export default function RecommendedTablesPage() {
           </div>
         );
       })()}
+
+      <OtherOffersPrompt offers={otherOffers} busy={respondingTableId !== null}
+        onAccept={(t) => answerOtherOffer(t, true)} onReject={(t) => answerOtherOffer(t, false)} onLater={() => setOtherOffers([])} />
 
       {repeatPromptGameId && (() => {
         const game = gameMap.get(repeatPromptGameId);

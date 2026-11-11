@@ -27,10 +27,10 @@ export function playerTableEntries(playerId: string, tables: Table[]): PlayerTab
     if (t.playerIds.includes(playerId)) {
       // While a table waits for an explainer, `explainerId` is only a placeholder: nobody explains it yet
       entries.push({ table: t, state: SET_STATUSES.includes(t.status) ? 'confirmed' : 'accepted', explains: !t.awaitingExplainer && t.explainerId === playerId });
-    } else if ((t.status === 'recommended' || t.status === 'confirmed') && !t.postedByOwner) {
+    } else if (t.status === 'recommended' || t.status === 'confirmed') {
       if ((t.rejectedIds ?? []).includes(playerId)) entries.push({ table: t, state: 'rejected', explains: false });
       else if ((t.candidateIds ?? []).includes(playerId)) entries.push({ table: t, state: 'offered', explains: false });
-      else if ((t.queuedIds ?? []).includes(playerId)) entries.push({ table: t, state: 'queued', explains: false });
+      else if (!t.postedByOwner && (t.queuedIds ?? []).includes(playerId)) entries.push({ table: t, state: 'queued', explains: false });
     }
   }
   return entries.sort((a, b) => a.table.startTime.localeCompare(b.table.startTime));

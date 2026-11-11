@@ -723,8 +723,24 @@ export async function applyWaitingTableReviews(eventCode: string, reviews: Waiti
  * the game's minPlayers) with only the owner seated — other players join it directly via
  * joinPostedTable, no candidate/accept step, until it reaches the minimum and auto-promotes.
  */
-export async function postTable(eventCode: string, table: Omit<Table, 'id'>): Promise<void> {
-  await addDoc(collection(db, 'events', eventCode, 'tables'), table);
+export async function postTable(eventCode: string, table: Omit<Table, 'id'>, replaceTableIds: string[] = []): Promise<void> {
+  if (replaceTableIds.length === 0) {
+    await addDoc(collection(db, 'events', eventCode, 'tables'), table);
+    return;
+  }
+  // The posted table takes the place of suggestions that overlap it: they are cancelled (their people go back to the
+  // pool and are offered the posted one by the generation pass). One that got confirmed in the meantime is kept.
+  const newRef = doc(collection(db, 'events', eventCode, 'tables'));
+  await runTransaction(db, async (tx) => {
+    const refs = replaceTableIds.map((id) => doc(db, 'events', eventCode, 'tables', id));
+    const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+    snaps.forEach((s, i) => {
+      if (s.exists() && (s.data() as Table).status === 'recommended') {
+        tx.update(refs[i], { status: 'cancelled' as const, playerIds: [], candidateIds: [], queuedIds: [] });
+      }
+    });
+    tx.set(newRef, table);
+  });
 }
 
 /**
@@ -813,7 +829,9 @@ export async function joinPostedTable(
     const table = snap.data() as Table;
     if (table.status !== 'recommended' || table.playerIds.includes(playerId) || table.playerIds.length >= maxPlayers) return;
     const playerIds = [...table.playerIds, playerId];
-    tx.update(ref, { playerIds, ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }) });
+    // Joining answers the offer (if they had one), so they stop being a candidate
+    const candidateIds = (table.candidateIds ?? []).filter((id) => id !== playerId);
+    tx.update(ref, { playerIds, candidateIds, ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }) });
   });
   requestPushSync(eventCode); // the table may have just reached its minimum
 }

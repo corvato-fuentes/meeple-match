@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from './firebaseAdmin';
 import { isValidRequestId, requestIdFor, type GameRequestView } from './gameRequests';
+import { decodeEntities } from './htmlEntities';
 
 // Server-only. Requests live in events/{code}/gameRequests/{id} and are only read and written through the API route
 // (Admin SDK), so the Firestore rules don't have to allow anything for them. Names are not stored on the request —
@@ -23,7 +24,7 @@ export async function listGameRequests(code: string, viewerId: string): Promise<
       return {
         id: d.id,
         bggId: (r.bggId as string | null) ?? null,
-        name: (r.name as string) ?? '',
+        name: decodeEntities((r.name as string) ?? ''), // requests saved before BGG titles were decoded still show right
         year: (r.year as string | null) ?? null,
         imageUrl: (r.imageUrl as string | null) ?? null,
         bggUrl: (r.bggUrl as string | null) ?? null,
@@ -41,7 +42,7 @@ export type RequestAction =
   | { action: 'request'; name: unknown; bggId?: unknown; year?: unknown; imageUrl?: unknown }
   | { action: 'unrequest' | 'claim' | 'unclaim'; id: unknown };
 
-const cleanText = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() && v.trim().length <= max ? v.trim() : null);
+const cleanText = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() && v.trim().length <= max ? decodeEntities(v.trim()) : null);
 
 /** Applies one action of a player (identified by their ticket) to the requests. */
 export async function applyRequestAction(code: string, playerId: string, body: RequestAction): Promise<{ ok: boolean; reason?: string }> {

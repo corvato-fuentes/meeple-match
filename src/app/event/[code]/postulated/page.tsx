@@ -1,10 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables, getPlayerTables,
-  joinPostedTable, leavePostedTable,
+  joinPostedTable, leavePostedTable, respondToRecommendation,
 } from '@/lib/firestore';
 import WaitingTableInfo, { ActionButton, PostedWho } from '@/components/ui/WaitingTableInfo';
 import { toMinutes } from '@/lib/timeUtils';
@@ -12,6 +12,8 @@ import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import FilterChip from '@/components/ui/FilterChip';
+import OtherOffersPrompt from '@/components/ui/OtherOffersPrompt';
+import { otherOffersForGame } from '@/lib/offers';
 import { minSeats } from '@/lib/seats';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
@@ -34,7 +36,10 @@ export default function PostulatedTablesPage() {
   const [loading, setLoading] = useState(true);
   const [joiningTableId, setJoiningTableId] = useState<string | null>(null);
   const [leavingTable, setLeavingTable] = useState<Table | null>(null);
-  const [viewingTableId, setViewingTableId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
+  // Other tables of the same game the player was also offered, asked about right after they join one
+  const [otherOffers, setOtherOffers] = useState<Table[]>([]);
+  const answeredOffers = useRef(new Set<string>());
   const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
   // null = nothing picked yet, so the list opens on "Abiertas" when there is something to join
   const [tableFilter, setTableFilter] = useState<TableFilter | null>(null);
@@ -126,9 +131,35 @@ export default function PostulatedTablesPage() {
     setJoiningTableId(t.id);
     try {
       await joinPostedTable(code, t.id, player.id, game.minPlayers, game.maxPlayers);
+      askAboutOtherOffers(t);
     } finally {
       setJoiningTableId(null);
     }
+  }
+
+  // After taking a table: any other table of the same game they were offered is asked about right away
+  function askAboutOtherOffers(taken: Table) {
+    answeredOffers.current.add(taken.id);
+    setOtherOffers(otherOffersForGame(allTables, myId, taken.gameId, taken.id, (id) => gameMap.get(id)).filter((o) => !answeredOffers.current.has(o.id)));
+  }
+
+  // "Rechazar" on an offer: that table stops being offered to them (they can still join it later with "Sumarme")
+  async function handleRejectTable(t: Table) {
+    if (!player || joiningTableId) return;
+    const game = games.find((g) => g.id === t.gameId);
+    if (!game) return;
+    setJoiningTableId(t.id);
+    try {
+      await respondToRecommendation(code, t.id, player.id, false, game.minPlayers, game.maxPlayers);
+    } finally {
+      setJoiningTableId(null);
+    }
+  }
+
+  async function answerOtherOffer(t: Table, accept: boolean) {
+    answeredOffers.current.add(t.id);
+    setOtherOffers((q) => q.filter((o) => o.id !== t.id));
+    if (accept) await handleJoinOpenTable(t); else await handleRejectTable(t);
   }
 
   // Ones I posted myself — still waiting to fill up.
@@ -162,7 +193,7 @@ export default function PostulatedTablesPage() {
   const blockedTables = openTablesWithSeats.filter((t) => blockedReason.has(t.id));
   // Of the ones that fit, the ones for a game the player voted 👍 are the ones meant "for them" (the same count the
   // ticket page announces); the rest are still shown, just after those, since they might like them too.
-  const forYouTables = joinableTables.filter((t) => player.interests[t.gameId] === 'yes');
+  const forYouTables = joinableTables.filter((t) => player.interests[t.gameId] === 'yes' && !(t.rejectedIds ?? []).includes(myId));
   const forYouIds = new Set(forYouTables.map((t) => t.id));
   type OpenGroup = 'forYou' | 'others' | 'blocked';
   const openGroupOf = (t: Table): OpenGroup => (blockedReason.has(t.id) ? 'blocked' : forYouIds.has(t.id) ? 'forYou' : 'others');
@@ -221,6 +252,9 @@ export default function PostulatedTablesPage() {
     confirmed: { label: '✅ Confirmada', cls: 'bg-green-900/60 text-green-300' },
   };
 
+  // People the table was offered to (they voted its game and the slot fits them) who haven't answered yet
+  const interestedIn = (t: Table) => (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id) && !(t.rejectedIds ?? []).includes(id)).length;
+
   const tableCard = (t: Table, kind: TableKind) => {
     const border = kind === 'open' ? 'border-indigo-800 bg-indigo-950/20'
       : kind === 'blocked' ? 'border-gray-700 bg-gray-900/40 opacity-70'
@@ -228,8 +262,8 @@ export default function PostulatedTablesPage() {
     const accent = kind === 'open' ? 'indigo' : kind === 'blocked' ? 'gray' : kind === 'confirmed' ? 'green' : 'purple';
     return (
       <div key={t.id} className={`border rounded-xl p-3 ${border}`}>
-        <WaitingTableInfo t={t} game={gameMap.get(t.gameId)} accent={accent} interested={null}
-          seatWord={kind === 'confirmed' ? 'jugadores' : 'anotados'} onView={() => setViewingTableId(t.id)}
+        <WaitingTableInfo t={t} game={gameMap.get(t.gameId)} accent={accent} interested={interestedIn(t)}
+          seatWord={kind === 'confirmed' ? 'jugadores' : 'anotados'} onView={(k) => setViewing({ tableId: t.id, kind: k })}
           who={<PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} />}
           badge={<span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>
             {kind === 'open' && forYouIds.has(t.id) ? '👍 De un juego que votaste' : KIND_BADGE[kind].label}
@@ -237,6 +271,14 @@ export default function PostulatedTablesPage() {
         <div className="mt-3">
           {kind === 'blocked' ? (
             <ActionButton tone="warn">⛔ {blockedReason.get(t.id)}</ActionButton>
+          ) : kind === 'open' && forYouIds.has(t.id) ? (
+            // Offered to them because they voted the game and the slot fits: answer, like any other offer
+            <div className="grid grid-cols-2 gap-2">
+              <ActionButton tone="neutral" onClick={() => handleRejectTable(t)} disabled={joiningTableId === t.id}>❌ Rechazar</ActionButton>
+              <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}>
+                {joiningTableId === t.id ? 'Sumando...' : '✅ Aceptar'}
+              </ActionButton>
+            </div>
           ) : kind === 'open' ? (
             <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}>
               {joiningTableId === t.id ? 'Sumando...' : '+ Sumarme'}
@@ -287,12 +329,17 @@ export default function PostulatedTablesPage() {
       </section>
 
       <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} />
-      {viewingTableId && (() => {
-        const t = allTables.find((x) => x.id === viewingTableId);
+      <OtherOffersPrompt offers={otherOffers} busy={joiningTableId !== null}
+        onAccept={(t) => answerOtherOffer(t, true)} onReject={(t) => answerOtherOffer(t, false)} onLater={() => setOtherOffers([])} />
+      {viewing && (() => {
+        const t = allTables.find((x) => x.id === viewing.tableId);
         if (!t) return null;
         const game = gameMap.get(t.gameId);
-        const close = () => setViewingTableId(null);
-        const names = t.playerIds.map((id) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? '?'));
+        const close = () => setViewing(null);
+        const nameList = (ids: string[]) => ids.map((id) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? '?'));
+        const names = viewing.kind === 'interested'
+          ? nameList((t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id) && !(t.rejectedIds ?? []).includes(id)))
+          : nameList(t.playerIds);
         const missing = game ? Math.max(0, minSeats(game) - t.playerIds.length) : null;
         return (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={close}>
@@ -303,7 +350,7 @@ export default function PostulatedTablesPage() {
                 <p className="text-xs text-gray-500">{t.startTime}–{t.endTime}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-gray-300 mb-1">✅ Anotados ({names.length})</p>
+                <p className="text-xs font-semibold text-gray-300 mb-1">{viewing.kind === 'interested' ? '🤔 Interesados (sin responder)' : '✅ Anotados'} ({names.length})</p>
                 <ul className="text-xs text-gray-400 grid grid-cols-2 gap-x-3 gap-y-0.5">
                   {names.map((n, i) => <li key={i} className="truncate">{n}</li>)}
                 </ul>

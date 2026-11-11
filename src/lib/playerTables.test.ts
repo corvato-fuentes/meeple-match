@@ -53,7 +53,9 @@ describe('playerTableEntries', () => {
     expect(countByState(entries)).toEqual({ confirmed: 2, accepted: 0, offered: 1, queued: 0, rejected: 0 });
   });
 
-  it('ignores posted tables for offers: they have no offer step', () => {
-    expect(states([table('p', { postedByOwner: true, candidateIds: ['p1'] })])).toEqual([]);
+  it('shows the offer of a posted table, and its rejection, the same way', () => {
+    expect(states([table('p', { postedByOwner: true, candidateIds: ['p1'] })])).toEqual(['p:offered']);
+    expect(states([table('p', { postedByOwner: true, rejectedIds: ['p1'] })])).toEqual(['p:rejected']);
+    expect(states([table('p', { postedByOwner: true })])).toEqual([]);
   });
 });

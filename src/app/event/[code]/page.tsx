@@ -15,6 +15,7 @@ import { getPushStatus, requestPushPermission, subscribeAfterPermission, type Pu
 import { displayNameOf } from '@/lib/playerName';
 import { getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import { useBggSearch } from '@/hooks/useBggSearch';
+import PlayerCountFields from '@/components/ui/PlayerCountFields';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import VotingHelp from '@/components/ui/VotingHelp';
 import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
@@ -74,7 +75,7 @@ export default function EventPage() {
   const [newGameKnowledgeLevel, setNewGameKnowledgeLevel] = useState<KnowledgeLevel | null>(null);
   // What BGG itself suggested, kept separate from newGame's live values so a per-field hint can
   // disappear the moment the organizer edits away from it, without losing the rest of the BGG data.
-  const [bggSuggested, setBggSuggested] = useState<{ perPlayerMinutes: number } | null>(null);
+  const [bggSuggested, setBggSuggested] = useState<{ perPlayerMinutes: number; minPlayers: number; maxPlayers: number } | null>(null);
   // Walks the "add a new game" fields one group at a time instead of dumping the whole form at
   // once. Only applies to adding — editing an existing game still shows everything flat.
   const [addGameStep, setAddGameStep] = useState(1);
@@ -108,7 +109,7 @@ export default function EventPage() {
         complexity: details.complexity,
         perPlayerMinutes: suggestedPerPlayer,
       }));
-      setBggSuggested({ perPlayerMinutes: suggestedPerPlayer });
+      setBggSuggested({ perPlayerMinutes: suggestedPerPlayer, minPlayers: details.minPlayers, maxPlayers: details.maxPlayers });
       setAddGameStep(1);
     } catch (err) {
       console.error(err);
@@ -578,6 +579,8 @@ export default function EventPage() {
             <div className="space-y-3">
               {inStep(1) && (
                 <div className="space-y-3">
+                  <PlayerCountFields min={newGame.minPlayers} max={newGame.maxPlayers} suggested={bggSuggested ? { min: bggSuggested.minPlayers, max: bggSuggested.maxPlayers } : null}
+                    onChange={(minPlayers, maxPlayers) => setNewGame({ ...newGame, minPlayers, maxPlayers })} />
                   <h3 className="text-sm font-semibold text-gray-200">⏱️ Tiempo de juego</h3>
                   <div>
                     <label className="text-xs text-gray-400">🛠️ ¿Cuánto tiempo de armado? (min)</label>

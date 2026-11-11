@@ -19,9 +19,15 @@ describe('planPushes — what is due', () => {
     const t = table({ id: 'k', status: 'confirmed', candidateIds: ['p1', 'p2'], playerIds: ['p2', 'p3'], startTime: '16:00', endTime: '17:00' });
     expect(kinds(plan([t], ['p1', 'p2', 'p3']))).toEqual(['confirmed:p2', 'confirmed:p3', 'offer:p1']);
   });
-  it('never offers again a table the player rejected, nor owner-posted ones', () => {
+  it('offers a table an owner posted to the interested people too, and sends them to the posted tables screen', () => {
+    const t = table({ id: 'p', postedByOwner: true, candidateIds: ['p1'], playerIds: ['p9'], startTime: '15:00', endTime: '16:00' });
+    expect(kinds(plan([t], ['p1', 'p2']))).toEqual(['offer:p1']);
+    const [m] = composePayloads(plan([t], ['p1']), { code: 'ABC123', ticketCode: 'T1', slotByTableId: new Map(), nowMinutes: 600 });
+    expect(m.payload.url).toBe('/event/ABC123/postulated?ticket=T1');
+  });
+  it('never offers again a table the player rejected, nor a posted one they were not offered', () => {
     expect(plan([table({ candidateIds: ['p1'], rejectedIds: ['p1'] })], ['p1'])).toHaveLength(0);
-    expect(plan([table({ postedByOwner: true, candidateIds: ['p1'] })], ['p1'])).toHaveLength(0);
+    expect(plan([table({ postedByOwner: true, candidateIds: [] })], ['p1'])).toHaveLength(0); // a posted table is offered only to the interested people it was offered to
   });
   it('tells seated players and the explainer when a table is confirmed', () => {
     const t = table({ status: 'confirmed', playerIds: ['p1', 'p2'], explainerId: 'p3', startTime: '16:00', endTime: '17:00' });

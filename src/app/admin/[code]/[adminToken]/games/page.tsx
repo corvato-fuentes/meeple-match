@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getEvent, verifyAdminToken, subscribeAllGames, subscribePlayers, mergeGames, autoMergeDuplicates, ungroupGame, updateGame,
+  getEvent, verifyAdminToken, subscribeAllGames, subscribePlayers, subscribeTables, mergeGames, autoMergeDuplicates, ungroupGame, updateGame,
   transferGameVotes, discardDeletedGame,
 } from '@/lib/firestore';
 import { getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import { useBggSearch } from '@/hooks/useBggSearch';
 import { roundUp5 } from '@/lib/timeUtils';
-import type { MeepleEvent, Game, Player, GameComplexity } from '@/lib/types';
+import { playerTableEntries, type PlayerTableState } from '@/lib/playerTables';
+import type { MeepleEvent, Game, Player, GameComplexity, Table } from '@/lib/types';
 
 const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
 
@@ -32,6 +33,8 @@ export default function GamesPage() {
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [expandedVotesId, setExpandedVotesId] = useState<string | null>(null);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mergePrimaryId, setMergePrimaryId] = useState('');
@@ -51,7 +54,8 @@ export default function GamesPage() {
     });
     const unsubG = subscribeAllGames(code, setGames);
     const unsubP = subscribePlayers(code, setPlayers);
-    return () => { unsubG(); unsubP(); };
+    const unsubT = subscribeTables(code, setTables);
+    return () => { unsubG(); unsubP();  unsubT(); };
   }, [code, adminToken]);
 
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
@@ -248,6 +252,15 @@ export default function GamesPage() {
                   <span className='text-gray-500'>👎 {no}</span>
                   <span className='text-purple-300'>🎓 {explainers} explica{explainers !== 1 ? 'n' : ''}</span>
                 </div>
+                {yes + no > 0 && (
+                  <div className='mt-2'>
+                    <button onClick={() => setExpandedVotesId((cur) => cur === primary.id ? null : primary.id)}
+                      className='text-xs text-gray-500 hover:text-gray-300'>
+                      {expandedVotesId === primary.id ? '▾' : '▸'} Ver votos ({yes + no})
+                    </button>
+                    {expandedVotesId === primary.id && <VotesDetail gameId={primary.id} players={players} tables={tables} />}
+                  </div>
+                )}
                 {isGroup && (
                   <div className='mt-2 pt-2 border-t border-gray-700 space-y-1'>
                     {copies.map((c) => (
@@ -504,3 +517,58 @@ function GameEditForm({
   );
 }
 
+const TABLE_STATE_LABEL: Record<PlayerTableState, { label: string; cls: string }> = {
+  confirmed: { label: '✅ mesa confirmada', cls: 'text-green-400' },
+  accepted: { label: '⏳ aceptó, espera jugadores', cls: 'text-amber-300' },
+  offered: { label: '🤔 oferta sin responder', cls: 'text-gray-300' },
+  queued: { label: '⏳ en cola (espera a quien explica)', cls: 'text-gray-400' },
+  rejected: { label: '🚫 rechazó la mesa', cls: 'text-gray-500' },
+};
+
+/**
+ * Who voted what on one game, and what became of each voter: whether they explain it, would join a second table, already
+ * know it, and where they stand on that game's tables (confirmed, accepted and waiting, offer unanswered, rejected).
+ */
+function VotesDetail({ gameId, players, tables }: { gameId: string; players: Player[]; tables: Table[] }) {
+  const byName = (a: Player, b: Player) => a.name.localeCompare(b.name);
+  const yes = players.filter((p) => p.interests[gameId] === 'yes').sort((a, b) => Number(b.canExplain.includes(gameId)) - Number(a.canExplain.includes(gameId)) || byName(a, b));
+  const no = players.filter((p) => p.interests[gameId] === 'no').sort(byName);
+  const standing = (p: Player) => playerTableEntries(p.id, tables).filter((e) => e.table.gameId === gameId);
+
+  return (
+    <div className='mt-1.5 space-y-2'>
+      <div>
+        <p className='text-xs font-semibold text-gray-300 mb-1'>👍 Quieren jugarlo ({yes.length})</p>
+        <div className='space-y-1'>
+          {yes.map((p) => {
+            const entries = standing(p);
+            return (
+              <div key={p.id} className='text-xs bg-gray-900 rounded-lg px-2 py-1'>
+                <div className='flex flex-wrap items-center gap-x-2 text-gray-300'>
+                  <span>{p.name}</span>
+                  {p.canExplain.includes(gameId) && <span className='text-purple-300'>🎓 explica</span>}
+                  {(p.repeatGameIds ?? []).includes(gameId) && <span className='text-indigo-300'>🔁 jugaría otra mesa</span>}
+                  {(p.playedGameIds ?? []).includes(gameId) && <span className='text-gray-500'>📘 ya lo conoce</span>}
+                </div>
+                <div className='text-gray-500'>
+                  {entries.length === 0 ? 'Sin mesa todavía' : entries.map((e, i) => (
+                    <span key={e.table.id}>
+                      {i > 0 && ' · '}
+                      <span className={TABLE_STATE_LABEL[e.state].cls}>{TABLE_STATE_LABEL[e.state].label}</span> {e.table.startTime}–{e.table.endTime}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {no.length > 0 && (
+        <div>
+          <p className='text-xs font-semibold text-gray-300 mb-1'>👎 No les interesa ({no.length})</p>
+          <p className='text-xs text-gray-500 bg-gray-900 rounded-lg px-2 py-1'>{no.map((p) => p.name).join(' · ')}</p>
+        </div>
+      )}
+    </div>
+  );
+}

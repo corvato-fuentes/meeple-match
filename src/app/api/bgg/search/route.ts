@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-function decodeXmlEntities(s: string): string {
-  return s
-    .replace(/&apos;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
-}
+import { decodeEntities } from '@/lib/htmlEntities';
 
 // Runs server-side to avoid BGG's XML API blocking direct browser CORS requests.
 // BGG's XML API requires a registered Application + Bearer token (see boardgamegeek.com/using_the_xml_api).
@@ -31,7 +24,7 @@ export async function GET(request: NextRequest) {
     const nameMatch = /<name[^>]*\bvalue="([^"]*)"/.exec(body);
     const yearMatch = /<yearpublished[^>]*\bvalue="([^"]*)"/.exec(body);
     if (nameMatch) {
-      results.push({ id, name: decodeXmlEntities(nameMatch[1]), year: yearMatch?.[1] ?? null, imageUrl: null });
+      results.push({ id, name: decodeEntities(nameMatch[1]), year: yearMatch?.[1] ?? null, imageUrl: null });
     }
   }
 

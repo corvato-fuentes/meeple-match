@@ -1,6 +1,6 @@
 import type { Table } from './types';
 import { toMinutes } from './timeUtils';
-import { isOfferFor } from './offers';
+import { hasOfferFor } from './offers';
 
 // Pure planning of which push notifications are due and what they say. No Firestore / web-push
 // here, so the rules are easy to test; src/lib/pushServer.ts does the I/O around it.
@@ -60,7 +60,7 @@ export function planPushes({ tables, playerIds, eventDate, today, nowMinutes }: 
 
     for (const pid of playerIds) {
       // Offers go to the people who still have to answer — also for a confirmed table that has free places
-      if ((t.status === 'recommended' || t.status === 'confirmed') && isOfferFor(t, pid)) {
+      if ((t.status === 'recommended' || t.status === 'confirmed') && hasOfferFor(t, pid)) {
         planned.push({ key: pushKey('offer', t.id, pid), kind: 'offer', playerId: pid, table: t });
       }
       if (t.status === 'recommended') continue;
@@ -97,18 +97,20 @@ export function composePayloads(items: PlannedPush[], ctx: ComposeContext): { pa
   const slotText = (t: Table) => { const s = ctx.slotByTableId.get(t.id); return s != null ? ` · Mesa #${s}` : ''; };
 
   const offers = byKind('offer');
+  // Offers of tables owners posted are answered on the Mesas postuladas screen; the rest, on Mesas recomendadas
+  const offersUrl = `/event/${ctx.code}/${offers.length > 0 && offers.every((o) => o.table.postedByOwner) ? 'postulated' : 'recommended'}${ticketQuery}`;
   if (offers.length === 1) {
     const t = offers[0].table;
     out.push({
       keys: [offers[0].key],
       payload: { title: '🟡 Te ofrecen una mesa', body: `${t.gameName} · ${t.startTime}–${t.endTime}. Entrá para aceptarla o rechazarla.`,
-        url: `/event/${ctx.code}/recommended${ticketQuery}`, tag: `offer-${ctx.code}`, ttl: 3600 },
+        url: offersUrl, tag: `offer-${ctx.code}`, ttl: 3600 },
     });
   } else if (offers.length > 1) {
     out.push({
       keys: offers.map((o) => o.key),
       payload: { title: `🟡 Tenés ${offers.length} mesas para aceptar`, body: `${list(offers.map((o) => o.table.gameName))}. Entrá para responder.`,
-        url: `/event/${ctx.code}/recommended${ticketQuery}`, tag: `offer-${ctx.code}`, ttl: 3600 },
+        url: offersUrl, tag: `offer-${ctx.code}`, ttl: 3600 },
     });
   }
 

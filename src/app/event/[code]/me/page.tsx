@@ -9,7 +9,9 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor } from '@/lib/offers';
-import { requestMatchesGame, type GameRequestView } from '@/lib/gameRequests';
+import { useOpenGameRequests } from '@/hooks/useOpenGameRequests';
+import { postedSlotConflict, replaceableByPostedTable } from '@/lib/tableAlgorithm';
+import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { slotMapFor } from '@/lib/physicalSlots';
@@ -19,6 +21,7 @@ import { useBggSearch } from '@/hooks/useBggSearch';
 import GameCover from '@/components/ui/GameCover';
 import NextTableCard from '@/components/ui/NextTableCard';
 import InstallPrompt from '@/components/ui/InstallPrompt';
+import PlayerCountFields from '@/components/ui/PlayerCountFields';
 import LeaveTableConfirm from '@/components/ui/LeaveTableConfirm';
 import TicketQr from '@/components/ui/TicketQr';
 import PushOptIn from '@/components/ui/PushOptIn';
@@ -30,6 +33,21 @@ import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/Knowl
 import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
+
+/** What the poster is told before their table replaces suggested ones: which tables, and how many people it moves. */
+function replaceMessage(gameName: string, tables: Table[]): string {
+  const accepted = new Set(tables.flatMap((t) => t.playerIds));
+  const offered = new Set(tables.flatMap((t) => [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])]));
+  accepted.forEach((id) => offered.delete(id));
+  const where = tables.map((t) => `${t.startTime} a ${t.endTime}`).join(' y ');
+  const plural = tables.length > 1;
+  const people = [
+    accepted.size > 0 && `${accepted.size} ${accepted.size === 1 ? 'persona ya la aceptó' : 'personas ya la aceptaron'}`,
+    offered.size > 0 && `${offered.size} ${offered.size === 1 ? 'la tiene' : 'la tienen'} ofrecida`,
+  ].filter(Boolean).join(' y ');
+  return `${plural ? 'Hay mesas recomendadas' : 'Hay una mesa recomendada'} de ${gameName} de ${where} que todavía no ${plural ? 'están confirmadas' : 'está confirmada'}` +
+    `${people ? ` (${people})` : ''}. Si postulás la tuya, ${plural ? 'se cancelan' : 'se cancela'} y se les ofrece la tuya a las personas interesadas: tienen que volver a aceptar.`;
+}
 
 type InterestLevel = 'yes' | 'no';
 
@@ -67,7 +85,7 @@ export default function MyTicketPage() {
   const [showAddGame, setShowAddGame] = useState(false);
   const [newGame, setNewGame] = useState<DraftGame>(EMPTY_DRAFT_GAME);
   const [newGameKnowledgeLevel, setNewGameKnowledgeLevel] = useState<KnowledgeLevel | null>(null);
-  const [bggSuggested, setBggSuggested] = useState<{ perPlayerMinutes: number } | null>(null);
+  const [bggSuggested, setBggSuggested] = useState<{ perPlayerMinutes: number; minPlayers: number; maxPlayers: number } | null>(null);
   const [addGameStep, setAddGameStep] = useState(1);
   const [addingGame, setAddingGame] = useState(false);
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
@@ -76,8 +94,6 @@ export default function MyTicketPage() {
   const [draftArrival, setDraftArrival] = useState('');
   const [draftDeparture, setDraftDeparture] = useState('');
   const [savingTimes, setSavingTimes] = useState(false);
-  // How many games people have asked for that nobody brings yet (null until known) — the link to "Juegos pedidos" shows it
-  const [openGameRequests, setOpenGameRequests] = useState<number | null>(null);
   const [leavingTable, setLeavingTable] = useState<Table | null>(null);
   const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -88,6 +104,8 @@ export default function MyTicketPage() {
   const [proposeStart, setProposeStart] = useState('');
   const [proposingSubmitting, setProposingSubmitting] = useState(false);
   const [proposeError, setProposeError] = useState('');
+  // Suggested tables the table being posted would replace, waiting for the poster's OK
+  const [pendingReplace, setPendingReplace] = useState<{ game: Game; tables: Table[] } | null>(null);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -112,18 +130,8 @@ export default function MyTicketPage() {
     load();
   }, [code, router, searchParams]);
 
-  useEffect(() => {
-    if (!player) return;
-    let cancelled = false;
-    fetch(`/api/requests?code=${encodeURIComponent(code)}&ticket=${encodeURIComponent(player.ticketCode)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: { requests?: GameRequestView[] } | null) => {
-        if (cancelled || !json?.requests) return;
-        setOpenGameRequests(json.requests.filter((r) => !r.claimedBy && !games.some((g) => requestMatchesGame(r, g))).length);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [code, player, games]);
+  // How many games people have asked for that nobody brings yet — the link to "Juegos pedidos" shows it
+  const openGameRequests = useOpenGameRequests(code, player?.ticketCode, games);
 
   useEffect(() => {
     if (!player) return;
@@ -153,7 +161,7 @@ export default function MyTicketPage() {
         complexity: details.complexity,
         perPlayerMinutes: suggestedPerPlayer,
       }));
-      setBggSuggested({ perPlayerMinutes: suggestedPerPlayer });
+      setBggSuggested({ perPlayerMinutes: suggestedPerPlayer, minPlayers: details.minPlayers, maxPlayers: details.maxPlayers });
       setAddGameStep(1);
     } catch (err) {
       console.error(err);
@@ -361,7 +369,7 @@ export default function MyTicketPage() {
 
   // Owner posts a table directly at a time of their choosing — starts 'recommended' (waiting for
   // players to join up to the game's minimum), unless the owner alone already meets it.
-  async function submitPropose(game: Game) {
+  async function submitPropose(game: Game, replaceConfirmed = false) {
     if (!player || !event || !proposeStart || proposingSubmitting) return;
     // The poster is the table's explainer, so they have to know how to teach the game. Votes and
     // knowledge live on the primary copy when games are merged.
@@ -376,6 +384,29 @@ export default function MyTicketPage() {
       setProposeError('Ese horario se te superpone con otra mesa tuya (o no entra en tu horario).');
       return;
     }
+    // The generator already keeps its own tables away from the ones people post; this is the same check the other way
+    // round: a copy of the game can't be in two tables at once, and the venue has a limited number of tables.
+    const buffer = event.settings.bufferMinutes;
+    const conflict = postedSlotConflict({
+      tables: allTables, gameId: primaryId, start, end, bufferMinutes: buffer,
+      gameCopies: games.filter((g) => (g.groupId ?? g.id) === primaryId).length || 1, physicalTables: event.settings.physicalTables,
+    });
+    if (conflict) {
+      setProposeError(conflict.kind === 'copy'
+        ? `Ya hay una mesa confirmada de este juego de ${conflict.table.startTime} a ${conflict.table.endTime}: una misma copia no puede estar en dos mesas a la vez (dejá al menos ${buffer} min entre una y otra).`
+        : 'A esa hora ya están ocupadas todas las mesas del salón con mesas confirmadas. Probá otro horario.');
+      return;
+    }
+    // Suggestions that aren't confirmed yet and overlap this one give way to it — after telling the poster who they move
+    const replaced = replaceableByPostedTable({
+      tables: allTables, gameId: primaryId, start, end, bufferMinutes: buffer,
+      gameCopies: games.filter((g) => (g.groupId ?? g.id) === primaryId).length || 1,
+    });
+    if (replaced.length > 0 && !replaceConfirmed) {
+      setPendingReplace({ game, tables: replaced });
+      return;
+    }
+    setPendingReplace(null);
     setProposingSubmitting(true);
     setProposeError('');
     try {
@@ -386,7 +417,9 @@ export default function MyTicketPage() {
         explainerId: player.id, playerIds: [player.id],
         status: 'recommended', postedByOwner: true,
         isManuallyEdited: false, batchNumber: latestBatch, tableNumber: nextTableNumber,
-      });
+      }, replaced.map((t) => t.id));
+      // Offer the new table to the people who voted this game and fit its slot (the generation pass does it)
+      runTableGeneration(code, event).catch(() => {});
       setProposingGameId(null);
       setProposeStart('');
     } finally {
@@ -426,7 +459,7 @@ export default function MyTicketPage() {
   const joinablePostedCount = allTables.filter((t) => {
     if (!t.postedByOwner || t.status !== 'recommended') return false;
     if (t.playerIds.includes(player.id) || t.explainerId === player.id) return false;
-    if (interests[t.gameId] !== 'yes') return false;
+    if (interests[t.gameId] !== 'yes' || (t.rejectedIds ?? []).includes(player.id)) return false;
     const game = games.find((g) => g.id === t.gameId);
     if (!game || t.playerIds.length >= game.maxPlayers) return false;
     return isPlayerFreeFor(t.startTime, t.endTime);
@@ -471,6 +504,13 @@ export default function MyTicketPage() {
       </div>
 
       <LeaveTableConfirm table={leavingTable} myId={player.id} onConfirm={handleLeaveTable} onCancel={() => setLeavingTable(null)} />
+      <ConfirmModal
+        open={!!pendingReplace}
+        title="Ya hay una mesa recomendada a esa hora"
+        message={pendingReplace ? replaceMessage(pendingReplace.game.name, pendingReplace.tables) : ''}
+        confirmLabel="Postular y reemplazar"
+        onConfirm={() => pendingReplace && submitPropose(pendingReplace.game, true)}
+        onCancel={() => setPendingReplace(null)} />
 
       <AnnouncementBanner code={code} />
 
@@ -659,6 +699,13 @@ export default function MyTicketPage() {
                       </span>
                     </div>
                     <p className="text-sm text-gray-400 mt-1">Mesa #{slotByTableId.get(t.id) ?? t.tableNumber} · {t.startTime}–{t.endTime}</p>
+                    {/* Who is on the table: the players, with the one explaining marked */}
+                    <p className="text-xs text-gray-400 mt-1.5">
+                      👥 {[...new Set([...t.playerIds, t.explainerId])].map((id) => {
+                        const name = id === player.id ? 'Vos' : players.find((p) => p.id === id)?.name ?? 'alguien';
+                        return id === t.explainerId ? `🎓 ${name}` : name;
+                      }).join(' · ')}
+                    </p>
                     <div className="flex gap-1 mt-1">
                       {isPlaying && (
                         <span className="text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded">🎲 Jugador</span>
@@ -879,6 +926,8 @@ export default function MyTicketPage() {
               <div className="space-y-3">
                 {inStep(1) && (
                   <div className="space-y-3">
+                    <PlayerCountFields min={newGame.minPlayers} max={newGame.maxPlayers} suggested={bggSuggested ? { min: bggSuggested.minPlayers, max: bggSuggested.maxPlayers } : null}
+                      onChange={(minPlayers, maxPlayers) => setNewGame({ ...newGame, minPlayers, maxPlayers })} />
                     <h3 className="text-sm font-semibold text-gray-200">⏱️ Tiempo de juego</h3>
                     <div>
                       <label className="text-xs text-gray-400">🛠️ ¿Cuánto tiempo de armado? (min)</label>

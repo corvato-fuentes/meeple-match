@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { GameComplexity } from '@/lib/types';
+import { pickPlayerRange, type PollRow } from '@/lib/bggPlayers';
 
 // Runs server-side to avoid BGG's XML API blocking direct browser CORS requests.
 // Requires BGG_API_TOKEN (registered Application + Bearer token, see boardgamegeek.com/using_the_xml_api).
@@ -31,36 +32,30 @@ export async function GET(request: NextRequest) {
 
   // BGG's own community poll (per-count Best/Recommended/Not Recommended votes) reflects how people
   // actually play it — often narrower than the box-stated <minplayers>/<maxplayers>, which is just
-  // the publisher's claim. A player count is "usable" here if Not Recommended isn't its plurality
-  // vote, and we always drop 1-player counts regardless of votes — this app matches players into
-  // shared tables, so a solo-only recommendation isn't a table we can ever fill. Falls back to the
-  // box numbers when a game has no/too-thin poll data.
+  // the publisher's claim. The suggestion is the unbroken run of usable counts around the one voted
+  // "Best" (see pickPlayerRange): 1-player counts never count — this app matches players into shared
+  // tables — and an isolated count after a gap (a 6-player mode whose 5-player count is voted down)
+  // is left out. Falls back to the box numbers when a game has no/too-thin poll data.
   const boxMaxPlayers = Math.max(1, Math.round(num('maxplayers', 4)));
   let minPlayers = Math.max(1, Math.round(num('minplayers', 2)));
   let maxPlayers = boxMaxPlayers;
   const pollMatch = /<poll name="suggested_numplayers"[^>]*>([\s\S]*?)<\/poll>/.exec(xml);
   if (pollMatch) {
-    const usableCounts: number[] = [];
+    const rows: PollRow[] = [];
     const resultsRegex = /<results numplayers="(\d+)">([\s\S]*?)<\/results>/g;
     let resultsMatch: RegExpExecArray | null;
     while ((resultsMatch = resultsRegex.exec(pollMatch[1]))) {
-      const n = parseInt(resultsMatch[1], 10);
-      if (n < 2) continue;
       const block = resultsMatch[2];
       const votes = (value: string) => {
         const m = new RegExp(`value="${value}" numvotes="(\\d+)"`).exec(block);
         return m ? parseInt(m[1], 10) : 0;
       };
-      const best = votes('Best');
-      const recommended = votes('Recommended');
-      const notRecommended = votes('Not Recommended');
-      if (best + recommended + notRecommended === 0) continue;
-      if (notRecommended > best && notRecommended > recommended) continue;
-      usableCounts.push(n);
+      rows.push({ players: parseInt(resultsMatch[1], 10), best: votes('Best'), recommended: votes('Recommended'), notRecommended: votes('Not Recommended') });
     }
-    if (usableCounts.length > 0) {
-      minPlayers = Math.min(...usableCounts);
-      maxPlayers = Math.max(...usableCounts);
+    const range = pickPlayerRange(rows);
+    if (range) {
+      minPlayers = range.min;
+      maxPlayers = range.max;
     }
   }
 
