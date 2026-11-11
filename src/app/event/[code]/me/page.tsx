@@ -9,6 +9,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor } from '@/lib/offers';
+import { requestMatchesGame, type GameRequestView } from '@/lib/gameRequests';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { slotMapFor } from '@/lib/physicalSlots';
@@ -75,6 +76,8 @@ export default function MyTicketPage() {
   const [draftArrival, setDraftArrival] = useState('');
   const [draftDeparture, setDraftDeparture] = useState('');
   const [savingTimes, setSavingTimes] = useState(false);
+  // How many games people have asked for that nobody brings yet (null until known) — the link to "Juegos pedidos" shows it
+  const [openGameRequests, setOpenGameRequests] = useState<number | null>(null);
   const [leavingTable, setLeavingTable] = useState<Table | null>(null);
   const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -108,6 +111,19 @@ export default function MyTicketPage() {
     }
     load();
   }, [code, router, searchParams]);
+
+  useEffect(() => {
+    if (!player) return;
+    let cancelled = false;
+    fetch(`/api/requests?code=${encodeURIComponent(code)}&ticket=${encodeURIComponent(player.ticketCode)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { requests?: GameRequestView[] } | null) => {
+        if (cancelled || !json?.requests) return;
+        setOpenGameRequests(json.requests.filter((r) => !r.claimedBy && !games.some((g) => requestMatchesGame(r, g))).length);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [code, player, games]);
 
   useEffect(() => {
     if (!player) return;
@@ -697,6 +713,16 @@ export default function MyTicketPage() {
               </HelpPopover>
             </Link>
           </div>
+          <Link href={`/event/${code}/requests?ticket=${player.ticketCode}`}
+            className="flex items-center justify-between gap-3 border border-purple-800 text-purple-200 rounded-xl px-3 py-2.5 text-sm hover:bg-purple-950/30 mb-3">
+            <span>
+              🙏 Juegos pedidos
+              {openGameRequests != null && openGameRequests > 0 && (
+                <span className="ml-2 text-xs bg-purple-400 text-black font-bold rounded-full px-1.5 py-0.5">{openGameRequests} se buscan</span>
+              )}
+            </span>
+            <span aria-hidden="true">→</span>
+          </Link>
           {myGames.length > 0 && (
             <div className="space-y-2 mb-3">
               {myGames.map((g) => (
