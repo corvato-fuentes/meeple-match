@@ -106,8 +106,16 @@ export default function GamesVotePage() {
 
   // Voting 👍 for the first time prompts the knowledge-level popup right away — more meaningful in
   // the moment than an always-visible picker on every card, most of which you'll never vote yes on.
+  // "Would play a second table of it" — on or off; saved with the votes
+  function setRepeat(gameId: string, on: boolean) {
+    setPlayer((p) => p && ({
+      ...p, repeatGameIds: on ? [...new Set([...(p.repeatGameIds ?? []), gameId])] : (p.repeatGameIds ?? []).filter((id) => id !== gameId),
+    }));
+  }
+
   function handleSetInterest(gameId: string, level: InterestLevel | null) {
     const wasYes = interests[gameId] === 'yes';
+    if (wasYes && level !== 'yes') setRepeat(gameId, false); // no longer interested: there is no second table to want
     setInterests((cur) => {
       const next = { ...cur };
       if (level === null) delete next[gameId]; else next[gameId] = level;
@@ -161,6 +169,8 @@ export default function GamesVotePage() {
             {visibleGames.map((g) => (
               <GameVoteCard key={g.id} game={g} interest={interests[g.id]} isOwn={isOwnGroup(g)} ownerLabel={ownerLabel(g)}
                 onSetInterest={(level) => handleSetInterest(g.id, level)}
+                repeat={(player.repeatGameIds ?? []).includes(g.id)}
+                onToggleRepeat={() => setRepeat(g.id, !(player.repeatGameIds ?? []).includes(g.id))}
                 knowledgeLevel={knowledgeLevelFor(g.id)} onEditKnowledge={() => setKnowledgePromptGameId(g.id)} />
             ))}
           </div>

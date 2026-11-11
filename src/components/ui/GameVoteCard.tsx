@@ -17,7 +17,7 @@ const KNOWLEDGE_LABEL: Record<KnowledgeLevel, string> = {
 };
 
 export default function GameVoteCard({
-  game, interest, isOwn, ownerLabel, onSetInterest, knowledgeLevel, onEditKnowledge,
+  game, interest, isOwn, ownerLabel, onSetInterest, knowledgeLevel, onEditKnowledge, repeat, onToggleRepeat,
 }: {
   game: Game;
   interest: InterestLevel | undefined;
@@ -26,6 +26,9 @@ export default function GameVoteCard({
   onSetInterest: (level: InterestLevel | null) => void;
   knowledgeLevel: KnowledgeLevel;
   onEditKnowledge: () => void;
+  /** Would play a second table of this game too (only offered where the player can change it). */
+  repeat?: boolean;
+  onToggleRepeat?: () => void;
 }) {
   const copyCount = ownerLabel.split(',').length;
   const href = game.bggUrl ?? bggSearchUrl(game.name);
@@ -66,6 +69,14 @@ export default function GameVoteCard({
           );
         })}
       </div>
+      {interest === 'yes' && onToggleRepeat && (
+        <button type="button" onClick={onToggleRepeat} aria-pressed={!!repeat}
+          className={'w-full mt-2 py-1.5 rounded-lg border text-xs flex items-center justify-center gap-1.5 ' +
+            (repeat ? 'bg-indigo-900/60 border-indigo-600 text-indigo-200' : 'border-gray-700 text-gray-500 hover:bg-gray-800')}>
+          <span>🔁</span>
+          <span>{repeat ? 'Jugarías una segunda mesa (tocá para quitarlo)' : 'Jugarías también una segunda mesa'}</span>
+        </button>
+      )}
       {(interest === 'yes' || knowledgeLevel !== 'never') && (
         <div className="flex items-center justify-between text-xs text-gray-400 mt-2">
           <span>{KNOWLEDGE_LABEL[knowledgeLevel]}</span>

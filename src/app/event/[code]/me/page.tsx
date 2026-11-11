@@ -486,6 +486,161 @@ export default function MyTicketPage() {
     'in-progress': 'bg-yellow-900 text-yellow-300',
   };
 
+  // The add / edit form. Editing a game opens it right under that game; adding one opens it at the end of the list.
+  const gameForm = showAddGame && (
+    <div className="space-y-3 border border-gray-700 rounded-xl p-4 bg-gray-800">
+      {editingGameId ? (
+        <h3 className="text-base font-semibold text-gray-100 flex items-center gap-2">🎲 {newGame.name}</h3>
+      ) : (
+      <div className="relative">
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none"
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input className="w-full border border-gray-700 bg-gray-900 rounded-lg pl-9 pr-3 py-2" placeholder="Buscar en BGG..."
+            value={newGame.name}
+            onChange={(e) => {
+              const name = e.target.value;
+              if (!name) { setBggSuggested(null); setAddGameStep(1); }
+              setNewGame(name ? { ...newGame, name } : { ...newGame, name, imageUrl: null, bggUrl: null });
+            }}
+            onFocus={() => { if (bggResults.length > 0) setBggOpen(true); }}
+            onBlur={() => setTimeout(() => setBggOpen(false), 150)} />
+        </div>
+        {bggLoading && <p className="text-xs text-gray-500 mt-1">Buscando en BGG...</p>}
+        {bggOpen && bggResults.length > 0 && (
+          <div className="absolute z-10 w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+            {bggResults.map((r) => (
+              <button key={r.id} type="button"
+                onMouseDown={(e) => { e.preventDefault(); selectBggResult(r); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-800 flex items-center gap-2">
+                {r.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={r.imageUrl} alt="" className="w-10 h-10 rounded object-cover border border-gray-700 shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded bg-gray-800 border border-gray-700 shrink-0 flex items-center justify-center text-lg text-gray-600">
+                    🎲
+                  </div>
+                )}
+                <span className="truncate flex-1">{r.name}</span>
+                {r.year && <span className="text-gray-500 text-xs shrink-0">{r.year}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      )}
+      {newGame.imageUrl && (
+      <div className="relative">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={newGame.imageUrl} alt=""
+          className="w-full aspect-[41/50] rounded-md object-contain bg-gray-900 border border-gray-700" />
+        <button type="button" onClick={() => { setNewGame({ ...newGame, imageUrl: null, bggUrl: null }); setBggSuggested(null); setAddGameStep(1); }}
+          aria-label="Quitar" title="Quitar"
+          className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gray-900/80 border border-gray-700 text-gray-300 hover:bg-gray-800 flex items-center justify-center text-sm">
+          ✕
+        </button>
+      </div>
+      )}
+      {isBggUrl(newGame.bggUrl) && (
+        <a href={newGame.bggUrl} target="_blank" rel="noopener noreferrer"
+          className="flex items-center justify-center gap-2 text-base font-medium text-indigo-400 hover:underline text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/bgg-icon.png" alt="" className="w-5 h-5 shrink-0" />
+          {newGame.name}
+        </a>
+      )}
+      {(isBggUrl(newGame.bggUrl) || editingGameId) && (
+      <>
+      <div className="space-y-3">
+        {inStep(1) && (
+          <div className="space-y-3">
+            <PlayerCountFields min={newGame.minPlayers} max={newGame.maxPlayers} suggested={bggSuggested ? { min: bggSuggested.minPlayers, max: bggSuggested.maxPlayers } : null}
+              onChange={(minPlayers, maxPlayers) => setNewGame({ ...newGame, minPlayers, maxPlayers })} />
+            <h3 className="text-sm font-semibold text-gray-200">⏱️ Tiempo de juego</h3>
+            <div>
+              <label className="text-xs text-gray-400">🛠️ ¿Cuánto tiempo de armado? (min)</label>
+              <input type="number" min={0} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                value={newGame.setupMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder="—"
+                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
+                onChange={(e) => setNewGame({ ...newGame, setupMinutes: e.target.value ? +e.target.value : null })} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400">📚 ¿Cuánto tiempo de explicación? (min)</label>
+              <input type="number" min={0} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
+                value={newGame.explanationMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder="—"
+                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
+                onChange={(e) => setNewGame({ ...newGame, explanationMinutes: e.target.value ? +e.target.value : null })} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400">¿Cuánto tiempo por jugador? (min)</label>
+              <div className="relative">
+                <input type="number" min={0}
+                  className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 pr-28 text-sm" placeholder="—"
+                  value={newGame.perPlayerMinutes ?? ''} onFocus={(e) => e.target.select()}
+                  onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
+                  onChange={(e) => setNewGame({ ...newGame, perPlayerMinutes: e.target.value ? +e.target.value : null })} />
+                {bggSuggested && newGame.perPlayerMinutes === bggSuggested.perPlayerMinutes && (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-indigo-400 pointer-events-none whitespace-nowrap">Recomendación BGG</span>
+                )}
+              </div>
+            </div>
+            {!editingGameId && (
+              <button type="button" onClick={() => setAddGameStep(2)} disabled={!timingFilled}
+                className="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40">
+                Siguiente →
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {inStep(2) && (
+        <>
+        <h3 className={'text-sm font-semibold text-gray-200' + (editingGameId ? ' pt-3 border-t border-gray-700' : '')}>🎮 Preferencias</h3>
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">¿Qué tan bien lo conocés?</label>
+          <KnowledgeLevelPicker value={newGameKnowledgeLevel} onChange={setNewGameKnowledgeLevel} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">🤝 ¿Prestás tu copia aunque no juegues esa mesa?</label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setNewGame({ ...newGame, lendable: true })}
+              className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (newGame.lendable === true ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+              Sí
+            </button>
+            <button type="button" onClick={() => setNewGame({ ...newGame, lendable: false })}
+              className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (newGame.lendable === false ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+              No
+            </button>
+          </div>
+        </div>
+        </>
+      )}
+      {(!!editingGameId || addGameStep === 2) && (
+      <>
+      <div className="flex gap-2">
+        {!editingGameId && (
+          <button type="button" onClick={() => setAddGameStep(1)} className="text-xs text-gray-500 hover:text-gray-300 px-2">← Volver</button>
+        )}
+        <button onClick={cancelEditGame}
+          className="flex-1 border border-gray-700 rounded-lg py-2 text-sm font-medium">
+          Cancelar
+        </button>
+        <button onClick={handleAddGame}
+          disabled={!newGame.name.trim() || newGame.perPlayerMinutes == null || newGame.setupMinutes == null || newGame.explanationMinutes == null || newGameKnowledgeLevel == null || newGame.lendable == null || addingGame}
+          className="flex-1 bg-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-600 disabled:opacity-40">
+          {addingGame ? 'Guardando...' : editingGameId ? '💾 Guardar juego' : '+ Agregar juego'}
+        </button>
+      </div>
+      </>
+      )}
+      </>
+      )}
+    </div>
+  );
+
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
       {/* Page navigation, outside the card at the page's edges: home on the left, admin panel (only if this device has the admin link) on the right */}
@@ -806,6 +961,7 @@ export default function MyTicketPage() {
                       <span className="text-[10px]">{removingGameId === g.id ? 'Eliminando...' : 'Eliminar'}</span>
                     </button>
                   </div>
+                  {editingGameId === g.id && <div className="mt-3">{gameForm}</div>}
                   {proposingGameId === g.id && (
                     <div className="mt-2 border-t border-gray-700 pt-2 space-y-2">
                       {!canExplain.includes(g.groupId ?? g.id) ? (
@@ -857,159 +1013,7 @@ export default function MyTicketPage() {
               + Agregar otro juego
             </button>
           ) : null}
-          {showAddGame && (
-            <div className="space-y-3 border border-gray-700 rounded-xl p-4 bg-gray-800">
-              {editingGameId ? (
-                <h3 className="text-base font-semibold text-gray-100 flex items-center gap-2">🎲 {newGame.name}</h3>
-              ) : (
-              <div className="relative">
-                <div className="relative">
-                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none"
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <circle cx="11" cy="11" r="7" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                  <input className="w-full border border-gray-700 bg-gray-900 rounded-lg pl-9 pr-3 py-2" placeholder="Buscar en BGG..."
-                    value={newGame.name}
-                    onChange={(e) => {
-                      const name = e.target.value;
-                      if (!name) { setBggSuggested(null); setAddGameStep(1); }
-                      setNewGame(name ? { ...newGame, name } : { ...newGame, name, imageUrl: null, bggUrl: null });
-                    }}
-                    onFocus={() => { if (bggResults.length > 0) setBggOpen(true); }}
-                    onBlur={() => setTimeout(() => setBggOpen(false), 150)} />
-                </div>
-                {bggLoading && <p className="text-xs text-gray-500 mt-1">Buscando en BGG...</p>}
-                {bggOpen && bggResults.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-                    {bggResults.map((r) => (
-                      <button key={r.id} type="button"
-                        onMouseDown={(e) => { e.preventDefault(); selectBggResult(r); }}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-800 flex items-center gap-2">
-                        {r.imageUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={r.imageUrl} alt="" className="w-10 h-10 rounded object-cover border border-gray-700 shrink-0" />
-                        ) : (
-                          <div className="w-10 h-10 rounded bg-gray-800 border border-gray-700 shrink-0 flex items-center justify-center text-lg text-gray-600">
-                            🎲
-                          </div>
-                        )}
-                        <span className="truncate flex-1">{r.name}</span>
-                        {r.year && <span className="text-gray-500 text-xs shrink-0">{r.year}</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              )}
-              {newGame.imageUrl && (
-              <div className="relative">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={newGame.imageUrl} alt=""
-                  className="w-full aspect-[41/50] rounded-md object-contain bg-gray-900 border border-gray-700" />
-                <button type="button" onClick={() => { setNewGame({ ...newGame, imageUrl: null, bggUrl: null }); setBggSuggested(null); setAddGameStep(1); }}
-                  aria-label="Quitar" title="Quitar"
-                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gray-900/80 border border-gray-700 text-gray-300 hover:bg-gray-800 flex items-center justify-center text-sm">
-                  ✕
-                </button>
-              </div>
-              )}
-              {isBggUrl(newGame.bggUrl) && (
-                <a href={newGame.bggUrl} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 text-base font-medium text-indigo-400 hover:underline text-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/bgg-icon.png" alt="" className="w-5 h-5 shrink-0" />
-                  {newGame.name}
-                </a>
-              )}
-              {(isBggUrl(newGame.bggUrl) || editingGameId) && (
-              <>
-              <div className="space-y-3">
-                {inStep(1) && (
-                  <div className="space-y-3">
-                    <PlayerCountFields min={newGame.minPlayers} max={newGame.maxPlayers} suggested={bggSuggested ? { min: bggSuggested.minPlayers, max: bggSuggested.maxPlayers } : null}
-                      onChange={(minPlayers, maxPlayers) => setNewGame({ ...newGame, minPlayers, maxPlayers })} />
-                    <h3 className="text-sm font-semibold text-gray-200">⏱️ Tiempo de juego</h3>
-                    <div>
-                      <label className="text-xs text-gray-400">🛠️ ¿Cuánto tiempo de armado? (min)</label>
-                      <input type="number" min={0} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
-                        value={newGame.setupMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder="—"
-                        onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                        onChange={(e) => setNewGame({ ...newGame, setupMinutes: e.target.value ? +e.target.value : null })} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400">📚 ¿Cuánto tiempo de explicación? (min)</label>
-                      <input type="number" min={0} className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm"
-                        value={newGame.explanationMinutes ?? ''} onFocus={(e) => e.target.select()} placeholder="—"
-                        onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                        onChange={(e) => setNewGame({ ...newGame, explanationMinutes: e.target.value ? +e.target.value : null })} />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400">¿Cuánto tiempo por jugador? (min)</label>
-                      <div className="relative">
-                        <input type="number" min={0}
-                          className="w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 pr-28 text-sm" placeholder="—"
-                          value={newGame.perPlayerMinutes ?? ''} onFocus={(e) => e.target.select()}
-                          onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                          onChange={(e) => setNewGame({ ...newGame, perPlayerMinutes: e.target.value ? +e.target.value : null })} />
-                        {bggSuggested && newGame.perPlayerMinutes === bggSuggested.perPlayerMinutes && (
-                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-indigo-400 pointer-events-none whitespace-nowrap">Recomendación BGG</span>
-                        )}
-                      </div>
-                    </div>
-                    {!editingGameId && (
-                      <button type="button" onClick={() => setAddGameStep(2)} disabled={!timingFilled}
-                        className="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40">
-                        Siguiente →
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              {inStep(2) && (
-                <>
-                <h3 className={'text-sm font-semibold text-gray-200' + (editingGameId ? ' pt-3 border-t border-gray-700' : '')}>🎮 Preferencias</h3>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">¿Qué tan bien lo conocés?</label>
-                  <KnowledgeLevelPicker value={newGameKnowledgeLevel} onChange={setNewGameKnowledgeLevel} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">🤝 ¿Prestás tu copia aunque no juegues esa mesa?</label>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setNewGame({ ...newGame, lendable: true })}
-                      className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (newGame.lendable === true ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
-                      Sí
-                    </button>
-                    <button type="button" onClick={() => setNewGame({ ...newGame, lendable: false })}
-                      className={'flex-1 py-1.5 rounded-lg border text-sm font-medium ' + (newGame.lendable === false ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
-                      No
-                    </button>
-                  </div>
-                </div>
-                </>
-              )}
-              {(!!editingGameId || addGameStep === 2) && (
-              <>
-              <div className="flex gap-2">
-                {!editingGameId && (
-                  <button type="button" onClick={() => setAddGameStep(1)} className="text-xs text-gray-500 hover:text-gray-300 px-2">← Volver</button>
-                )}
-                <button onClick={cancelEditGame}
-                  className="flex-1 border border-gray-700 rounded-lg py-2 text-sm font-medium">
-                  Cancelar
-                </button>
-                <button onClick={handleAddGame}
-                  disabled={!newGame.name.trim() || newGame.perPlayerMinutes == null || newGame.setupMinutes == null || newGame.explanationMinutes == null || newGameKnowledgeLevel == null || newGame.lendable == null || addingGame}
-                  className="flex-1 bg-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-600 disabled:opacity-40">
-                  {addingGame ? 'Guardando...' : editingGameId ? '💾 Guardar juego' : '+ Agregar juego'}
-                </button>
-              </div>
-              </>
-              )}
-              </>
-              )}
-            </div>
-          )}
+          {!editingGameId && gameForm}
         </section>
       </div>
 
