@@ -317,7 +317,7 @@ export default function RecommendedTablesPage() {
           )}
         </div>
         {game && isShareableTable(t, game) && (
-          <div className="mt-2"><ShareTableButton code={code} table={t} game={game} eventName={event.name} /></div>
+          <div className="mt-2"><ShareTableButton code={code} table={t} game={game} eventName={event.name} eventDate={event.date} /></div>
         )}
       </div>
     );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isShareableTable, seatsLine, shareHeadline, shareLink, type ShareInfo } from './shareTable';
+import { dayLabel, isShareableTable, seatsLine, shareHeadline, shareLink, shareMessage, type ShareInfo } from './shareTable';
 import type { Table } from './types';
 
 const t = (o: Partial<Table> = {}) => ({ status: 'recommended', playerIds: ['a'], ...o }) as Pick<Table, 'status' | 'playerIds' | 'awaitingExplainer'>;
@@ -26,6 +26,37 @@ describe('shareHeadline', () => {
   });
   it('says there is room when the table is already confirmed', () => {
     expect(shareHeadline(info({ status: 'confirmed', seated: 4 }))).toBe('Hay lugar para 1 más en Dune a las 14:45');
+  });
+});
+
+describe('the day in the headline', () => {
+  it('says which day the table is when the event day is known', () => {
+    expect(dayLabel('2026-11-15')).toBe('domingo 15 de noviembre');
+    expect(shareHeadline(info({ date: '2026-11-15' }))).toBe('Falta 1 para jugar Dune el domingo 15 de noviembre a las 14:45');
+    expect(dayLabel('sin fecha')).toBe('sin fecha');
+  });
+});
+
+describe('shareMessage', () => {
+  it('one fact per line with its icon, the game in bold and the link last', () => {
+    expect(shareMessage(info({ date: '2026-11-15', endTime: '16:10' }), 'Jornada Meeplera', 'https://x.app/event/A/mesa/B')).toBe([
+      '🎲 Falta 1 para jugar *Dune*',
+      '📅 domingo 15 de noviembre',
+      '🕐 14:45–16:10',
+      '🪑 3 anotados · caben hasta 5',
+      '📍 Jornada Meeplera',
+      '',
+      '👉 Sumate acá: https://x.app/event/A/mesa/B',
+    ].join('\n'));
+  });
+  it('leaves out the lines it has no data for', () => {
+    expect(shareMessage(info({ status: 'confirmed', seated: 1 }), '', 'https://x.app/l')).toBe([
+      '🎲 Hay lugar para 4 más en *Dune*',
+      '🕐 14:45',
+      '🪑 1 anotado · caben hasta 5',
+      '',
+      '👉 Sumate acá: https://x.app/l',
+    ].join('\n'));
   });
 });
 

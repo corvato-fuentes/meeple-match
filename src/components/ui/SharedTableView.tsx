@@ -8,7 +8,7 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import { computeEventStatus } from '@/lib/timeUtils';
-import { isShareableTable, pendingTableKey, seatsLine, shareHeadline, shareInfoOf, type ShareInfo } from '@/lib/shareTable';
+import { dayLabel, isShareableTable, pendingTableKey, seatsLine, shareHeadline, shareInfoOf, type ShareInfo } from '@/lib/shareTable';
 import type { SharedTablePreview } from '@/lib/shareTableServer';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import GameCover from '@/components/ui/GameCover';
@@ -90,7 +90,7 @@ export default function SharedTableView({ code, tableId, preview }: { code: stri
       <GameCover size="lg" imageUrl={imageUrl} />
       <div className="min-w-0 space-y-1">
         <p className="font-semibold text-gray-100">{info.gameName}</p>
-        <p className="text-xs text-gray-400">🕐 {info.startTime}–{endTime}</p>
+        <p className="text-xs text-gray-400">🕐 {info.date ? `${dayLabel(info.date)} · ` : ''}{info.startTime}–{endTime}</p>
         <p className="text-xs text-gray-400">🪑 {seatsLine(info)}</p>
       </div>
     </div>
@@ -135,7 +135,7 @@ export default function SharedTableView({ code, tableId, preview }: { code: stri
       </>
     );
   }
-  const info = shareInfoOf(t, game);
+  const info = shareInfoOf(t, game, event?.date);
   const seated = t.playerIds.includes(player.id);
   return shell(
     <>
