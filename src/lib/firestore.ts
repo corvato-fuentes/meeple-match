@@ -135,6 +135,28 @@ function dissolvedIfWaiting(table: Pick<Table, 'status'>): { dissolved?: true } 
   return table.status === 'recommended' ? { dissolved: true } : {};
 }
 
+/**
+ * Makes a confirmed table last what its game takes for the people seated now (see `expectedTableEnd`), after someone
+ * took or left a seat — longer or shorter. A longer table can step on someone's next table: joining is never refused for
+ * that, the time follows anyway (the admin sees overlaps in "Gestionar mesas"). Tables the admin set by hand, or that
+ * aren't confirmed, are not touched. Never throws: the seat change it follows has already happened.
+ */
+export async function resyncTableDuration(eventCode: string, tableId: string): Promise<void> {
+  try {
+    const tableRef = doc(db, 'events', eventCode, 'tables', tableId);
+    const tableSnap = await getDoc(tableRef);
+    if (!tableSnap.exists()) return;
+    const table = { id: tableSnap.id, ...tableSnap.data() } as Table;
+    if (table.status !== 'confirmed' || table.isManuallyEdited) return;
+    const gameSnap = await getDoc(doc(db, 'events', eventCode, 'games', table.gameId));
+    if (!gameSnap.exists()) return;
+    const end = expectedTableEnd(table, { id: gameSnap.id, ...gameSnap.data() } as Game);
+    if (end !== table.endTime) await updateDoc(tableRef, { endTime: end });
+  } catch {
+    // The admin's ⏱️ notice still flags a table that did not follow
+  }
+}
+
 /** Moves when a table ends (the admin's "Ajustar" on a table whose time doesn't match its duration). */
 export async function setTableEnd(eventCode: string, tableId: string, endTime: string): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), { endTime });
@@ -847,6 +869,7 @@ export async function respondToRecommendation(
       tx.update(ref, { candidateIds, rejectedIds });
     }
   });
+  if (accept) await resyncTableDuration(eventCode, tableId); // a seat was taken: the scheduled time follows
   if (somethingToAnnounce) requestPushSync(eventCode); // the table may have just reached its minimum, or reached its other people
 }
 
@@ -879,6 +902,7 @@ export async function joinPostedTable(
       ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }),
     });
   });
+  await resyncTableDuration(eventCode, tableId); // a seat was taken: the scheduled time follows
   requestPushSync(eventCode); // the table may have just reached its minimum
 }
 
@@ -916,6 +940,7 @@ export async function leaveAlgorithmTable(eventCode: string, tableId: string, pl
       ...(table.status === 'confirmed' && remaining.length < Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'recommended' as const }),
     });
   });
+  await resyncTableDuration(eventCode, tableId); // a seat was freed: the scheduled time follows
 }
 
 /** Leaves any table the player is seated at — a posted one or one the algorithm recommended. */
@@ -961,6 +986,7 @@ export async function leavePostedTable(
       ...(table.status === 'confirmed' && playerIds.length < Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'recommended' as const }),
     });
   });
+  await resyncTableDuration(eventCode, tableId); // a seat was freed: the scheduled time follows
 }
 
 /** Deletes a batch of tables — used to clear out stale "proposed" tables before a full regeneration */

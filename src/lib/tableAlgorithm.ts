@@ -128,15 +128,18 @@ export function estimatedDuration(game: Game, playerCount: number): number {
 }
 
 /**
- * When a table should end given who it is for now: an owner-posted one keeps the game's full duration (the owner picked
- * its start); one the algorithm built is sized for everyone it is for — who is seated plus who is still offered it —
- * never fewer than the game's minimum nor more than its maximum, the same way it was sized when it was created. The
- * time is capped at the end of the day.
+ * When a table should end given who it is for now. A CONFIRMED table (it is in the schedule) lasts what the game takes
+ * for the people actually seated. One still waiting for players keeps room for the ones it is for: an owner-posted one
+ * the game's full duration (the owner picked its start), one the algorithm built everyone it is for — who is seated plus
+ * who is still offered it. Never fewer people than the game's minimum nor more than its maximum. The time is capped at
+ * the end of the day.
  */
-export function expectedTableEnd(table: Pick<Table, 'startTime' | 'playerIds' | 'candidateIds' | 'rejectedIds' | 'postedByOwner'>, game: Game): string {
+export function expectedTableEnd(table: Pick<Table, 'startTime' | 'status' | 'playerIds' | 'candidateIds' | 'rejectedIds' | 'postedByOwner'>, game: Game): string {
   const start = toMinutes(table.startTime);
   let minutes: number;
-  if (table.postedByOwner) {
+  if (table.status === 'confirmed') {
+    minutes = estimatedDuration(game, Math.min(game.maxPlayers, Math.max(minSeats(game), table.playerIds.length)));
+  } else if (table.postedByOwner) {
     minutes = roundUp5(game.durationMinutes);
   } else {
     const waiting = (table.candidateIds ?? []).filter((id) => !table.playerIds.includes(id) && !(table.rejectedIds ?? []).includes(id)).length;

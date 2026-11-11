@@ -382,6 +382,12 @@ describe('expectedTableEnd — when a table should end for the people it is for'
   it('is capped at the end of the day', () => {
     expect(expectedTableEnd(t({ startTime: '23:00' }), dune)).toBe('23:59');
   });
+  it('a confirmed table lasts what the game takes for who is seated, not for who is only offered it', () => {
+    const confirmed = (o: Partial<Table> = {}) => t({ status: 'confirmed', ...o });
+    expect(expectedTableEnd(confirmed({ playerIds: ['a', 'b'], candidateIds: ['c', 'd'] }), dune)).toBe('16:30');
+    expect(expectedTableEnd(confirmed({ playerIds: ['a', 'b', 'c'] }), dune)).toBe('17:00');
+    expect(expectedTableEnd(confirmed({ postedByOwner: true, playerIds: ['a', 'b'] }), dune)).toBe('16:30');
+  });
 });
 
 // ── sameGameOverlaps ────────────────────────────────────────────────────────
