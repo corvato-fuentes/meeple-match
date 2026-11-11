@@ -15,6 +15,10 @@ describe('planPushes — what is due', () => {
     const t = table({ id: 'a', candidateIds: ['p1', 'p2'], playerIds: ['p2'] });
     expect(kinds(plan([t], ['p1', 'p2', 'p3']))).toEqual(['offer:p1']);
   });
+  it('also offers a free place at a CONFIRMED table to a late voter who still has to answer (not to the seated ones)', () => {
+    const t = table({ id: 'k', status: 'confirmed', candidateIds: ['p1', 'p2'], playerIds: ['p2', 'p3'], startTime: '16:00', endTime: '17:00' });
+    expect(kinds(plan([t], ['p1', 'p2', 'p3']))).toEqual(['confirmed:p2', 'confirmed:p3', 'offer:p1']);
+  });
   it('never offers again a table the player rejected, nor owner-posted ones', () => {
     expect(plan([table({ candidateIds: ['p1'], rejectedIds: ['p1'] })], ['p1'])).toHaveLength(0);
     expect(plan([table({ postedByOwner: true, candidateIds: ['p1'] })], ['p1'])).toHaveLength(0);

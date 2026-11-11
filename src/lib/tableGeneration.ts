@@ -1,8 +1,8 @@
 import {
-  getPlayers, getGames, getTables, saveProposedTables, updateTableCandidates, fillTableSeats,
+  getPlayers, getGames, getTables, saveProposedTables, updateTableCandidates,
   acquireGenerationLock, releaseGenerationLock, deleteStaleTables, applyWaitingTableReviews,
 } from '@/lib/firestore';
-import { generateTables, fillExistingTables, reviewWaitingTables } from '@/lib/tableAlgorithm';
+import { generateTables, reviewWaitingTables } from '@/lib/tableAlgorithm';
 import { isEventOver, toMinutes, toTimeString } from '@/lib/timeUtils';
 import { requestPushSync } from '@/lib/pushClient';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
@@ -42,7 +42,8 @@ export async function pruneOutOfWindowTables(
 }
 
 export interface TableGenerationResult {
-  filledSeats: number;
+  /** People newly offered a free place at a table that was already confirmed. */
+  newOffers: number;
   newTables: number;
 }
 
@@ -73,7 +74,7 @@ export async function runTableGeneration(
   opts: { manual?: boolean } = {}
 ): Promise<TableGenerationResult> {
   if (!opts.manual && isEventOver(event.date, event.endTime)) {
-    return { filledSeats: 0, newTables: 0 };
+    return { newOffers: 0, newTables: 0 };
   }
 
   // Two regenerations running at once (e.g. two players voting seconds apart) would each build a
@@ -81,7 +82,7 @@ export async function runTableGeneration(
   // another run is already in flight, this one backs off — the next vote/registration triggers
   // another pass anyway, so nothing is permanently lost, just deferred a few seconds.
   if (!(await acquireLockWithRetry(eventCode))) {
-    return { filledSeats: 0, newTables: 0 };
+    return { newOffers: 0, newTables: 0 };
   }
 
   try {
@@ -111,10 +112,9 @@ export async function runTableGeneration(
       activeTables = (await getTables(eventCode)).filter((t) => t.status !== 'cancelled' && !removedIds.has(t.id) && !cancelled.has(t.id));
     }
 
-    // Late "yes" voters can join an already-confirmed table's open seats directly, no accept needed.
-    const fills = fillExistingTables(allPlayers, allGames, activeTables, event.settings.bufferMinutes);
-    for (const fill of fills) await fillTableSeats(eventCode, fill.tableId, fill.playerIds);
-    const currentTables = fills.length > 0 ? (await getTables(eventCode)).filter((t) => t.status !== 'cancelled') : activeTables;
+    // Late "yes" voters for a game whose table is already confirmed are offered its free places by generateTables below
+    // (they have to accept, like everybody else) — nobody is seated without answering.
+    const currentTables = activeTables;
 
     const batchNumber = currentTables.length > 0
       ? Math.max(...currentTables.map((t) => t.batchNumber)) + 1
@@ -126,13 +126,13 @@ export async function runTableGeneration(
     if (proposals.length > 0) await saveProposedTables(eventCode, proposals);
     for (const update of candidateUpdates) await updateTableCandidates(eventCode, update.tableId, update);
     // New offers / seats just got written: let the server send the matching push notifications
-    if (proposals.length > 0 || candidateUpdates.length > 0 || fills.length > 0 || reviews.length > 0) requestPushSync(eventCode);
+    if (proposals.length > 0 || candidateUpdates.length > 0 || reviews.length > 0) requestPushSync(eventCode);
 
-    const filledSeats = fills.reduce((n, f) => {
-      const before = activeTables.find((t) => t.id === f.tableId)?.playerIds.length ?? 0;
-      return n + (f.playerIds.length - before);
+    const newOffers = candidateUpdates.reduce((n, u) => {
+      const t = currentTables.find((x) => x.id === u.tableId);
+      return t?.status === 'confirmed' && u.candidateIds ? n + u.candidateIds.length - (t.candidateIds ?? []).length : n;
     }, 0);
-    return { filledSeats, newTables: proposals.length };
+    return { newOffers, newTables: proposals.length };
   } finally {
     await releaseGenerationLock(eventCode);
   }

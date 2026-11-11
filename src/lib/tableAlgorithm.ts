@@ -293,10 +293,11 @@ export function generateTables(
       .filter((t) => t.gameId === game.id && t.status !== 'cancelled')
       .map((t) => ({ startTime: t.startTime, endTime: t.endTime }));
 
-    // 1. Extend still-open recommended tables (algorithm-generated, not owner-posted) with any
-    // fresh voter who fits the window already fixed for that table — never changes its time.
+    // 1. Extend still-open tables (algorithm-generated, not owner-posted) with any fresh voter who fits the window
+    // already fixed for that table — never changes its time. A table that is already CONFIRMED but has free places
+    // counts too: the late voter is OFFERED a place and has to accept it like everybody else, never seated without asking.
     const openTables = existingTables.filter(
-      (t) => t.gameId === game.id && t.status === 'recommended' && !t.postedByOwner && t.playerIds.length < game.maxPlayers
+      (t) => t.gameId === game.id && (t.status === 'recommended' || t.status === 'confirmed') && !t.postedByOwner && t.playerIds.length < game.maxPlayers
     );
     for (const ot of openTables) {
       const known = new Set([...(ot.candidateIds ?? []), ...(ot.queuedIds ?? []), ...ot.playerIds, ...(ot.rejectedIds ?? [])]);
@@ -454,56 +455,6 @@ export function reviewWaitingTables(players: Player[], tables: Table[], bufferMi
     }
   }
   return reviews;
-}
-
-export interface TableFill {
-  tableId: string;
-  playerIds: string[]; // full updated roster (existing + newly added)
-}
-
-/**
- * Late "yes" voters can directly join an already-CONFIRMED table with open seats — no accept
- * step needed since the table is already locked in. Someone who stepped down from (or rejected) that table
- * is never put back on it, however much they still like the game. (Still-`recommended` tables instead grow
- * their candidate pool via generateTables, and need an explicit accept from each new voter.)
- */
-export function fillExistingTables(players: Player[], games: Game[], existingTables: Table[], bufferMinutes: number): TableFill[] {
-  const gameMap = new Map(games.map((g) => [g.id, g]));
-  const busyMap = new Map<string, { start: string; end: string }[]>();
-  players.forEach((p) => busyMap.set(p.id, getBusyWindows(p.id, existingTables)));
-
-  const fills: TableFill[] = [];
-  const fillable = existingTables
-    .filter((t) => t.status === 'confirmed')
-    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
-
-  for (const table of fillable) {
-    const game = gameMap.get(table.gameId);
-    if (!game) continue;
-    const seatsLeft = game.maxPlayers - table.playerIds.length;
-    if (seatsLeft <= 0) continue;
-
-    const candidates = players
-      .filter((p) =>
-        !table.playerIds.includes(p.id) &&
-        !(table.rejectedIds ?? []).includes(p.id) &&
-        p.interests[table.gameId] === 'yes' &&
-        isAvailable(p, table.startTime, table.endTime, busyMap.get(p.id) ?? [], bufferMinutes)
-      )
-      .sort((a, b) => toMinutes(a.arrivalTime) - toMinutes(b.arrivalTime));
-
-    const added = candidates.slice(0, seatsLeft);
-    if (added.length === 0) continue;
-
-    fills.push({ tableId: table.id, playerIds: [...table.playerIds, ...added.map((p) => p.id)] });
-    added.forEach((p) => {
-      const bw = busyMap.get(p.id) ?? [];
-      bw.push({ start: table.startTime, end: table.endTime });
-      busyMap.set(p.id, bw);
-    });
-  }
-
-  return fills;
 }
 
 export interface IdleGap {

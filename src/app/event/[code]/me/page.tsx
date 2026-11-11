@@ -8,6 +8,7 @@ import {
   postTable, updatePlayerProfile, leaveTable,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
+import { isOfferFor } from '@/lib/offers';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { slotMapFor } from '@/lib/physicalSlots';
@@ -404,7 +405,7 @@ export default function MyTicketPage() {
   // recommended tables waiting for MY answer, and open posted tables for games I voted 👍 on that
   // still have a free seat and fit my schedule.
   const pendingRecommendedCount = allTables.filter(
-    (t) => t.status === 'recommended' && !t.postedByOwner && (t.candidateIds ?? []).includes(player.id)
+    (t) => isOfferFor(t, player.id, games.find((g) => g.id === t.gameId))
   ).length;
   const joinablePostedCount = allTables.filter((t) => {
     if (!t.postedByOwner || t.status !== 'recommended') return false;

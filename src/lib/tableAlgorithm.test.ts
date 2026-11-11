@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  computeIdleGaps, estimatedDuration, estimatedDurationRange, fillExistingTables, findConflictingTable, generateTables, overlaps,
+  computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
   reviewWaitingTables,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
@@ -228,6 +228,20 @@ describe('generateTables — what was already offered', () => {
     expect(candidateUpdates).toEqual([{ tableId: 'open', queuedIds: ['p2', 'p3'] }]);
   });
 
+  it('offers a late voter a free place at a CONFIRMED table — they are not seated, they have to accept', () => {
+    const confirmed = table('c1', { gameId: 'g1', status: 'confirmed', playerIds: ['p1', 'p2'], candidateIds: [], startTime: '12:00', endTime: '13:00' });
+    const { proposals, candidateUpdates } = generate([...voters(2), player('p3', { interests: { g1: 'yes' } })], [game('g1', { maxPlayers: 4 })], [confirmed]);
+    expect(proposals).toHaveLength(0);
+    expect(candidateUpdates).toEqual([{ tableId: 'c1', candidateIds: ['p3'] }]);
+  });
+
+  it('offers nothing for a confirmed table that is full, or to someone who stepped down from it', () => {
+    const full = table('c1', { gameId: 'g1', status: 'confirmed', playerIds: ['p1', 'p2'], startTime: '12:00', endTime: '13:00' });
+    expect(generate([...voters(2), player('p3', { interests: { g1: 'yes' } })], [game('g1', { maxPlayers: 2 })], [full]).candidateUpdates).toEqual([]);
+    const left = { ...full, rejectedIds: ['p3'] };
+    expect(generate([...voters(2), player('p3', { interests: { g1: 'yes' } })], [game('g1', { maxPlayers: 4 })], [left]).candidateUpdates).toEqual([]);
+  });
+
   it('does not re-offer a player who rejected the open table', () => {
     const existing = [table('open', { gameId: 'g1', candidateIds: ['p1'], rejectedIds: ['p3'], startTime: '10:15', endTime: '11:15' })];
     const { candidateUpdates } = generate(voters(3), [game('g1', { maxPlayers: 4 })], existing);
@@ -275,51 +289,6 @@ describe('reviewWaitingTables — tables waiting for someone to confirm they exp
   it('ignores tables that are not waiting for an explainer', () => {
     const plain = table('plain', { gameId: 'g1', status: 'recommended', explainerId: 'p1', candidateIds: ['p1', 'p2'] });
     expect(reviewWaitingTables([], [plain, table('c', { status: 'confirmed', awaitingExplainer: true })], 10)).toEqual([]);
-  });
-});
-
-// ── fillExistingTables ──────────────────────────────────────────────────────
-describe('fillExistingTables', () => {
-  const confirmed = table('c1', { gameId: 'g1', status: 'confirmed', playerIds: ['p1', 'p2'], startTime: '12:00', endTime: '13:00' });
-
-  it('seats late "yes" voters at a confirmed table with free seats', () => {
-    const players = [...voters(2), player('p3', { interests: { g1: 'yes' } })];
-    expect(fillExistingTables(players, [game('g1', { maxPlayers: 4 })], [confirmed], 10)).toEqual([{ tableId: 'c1', playerIds: ['p1', 'p2', 'p3'] }]);
-  });
-
-  it('never puts back someone who stepped down from that table, even though they still vote yes', () => {
-    const players = [...voters(2), player('p3', { interests: { g1: 'yes' } }), player('p4', { interests: { g1: 'yes' } })];
-    const left = { ...confirmed, rejectedIds: ['p3'] };
-    expect(fillExistingTables(players, [game('g1', { maxPlayers: 4 })], [left], 10)).toEqual([{ tableId: 'c1', playerIds: ['p1', 'p2', 'p4'] }]);
-    expect(fillExistingTables([...voters(2), player('p3', { interests: { g1: 'yes' } })], [game('g1', { maxPlayers: 4 })], [left], 10)).toEqual([]);
-  });
-
-  it('respects the maximum, earliest arrival first', () => {
-    const players = [
-      ...voters(2),
-      player('p3', { interests: { g1: 'yes' }, arrivalTime: '11:00' }),
-      player('p4', { interests: { g1: 'yes' }, arrivalTime: '09:00' }),
-    ];
-    const [fill] = fillExistingTables(players, [game('g1', { maxPlayers: 3 })], [confirmed], 10);
-    expect(fill.playerIds).toEqual(['p1', 'p2', 'p4']);
-  });
-
-  it('skips players who are busy, outside their hours, or did not vote yes', () => {
-    const busy = table('c2', { gameId: 'g2', status: 'confirmed', playerIds: ['p3'], startTime: '12:30', endTime: '13:30' });
-    const players = [
-      ...voters(2),
-      player('p3', { interests: { g1: 'yes' } }),                                  // seated elsewhere at that time
-      player('p4', { interests: { g1: 'yes' }, departureTime: '12:30' }),           // leaves too early
-      player('p5', { interests: { g1: 'no' } }),                                    // not interested
-    ];
-    expect(fillExistingTables(players, [game('g1'), game('g2')], [confirmed, busy], 10)).toEqual([]);
-  });
-
-  it('does nothing for full tables or tables that are not confirmed yet', () => {
-    const full = { ...confirmed, playerIds: ['p1', 'p2', 'p3', 'p4'] };
-    const players = [...voters(2), player('p9', { interests: { g1: 'yes' } })];
-    expect(fillExistingTables(players, [game('g1', { maxPlayers: 4 })], [full], 10)).toEqual([]);
-    expect(fillExistingTables(players, [game('g1')], [{ ...confirmed, status: 'recommended' }], 10)).toEqual([]);
   });
 });
 

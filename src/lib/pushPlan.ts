@@ -1,5 +1,6 @@
 import type { Table } from './types';
 import { toMinutes } from './timeUtils';
+import { isOfferFor } from './offers';
 
 // Pure planning of which push notifications are due and what they say. No Firestore / web-push
 // here, so the rules are easy to test; src/lib/pushServer.ts does the I/O around it.
@@ -58,12 +59,11 @@ export function planPushes({ tables, playerIds, eventDate, today, nowMinutes }: 
     if (isEventDay && end <= nowMinutes) continue;
 
     for (const pid of playerIds) {
-      if (t.status === 'recommended') {
-        if (!t.postedByOwner && (t.candidateIds ?? []).includes(pid) && !t.playerIds.includes(pid) && !(t.rejectedIds ?? []).includes(pid)) {
-          planned.push({ key: pushKey('offer', t.id, pid), kind: 'offer', playerId: pid, table: t });
-        }
-        continue;
+      // Offers go to the people who still have to answer — also for a confirmed table that has free places
+      if ((t.status === 'recommended' || t.status === 'confirmed') && isOfferFor(t, pid)) {
+        planned.push({ key: pushKey('offer', t.id, pid), kind: 'offer', playerId: pid, table: t });
       }
+      if (t.status === 'recommended') continue;
       // confirmed / in-progress
       if (!t.playerIds.includes(pid) && t.explainerId !== pid) continue;
       planned.push({ key: pushKey('confirmed', t.id, pid), kind: 'confirmed', playerId: pid, table: t });

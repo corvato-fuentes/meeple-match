@@ -98,10 +98,10 @@ export default function AdminPage() {
     if (!event) return;
     setGenerating(true);
     setGenerateMsg(null);
-    const { filledSeats, newTables } = await runTableGeneration(code, event, { manual: true });
+    const { newOffers, newTables } = await runTableGeneration(code, event, { manual: true });
     setGenerating(false);
     const parts = [];
-    if (filledSeats > 0) parts.push(`se sumaron ${filledSeats} jugador${filledSeats === 1 ? '' : 'es'} a mesas existentes`);
+    if (newOffers > 0) parts.push(`se ofrecieron lugares libres de mesas confirmadas a ${newOffers} jugador${newOffers === 1 ? '' : 'es'}`);
     if (newTables > 0) parts.push(`se generaron ${newTables} mesa${newTables === 1 ? '' : 's'} nueva${newTables === 1 ? '' : 's'}`);
     setGenerateMsg(parts.length > 0
       ? `✓ ${parts.join(' y ')}.`

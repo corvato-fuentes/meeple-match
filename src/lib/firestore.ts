@@ -755,7 +755,8 @@ export async function respondToRecommendation(
     const snap = await tx.get(ref);
     if (!snap.exists()) return;
     const table = snap.data() as Table;
-    if (table.status !== 'recommended') return;
+    // A confirmed table with free places also offers them (a late voter has to accept), so both can be answered
+    if (table.status !== 'recommended' && table.status !== 'confirmed') return;
     const candidateIds = (table.candidateIds ?? []).filter((id) => id !== playerId);
 
     if (table.awaitingExplainer && candidateIds.length + 1 === (table.candidateIds ?? []).length) {
@@ -955,11 +956,6 @@ export function subscribeTables(eventCode: string, cb: (tables: Table[]) => void
   return onSnapshot(collection(db, 'events', eventCode, 'tables'), (snap) =>
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Table)))
   );
-}
-
-/** Adds newly-interested players into an existing table's remaining seats (auto-fill, not a manual edit) */
-export async function fillTableSeats(eventCode: string, tableId: string, playerIds: string[]): Promise<void> {
-  await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), { playerIds });
 }
 
 // ── Debug / demo seeding ──────────────────────────────────────────────────────

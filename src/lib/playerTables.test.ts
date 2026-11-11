@@ -22,6 +22,10 @@ describe('playerTableEntries', () => {
       .toEqual(['a:confirmed', 'b:confirmed']);
   });
 
+  it('shows a free place offered at a confirmed table as an unanswered offer', () => {
+    expect(states([table('a', { status: 'confirmed', playerIds: ['p2', 'p3'], candidateIds: ['p1'] })])).toEqual(['a:offered']);
+  });
+
   it('shows rejected tables and those queued behind an explainer, but never cancelled ones', () => {
     const tables = [
       table('a', { rejectedIds: ['p1'] }),

@@ -21,6 +21,7 @@ import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
 import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import { runTableGeneration } from '@/lib/tableGeneration';
+import { isOfferFor } from '@/lib/offers';
 import type { MeepleEvent, Player, Game, Table, InterestLevel } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
@@ -197,7 +198,7 @@ export default function RecommendedTablesPage() {
   }
 
   const myRecommendedTables = allTables
-    .filter((t) => t.status === 'recommended' && !t.postedByOwner && (t.candidateIds ?? []).includes(player.id))
+    .filter((t) => isOfferFor(t, player.id, gameMap.get(t.gameId)))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   const myAcceptedRecommendedTables = allTables
