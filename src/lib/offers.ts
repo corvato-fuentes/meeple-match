@@ -28,6 +28,19 @@ export function isPostedOfferFor(t: Table, playerId: string, game?: Pick<Game, '
   return true;
 }
 
+/**
+ * Tables that are already full but still list people they were offered to: those who didn't make it. A full table has
+ * nothing left to offer, so its offer is withdrawn (and handed out again if a seat frees up later).
+ */
+export function tablesWithStaleOffers(tables: Table[], gameOf: (id: string) => Pick<Game, 'maxPlayers'> | undefined): Table[] {
+  return tables.filter((t) => {
+    if (t.status !== 'recommended' && t.status !== 'confirmed') return false;
+    const game = gameOf(t.gameId);
+    if (!game || t.playerIds.length < game.maxPlayers) return false;
+    return (t.candidateIds ?? []).length > 0 || (t.queuedIds ?? []).length > 0;
+  });
+}
+
 /** Any table waiting for the player's answer, recommended by the algorithm or posted by an owner. */
 export const hasOfferFor = (t: Table, playerId: string, game?: Pick<Game, 'maxPlayers'>): boolean =>
   isOfferFor(t, playerId, game) || isPostedOfferFor(t, playerId, game);

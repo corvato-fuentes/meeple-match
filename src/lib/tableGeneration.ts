@@ -3,6 +3,7 @@ import {
   acquireGenerationLock, releaseGenerationLock, deleteStaleTables, applyWaitingTableReviews,
 } from '@/lib/firestore';
 import { generateTables, reviewWaitingTables } from '@/lib/tableAlgorithm';
+import { tablesWithStaleOffers } from '@/lib/offers';
 import { isEventOver, toMinutes, toTimeString } from '@/lib/timeUtils';
 import { requestPushSync } from '@/lib/pushClient';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
@@ -110,6 +111,15 @@ export async function runTableGeneration(
       await applyWaitingTableReviews(eventCode, reviews);
       const cancelled = new Set(reviews.filter((r) => r.action === 'cancel').map((r) => r.tableId));
       activeTables = (await getTables(eventCode)).filter((t) => t.status !== 'cancelled' && !removedIds.has(t.id) && !cancelled.has(t.id));
+    }
+
+    // A table that filled up has nothing left to offer: take it off the people who were asked and didn't make it
+    const gameById = new Map(allGames.map((g) => [g.id, g]));
+    const full = tablesWithStaleOffers(activeTables, (id) => gameById.get(id));
+    if (full.length > 0) {
+      for (const t of full) await updateTableCandidates(eventCode, t.id, { candidateIds: [], queuedIds: [] });
+      const fullIds = new Set(full.map((t) => t.id));
+      activeTables = activeTables.map((t) => (fullIds.has(t.id) ? { ...t, candidateIds: [], queuedIds: [] } : t));
     }
 
     // Late "yes" voters for a game whose table is already confirmed are offered its free places by generateTables below

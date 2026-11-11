@@ -754,8 +754,9 @@ function TableSection({
           <div key={t.id} className={`rounded-2xl p-5 border-2 ${cardClass}`}>
             <div className='flex justify-between items-start mb-3'>
               <span className='text-2xl font-bold text-yellow-400'>Mesa #{slotMap.get(t.id) ?? '?'}</span>
-              <span className={'text-xs px-2 py-1 rounded-full font-medium ' + STATUS_COLOR[t.status]}>
-                {STATUS_LABEL[t.status]}
+              {/* A table its owner posted that is still waiting for players reads "Postulada", not "Recomendada" */}
+              <span className={'text-xs px-2 py-1 rounded-full font-medium ' + (t.status === 'recommended' && t.postedByOwner ? 'bg-purple-900 text-purple-300' : STATUS_COLOR[t.status])}>
+                {t.status === 'recommended' && t.postedByOwner ? 'Postulada' : STATUS_LABEL[t.status]}
               </span>
             </div>
             <div className='flex items-center gap-3 mb-3'>

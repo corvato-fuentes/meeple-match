@@ -799,7 +799,12 @@ export async function respondToRecommendation(
     if (accept) {
       if (table.playerIds.includes(playerId) || table.playerIds.length >= maxPlayers) return;
       const playerIds = [...table.playerIds, playerId];
-      tx.update(ref, { candidateIds, playerIds, ...(playerIds.length >= minSeats && { status: 'confirmed' as const }) });
+      // The last seat went: whoever was still offered this table doesn't make it (offered again if somebody steps down)
+      const full = playerIds.length >= maxPlayers;
+      tx.update(ref, {
+        candidateIds: full ? [] : candidateIds, playerIds, ...(full && { queuedIds: [] }),
+        ...(playerIds.length >= minSeats && { status: 'confirmed' as const }),
+      });
     } else {
       const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
       tx.update(ref, { candidateIds, rejectedIds });
@@ -831,7 +836,11 @@ export async function joinPostedTable(
     const playerIds = [...table.playerIds, playerId];
     // Joining answers the offer (if they had one), so they stop being a candidate
     const candidateIds = (table.candidateIds ?? []).filter((id) => id !== playerId);
-    tx.update(ref, { playerIds, candidateIds, ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }) });
+    const full = playerIds.length >= maxPlayers; // nobody else can be offered it now
+    tx.update(ref, {
+      playerIds, candidateIds: full ? [] : candidateIds, ...(full && { queuedIds: [] }),
+      ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }),
+    });
   });
   requestPushSync(eventCode); // the table may have just reached its minimum
 }

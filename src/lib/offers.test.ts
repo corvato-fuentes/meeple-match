@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasOfferFor, isOfferFor, isPostedOfferFor, otherOffersForGame } from './offers';
+import { hasOfferFor, isOfferFor, isPostedOfferFor, otherOffersForGame, tablesWithStaleOffers } from './offers';
 import type { Table } from './types';
 
 const table = (o: Partial<Table> = {}): Table =>
@@ -59,5 +59,19 @@ describe('otherOffersForGame', () => {
   });
   it('is empty when there is nothing else to answer', () => {
     expect(otherOffersForGame(tables, 'p9', 'g', 'a', gameOf)).toEqual([]);
+  });
+});
+
+describe('tablesWithStaleOffers', () => {
+  const gameOf = () => ({ maxPlayers: 2 });
+  it('finds full tables that still list people they were offered to (a seat that frees up is offered again later)', () => {
+    const full = table({ id: 'full', playerIds: ['a', 'b'], candidateIds: ['p1'] });
+    const queued = table({ id: 'q', status: 'confirmed', playerIds: ['a', 'b'], candidateIds: [], queuedIds: ['p2'] });
+    expect(tablesWithStaleOffers([full, queued], gameOf).map((t) => t.id)).toEqual(['full', 'q']);
+  });
+  it('leaves tables with a free place, nothing to withdraw, or already underway alone', () => {
+    expect(tablesWithStaleOffers([table({ playerIds: ['a'] })], gameOf)).toEqual([]);
+    expect(tablesWithStaleOffers([table({ playerIds: ['a', 'b'], candidateIds: [] })], gameOf)).toEqual([]);
+    expect(tablesWithStaleOffers([table({ playerIds: ['a', 'b'], status: 'in-progress' })], gameOf)).toEqual([]);
   });
 });

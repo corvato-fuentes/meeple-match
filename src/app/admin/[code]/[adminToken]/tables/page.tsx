@@ -171,7 +171,7 @@ export default function TablesPage() {
                             onChange={(e) => updateTableStatus(code, t.id, e.target.value as Table['status'], true)}
                             className='text-sm border border-gray-700 bg-gray-900 rounded-lg px-2 py-1'
                           >
-                            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+                            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s === 'recommended' && t.postedByOwner ? 'postulada' : STATUS_LABEL[s]}</option>)}
                           </select>
                           {!isEditing && t.status === 'recommended' && isIdealTable(t) && (
                             <button onClick={() => updateTableStatus(code, t.id, 'confirmed', true)}
@@ -210,19 +210,34 @@ export default function TablesPage() {
                       {(() => {
                         // Voted yes for the game and was offered this table, but hasn't accepted it (yet): interest, not a seat
                         const seatedIds = new Set(currentIds);
-                        const offered = (t.candidateIds ?? []).filter((id) => !seatedIds.has(id));
-                        const queued = (t.queuedIds ?? []).filter((id) => !seatedIds.has(id) && !offered.includes(id));
-                        if (offered.length + queued.length === 0) return null;
+                        const rejected = new Set(t.rejectedIds ?? []);
+                        const offered = new Set((t.candidateIds ?? []).filter((id) => !seatedIds.has(id)));
+                        const queued = new Set((t.queuedIds ?? []).filter((id) => !seatedIds.has(id) && !offered.has(id)));
+                        const buf = event.settings.bufferMinutes;
+                        const sMin = toMinutes(t.startTime);
+                        const eMin = toMinutes(t.endTime);
+                        // Everyone who voted yes for the game counts as interested, offered the table or not: when they
+                        // aren't, the reason is shown (it doesn't fit their hours, or they play something else then)
+                        const rows = players
+                          .filter((p) => !seatedIds.has(p.id) && !rejected.has(p.id) && (p.interests[t.gameId] === 'yes' || offered.has(p.id) || queued.has(p.id)))
+                          .map((p) => {
+                            let note: string;
+                            if (offered.has(p.id)) note = 'tiene la mesa ofrecida';
+                            else if (queued.has(p.id)) note = 'espera que alguien acepte explicarla';
+                            else if (sMin < toMinutes(p.arrivalTime) + buf || eMin > toMinutes(p.departureTime)) note = 'no le entra el horario';
+                            else if (tables.some((o) => o.id !== t.id && (o.status === 'confirmed' || o.status === 'in-progress') && o.playerIds.includes(p.id)
+                              && toMinutes(o.startTime) - buf < eMin && toMinutes(o.endTime) + buf > sMin)) note = 'juega otra mesa a esa hora';
+                            else note = 'votó que sí, todavía sin oferta';
+                            return { p, note, order: offered.has(p.id) ? 0 : queued.has(p.id) ? 1 : note.startsWith('votó') ? 2 : 3 };
+                          })
+                          .sort((a, b) => a.order - b.order);
+                        if (rows.length === 0) return null;
                         return (
                           <div className='space-y-1 pt-2 border-t border-gray-700'>
-                            <p className='text-xs font-semibold text-gray-400'>👍 Interesados ({offered.length + queued.length})</p>
-                            {offered.map((pid) => (
-                              <p key={pid} className='text-sm text-gray-300'>{playerMap.get(pid)?.name ?? pid}
-                                <span className='text-xs text-gray-500'> · tiene la mesa ofrecida</span></p>
-                            ))}
-                            {queued.map((pid) => (
-                              <p key={pid} className='text-sm text-gray-300'>{playerMap.get(pid)?.name ?? pid}
-                                <span className='text-xs text-gray-500'> · espera que alguien acepte explicarla</span></p>
+                            <p className='text-xs font-semibold text-gray-400'>👍 Interesados ({rows.length})</p>
+                            {rows.map(({ p, note }) => (
+                              <p key={p.id} className='text-sm text-gray-300'>{p.name}
+                                <span className='text-xs text-gray-500'> · {note}</span></p>
                             ))}
                           </div>
                         );
