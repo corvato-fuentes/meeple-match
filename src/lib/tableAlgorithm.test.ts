@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
-  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps,
+  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
 
@@ -331,6 +331,32 @@ describe('replaceableByPostedTable — suggestions a posted table takes the plac
   it('replaces nothing while another copy of the game is free for the suggestion', () => {
     expect(find({ gameCopies: 2 })).toEqual([]);
     expect(find({ gameCopies: 2, tables: [suggested, { ...suggested, id: 'c', status: 'confirmed' }] })).toEqual([suggested]);
+  });
+});
+
+// ── interestedInTable ───────────────────────────────────────────────────────
+describe('interestedInTable — who is interested in a table, offered or not yet', () => {
+  const posted = table('post', { gameId: 'g1', postedByOwner: true, playerIds: ['p1'], startTime: '12:00', endTime: '13:00', candidateIds: ['p5'] });
+  const players = [
+    player('p1', { interests: { g1: 'yes' } }),                                   // seated: not "interested", already in
+    player('p2', { interests: { g1: 'yes' } }),                                   // votes and fits, no offer written yet
+    player('p3', { interests: { g1: 'yes' }, departureTime: '12:30' }),           // leaves before it ends
+    player('p4', { interests: { g1: 'no' } }),
+    player('p5', { interests: {} }),                                              // was offered it
+    player('p6', { interests: { g1: 'yes' } }),                                   // already seated at another table of the game
+  ];
+  const other = table('o', { gameId: 'g1', status: 'confirmed', playerIds: ['p6'], startTime: '16:00', endTime: '17:00' });
+  const rows = (t = posted, extra: Table[] = []) => interestedInTable(t, players, [t, other, ...extra], 10).map((r) => r.player.id + (r.busy ? ':busy' : ''));
+
+  it('lists everyone who voted yes plus the ones it was offered to, marking those who can not take it as busy', () => {
+    // p3 leaves before it ends and p6 already has a table of the game: still interested, but busy
+    expect(rows()).toEqual(['p2', 'p3:busy', 'p5', 'p6:busy']);
+  });
+  it('leaves out those seated in it, those who voted against and those who declined that table', () => {
+    expect(rows({ ...posted, rejectedIds: ['p2'] })).toEqual(['p3:busy', 'p5', 'p6:busy']);
+  });
+  it('someone at another table at that time is busy', () => {
+    expect(rows(posted, [table('x', { gameId: 'g2', status: 'confirmed', playerIds: ['p2'], startTime: '12:30', endTime: '13:30' })])).toContain('p2:busy');
   });
 });
 

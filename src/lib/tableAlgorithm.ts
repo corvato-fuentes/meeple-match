@@ -161,6 +161,27 @@ export function postedSlotConflict(args: {
 }
 
 /**
+ * The people interested in a table that aren't in it: everyone who voted its game yes, plus whoever it was offered to.
+ * Each one is marked `busy` when they couldn't take it — it doesn't fit their hours, they're at another table then, or
+ * (for a table an owner posted) they already have a table of that game, unless they'd join a second one. Worked out from
+ * the votes themselves, so it doesn't depend on the offers already having been written. Whoever declined the table is out.
+ */
+export function interestedInTable(table: Table, players: Player[], tables: Table[], bufferMinutes: number): { player: Player; busy: boolean }[] {
+  const seated = new Set(table.playerIds);
+  const rejected = new Set(table.rejectedIds ?? []);
+  const asked = new Set([...(table.candidateIds ?? []), ...(table.queuedIds ?? [])]);
+  const others = tables.filter((o) => o.id !== table.id);
+  return players
+    .filter((p) => !seated.has(p.id) && !rejected.has(p.id) && (asked.has(p.id) || p.interests[table.gameId] === 'yes'))
+    .map((p) => {
+      const seatedElsewhere = !!table.postedByOwner && !(p.repeatGameIds ?? []).includes(table.gameId) &&
+        others.some((o) => o.gameId === table.gameId && o.status !== 'cancelled' && o.playerIds.includes(p.id));
+      const busy = seatedElsewhere || !isAvailable(p, table.startTime, table.endTime, getBusyWindows(p.id, others), bufferMinutes);
+      return { player: p, busy };
+    });
+}
+
+/**
  * The tables an owner-posted table at [start, end) takes the place of: suggestions for the same game that overlap it
  * (buffer on both sides) and aren't confirmed yet — a copy can only be in one table at a time, and the one its owner
  * posted wins. Nothing is replaced while a copy is still free for them (more copies than tables already using it), and

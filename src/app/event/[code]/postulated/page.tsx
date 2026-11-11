@@ -14,6 +14,8 @@ import ConfirmModal from '@/components/ui/ConfirmModal';
 import FilterChip from '@/components/ui/FilterChip';
 import OtherOffersPrompt from '@/components/ui/OtherOffersPrompt';
 import { otherOffersForGame } from '@/lib/offers';
+import { interestedInTable } from '@/lib/tableAlgorithm';
+import { runTableGeneration } from '@/lib/tableGeneration';
 import { minSeats } from '@/lib/seats';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
@@ -67,6 +69,20 @@ export default function PostulatedTablesPage() {
   }, [code, player]);
 
   const { conflictPrompt, resolveScheduleConflict, handleConflictChoice } = useScheduleConflict(code, player, allTables);
+
+  // Somebody who voted a posted table's game and fits it should have been offered it. If the offers haven't been written
+  // (the table was posted before the votes, or a pass was skipped) run the generation pass once, so they get the offer
+  // and its notification. Once offered they stop counting here, so this doesn't repeat.
+  const healedOnce = useRef(false);
+  useEffect(() => {
+    if (healedOnce.current || !event || otherPlayers.length === 0 || allTables.length === 0) return;
+    const unoffered = allTables.some((t) => t.postedByOwner && t.status === 'recommended' &&
+      interestedInTable(t, otherPlayers, allTables, event.settings.bufferMinutes)
+        .some((r) => !r.busy && !(t.candidateIds ?? []).includes(r.player.id) && !(t.queuedIds ?? []).includes(r.player.id)));
+    if (!unoffered) return;
+    healedOnce.current = true;
+    runTableGeneration(code, event).catch(() => {});
+  }, [code, event, otherPlayers, allTables]);
 
   if (loading) return <div className="p-8 text-center">Cargando...</div>;
   if (!player || !event) return null;
@@ -252,8 +268,9 @@ export default function PostulatedTablesPage() {
     confirmed: { label: '✅ Confirmada', cls: 'bg-green-900/60 text-green-300' },
   };
 
-  // People the table was offered to (they voted its game and the slot fits them) who haven't answered yet
-  const interestedIn = (t: Table) => (t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id) && !(t.rejectedIds ?? []).includes(id)).length;
+  // People interested in the table who aren't in it: offered it, or voted its game and the slot fits them
+  const interestedRows = (t: Table) => interestedInTable(t, otherPlayers, allTables, event.settings.bufferMinutes);
+  const interestedIn = (t: Table) => interestedRows(t).length;
 
   const tableCard = (t: Table, kind: TableKind) => {
     const border = kind === 'open' ? 'border-indigo-800 bg-indigo-950/20'
@@ -338,7 +355,7 @@ export default function PostulatedTablesPage() {
         const close = () => setViewing(null);
         const nameList = (ids: string[]) => ids.map((id) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? '?'));
         const names = viewing.kind === 'interested'
-          ? nameList((t.candidateIds ?? []).filter((id) => !t.playerIds.includes(id) && !(t.rejectedIds ?? []).includes(id)))
+          ? interestedRows(t).map((r) => nameList([r.player.id])[0] + (r.busy ? ' · ocupado' : ''))
           : nameList(t.playerIds);
         const missing = game ? Math.max(0, minSeats(game) - t.playerIds.length) : null;
         return (
@@ -350,7 +367,7 @@ export default function PostulatedTablesPage() {
                 <p className="text-xs text-gray-500">{t.startTime}–{t.endTime}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-gray-300 mb-1">{viewing.kind === 'interested' ? '🤔 Interesados (sin responder)' : '✅ Anotados'} ({names.length})</p>
+                <p className="text-xs font-semibold text-gray-300 mb-1">{viewing.kind === 'interested' ? '🤔 Interesados' : '✅ Anotados'} ({names.length})</p>
                 <ul className="text-xs text-gray-400 grid grid-cols-2 gap-x-3 gap-y-0.5">
                   {names.map((n, i) => <li key={i} className="truncate">{n}</li>)}
                 </ul>
