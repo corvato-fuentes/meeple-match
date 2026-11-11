@@ -13,6 +13,8 @@ import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import FilterChip from '@/components/ui/FilterChip';
 import OtherOffersPrompt from '@/components/ui/OtherOffersPrompt';
+import ShareTableButton from '@/components/ui/ShareTableButton';
+import { isShareableTable } from '@/lib/shareTable';
 import { otherOffersForGame } from '@/lib/offers';
 import { interestedInTable } from '@/lib/tableAlgorithm';
 import { runTableGeneration } from '@/lib/tableGeneration';
@@ -302,6 +304,9 @@ export default function PostulatedTablesPage() {
             </ActionButton>
           ) : leaveBtn(t)}
         </div>
+        {isShareableTable(t, gameMap.get(t.gameId)) && (
+          <div className="mt-2"><ShareTableButton code={code} table={t} game={gameMap.get(t.gameId)!} eventName={event.name} /></div>
+        )}
       </div>
     );
   };

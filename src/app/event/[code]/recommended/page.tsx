@@ -17,6 +17,8 @@ import GameFilterBar from '@/components/ui/GameFilterBar';
 import { filterGames, hasAnyFilter, NO_FILTERS, type GameFilters } from '@/lib/gameFilters';
 import PushOptIn from '@/components/ui/PushOptIn';
 import GameVoteCard from '@/components/ui/GameVoteCard';
+import ShareTableButton from '@/components/ui/ShareTableButton';
+import { isShareableTable } from '@/lib/shareTable';
 import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
 import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
@@ -314,6 +316,9 @@ export default function RecommendedTablesPage() {
             </ActionButton>
           )}
         </div>
+        {game && isShareableTable(t, game) && (
+          <div className="mt-2"><ShareTableButton code={code} table={t} game={game} eventName={event.name} /></div>
+        )}
       </div>
     );
   };

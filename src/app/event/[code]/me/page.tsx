@@ -24,6 +24,8 @@ import NextTableCard from '@/components/ui/NextTableCard';
 import InstallPrompt from '@/components/ui/InstallPrompt';
 import PlayerCountFields from '@/components/ui/PlayerCountFields';
 import LeaveTableConfirm from '@/components/ui/LeaveTableConfirm';
+import ShareTableButton from '@/components/ui/ShareTableButton';
+import { isShareableTable, pendingTableKey } from '@/lib/shareTable';
 import TicketQr from '@/components/ui/TicketQr';
 import PushOptIn from '@/components/ui/PushOptIn';
 import AnnouncementBanner from '@/components/ui/AnnouncementBanner';
@@ -115,6 +117,14 @@ export default function MyTicketPage() {
       const [ev, gs, ps] = await Promise.all([getEvent(code), getGames(code), getPlayers(code)]);
       const p = await getPlayerByTicketCode(code, ticketCode!);
       if (!p || !ev) { localStorage.removeItem(STORAGE_KEY(code)); router.replace('/event/' + code); return; }
+      // Sent here from a shared table link before having a ticket: take them back to that table
+      const pendingTable = localStorage.getItem(pendingTableKey(code));
+      if (pendingTable) {
+        localStorage.removeItem(pendingTableKey(code));
+        localStorage.setItem(STORAGE_KEY(code), ticketCode!);
+        router.replace('/event/' + code + '/mesa/' + pendingTable + '?ticket=' + ticketCode);
+        return;
+      }
       setEvent(ev);
       setPlayer(p);
       setGames(gs);
@@ -875,6 +885,9 @@ export default function MyTicketPage() {
                         className="mt-2 w-full text-xs border border-gray-700 text-gray-400 rounded-lg px-2.5 py-1.5 font-medium hover:bg-gray-700 disabled:opacity-50">
                         {leavingTableId === t.id ? 'Saliendo...' : t.postedByOwner && isExplainer ? '🚫 Cancelar mesa' : '🚪 Bajarme de la mesa'}
                       </button>
+                    )}
+                    {isShareableTable(t, games.find((g) => g.id === t.gameId)) && (
+                      <div className="mt-2"><ShareTableButton code={code} table={t} game={games.find((g) => g.id === t.gameId)!} eventName={event.name} /></div>
                     )}
                   </div>
                 );
