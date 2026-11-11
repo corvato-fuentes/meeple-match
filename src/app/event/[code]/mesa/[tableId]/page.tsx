@@ -14,8 +14,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const t = await loadTable(code, tableId);
   if (!t || !t.open) return { title: 'Mesa · Meeple Loop' };
   const title = shareHeadline(t);
-  const description = `${t.eventName} · ${dayLabel(t.date)} · ${t.startTime}–${t.endTime}. Sumate desde Meeple Loop.`;
-  return { title, description, openGraph: { title, description, ...(t.imageUrl && { images: [t.imageUrl] }) } };
+  const description = [t.eventName, dayLabel(t.date), `${t.startTime}–${t.endTime}`, t.location].filter(Boolean).join(' · ');
+  // The link's picture comes from opengraph-image.tsx next to this file
+  return { title, description, openGraph: { title, description } };
 }
 
 export default async function SharedTablePage({ params }: Props) {

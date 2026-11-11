@@ -135,7 +135,7 @@ export default function SharedTableView({ code, tableId, preview }: { code: stri
       </>
     );
   }
-  const info = shareInfoOf(t, game, event?.date);
+  const info = shareInfoOf(t, game, event ?? undefined);
   const seated = t.playerIds.includes(player.id);
   return shell(
     <>

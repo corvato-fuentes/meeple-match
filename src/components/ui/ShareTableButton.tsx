@@ -1,26 +1,25 @@
 'use client';
 import { useState } from 'react';
 import { shareHeadline, shareInfoOf, shareLink, shareMessage } from '@/lib/shareTable';
-import type { Game, Table } from '@/lib/types';
+import type { Game, MeepleEvent, Table } from '@/lib/types';
 
 /**
- * "Compartir" on a table that still has room: opens the phone's share sheet (WhatsApp and the rest) with a line that says
- * what is missing and a link to the table; where sharing isn't available it copies both. The link carries no ticket.
+ * "Compartir" on a table that still has room: opens the phone's share sheet (WhatsApp and the rest) with a message that says
+ * there is room, when and where, and a link to the table; where sharing isn't available it copies both. The link carries no ticket.
  */
-export default function ShareTableButton({ code, table, game, eventName, eventDate }: {
+export default function ShareTableButton({ code, table, game, event }: {
   code: string;
   table: Table;
   game: Pick<Game, 'minPlayers' | 'maxPlayers'>;
-  eventName: string;
-  eventDate: string;
+  event: Pick<MeepleEvent, 'name' | 'date' | 'location'>;
 }) {
   const [copied, setCopied] = useState(false);
 
   async function share() {
     const url = shareLink(window.location.origin, code, table.id);
-    const info = shareInfoOf(table, game, eventDate);
+    const info = shareInfoOf(table, game, event);
     // The link goes inside the message (not as a separate field), so apps don't show it twice
-    const text = shareMessage(info, eventName, url);
+    const text = shareMessage(info, event.name, url);
     try {
       if (typeof navigator.share === 'function') {
         await navigator.share({ title: shareHeadline(info), text });

@@ -8,6 +8,7 @@ import type { Game, Table } from './types';
 export interface SharedTablePreview extends ShareInfo {
   eventName: string;
   date: string;
+  location: string;
   endTime: string;
   imageUrl: string | null;
   /** Still has a place and has not started: the link can invite people to it. */
@@ -32,6 +33,7 @@ export async function getSharedTable(code: string, tableId: string): Promise<Sha
   return {
     eventName: (eventSnap.data()?.name as string) ?? '',
     date: (eventSnap.data()?.date as string) ?? '',
+    location: (eventSnap.data()?.location as string) ?? '',
     gameName: table.gameName,
     startTime: table.startTime,
     endTime: table.endTime,

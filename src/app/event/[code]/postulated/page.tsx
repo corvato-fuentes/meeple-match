@@ -305,7 +305,7 @@ export default function PostulatedTablesPage() {
           ) : leaveBtn(t)}
         </div>
         {isShareableTable(t, gameMap.get(t.gameId)) && (
-          <div className="mt-2"><ShareTableButton code={code} table={t} game={gameMap.get(t.gameId)!} eventName={event.name} eventDate={event.date} /></div>
+          <div className="mt-2"><ShareTableButton code={code} table={t} game={gameMap.get(t.gameId)!} event={event} /></div>
         )}
       </div>
     );

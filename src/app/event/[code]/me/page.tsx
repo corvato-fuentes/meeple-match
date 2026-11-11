@@ -887,7 +887,7 @@ export default function MyTicketPage() {
                       </button>
                     )}
                     {isShareableTable(t, games.find((g) => g.id === t.gameId)) && (
-                      <div className="mt-2"><ShareTableButton code={code} table={t} game={games.find((g) => g.id === t.gameId)!} eventName={event.name} eventDate={event.date} /></div>
+                      <div className="mt-2"><ShareTableButton code={code} table={t} game={games.find((g) => g.id === t.gameId)!} event={event} /></div>
                     )}
                   </div>
                 );

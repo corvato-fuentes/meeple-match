@@ -6,6 +6,8 @@ export interface ShareInfo {
   gameName: string;
   /** The event's day (YYYY-MM-DD): a link opens days later, so it has to say which day the table is. */
   date?: string;
+  /** Where the event is, so people know where to go. */
+  location?: string;
   startTime: string;
   endTime?: string;
   status: Table['status'];
@@ -42,35 +44,41 @@ export function dayLabel(date: string): string {
 }
 
 export function shareInfoOf(
-  t: Pick<Table, 'gameName' | 'startTime' | 'endTime' | 'status' | 'playerIds'>, game: Pick<Game, 'minPlayers' | 'maxPlayers'>, date?: string
+  t: Pick<Table, 'gameName' | 'startTime' | 'endTime' | 'status' | 'playerIds'>, game: Pick<Game, 'minPlayers' | 'maxPlayers'>,
+  event?: { date?: string; location?: string }
 ): ShareInfo {
-  return { gameName: t.gameName, date, startTime: t.startTime, endTime: t.endTime, status: t.status, seated: t.playerIds.length, minSeats: minSeats(game), maxPlayers: game.maxPlayers };
+  return { gameName: t.gameName, date: event?.date, location: event?.location, startTime: t.startTime, endTime: t.endTime, status: t.status, seated: t.playerIds.length, minSeats: minSeats(game), maxPlayers: game.maxPlayers };
 }
 
-/** "Falta 1 para jugar Dune" / "Hay lugar para 2 más en Dune"; `bold` wraps the game in *…* the way WhatsApp reads it. */
+/**
+ * What the table needs, before the game's name. It only says there is room — not how many are missing, which is a number
+ * that is already old by the time someone reads it.
+ */
+export function sharePrompt(): string {
+  return 'Hay cupos para jugar';
+}
+
+/** "Hay cupos para jugar Dune"; `bold` wraps the game in *…* the way WhatsApp reads it. */
 function leadLine(i: ShareInfo, bold: boolean): string {
-  const game = bold ? `*${i.gameName}*` : i.gameName;
-  const missing = Math.max(0, i.minSeats - i.seated);
-  if (i.status === 'recommended' && missing > 0) return `${missing === 1 ? 'Falta' : 'Faltan'} ${missing} para jugar ${game}`;
-  return `Hay lugar para ${Math.max(0, i.maxPlayers - i.seated)} más en ${game}`;
+  return `${sharePrompt()} ${bold ? `*${i.gameName}*` : i.gameName}`;
 }
 
-/** "Falta 1 para jugar Dune el sábado 15 de noviembre a las 14:45" — the title of the link and of its page. */
+/** "Hay cupos para jugar Dune el sábado 15 de noviembre a las 14:45" — the title of the link and of its page. */
 export function shareHeadline(i: ShareInfo): string {
   return `${leadLine(i, false)} ${i.date ? `el ${dayLabel(i.date)} ` : ''}a las ${i.startTime}`;
 }
 
 /**
  * The message people send: one fact per line with its icon, the game in bold (WhatsApp's *…*), and the link last.
- * Counts only, like the page it points at.
+ * No names of people, like the page it points at.
  */
 export function shareMessage(i: ShareInfo, eventName: string, url: string): string {
   const facts = [
     `🎲 ${leadLine(i, true)}`,
     i.date && `📅 ${dayLabel(i.date)}`,
     `🕐 ${i.startTime}${i.endTime ? `–${i.endTime}` : ''}`,
-    `🪑 ${i.seated} anotado${i.seated === 1 ? '' : 's'} · caben hasta ${i.maxPlayers}`,
-    eventName && `📍 ${eventName}`,
+    i.location && `📍 ${i.location}`,
+    eventName && `🎪 ${eventName}`,
   ].filter(Boolean);
   return `${facts.join('\n')}\n\n👉 Sumate acá: ${url}`;
 }
