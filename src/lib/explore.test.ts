@@ -40,7 +40,9 @@ describe('tablesToExplore — tables the player wants but their agenda has no ro
     expect(run([mine, table('underway', { status: 'in-progress' })])).toEqual([]);
     expect(run([mine, table('waiting', { awaitingExplainer: true })])).toEqual([]);
     expect(run([mine, table('seated', { playerIds: ['x', 'me'] })])).toEqual([]);
-    expect(run([mine, table('declined', { rejectedIds: ['me'] })])).toEqual([]);
+    // one they turned down is still listed — marked, so the screen keeps it apart — and is the only one marked
+    const out = tablesToExplore({ playerId: 'me', arrivalTime: '10:00', departureTime: '20:00', interests: { g1: 'yes' }, repeatGameIds: [], tables: [mine, table('declined', { rejectedIds: ['me'] }), table('open', { startTime: '14:30' })], games, bufferMinutes: 10 });
+    expect(out.map((e) => [e.table.id, e.rejected])).toEqual([['declined', true], ['open', false]]);
   });
   it('not a table outside the hours they are there, nor one of a game they already have a table of (unless they would play two)', () => {
     expect(run([mine, table('late', { startTime: '15:00', endTime: '22:00' })])).toEqual([]);

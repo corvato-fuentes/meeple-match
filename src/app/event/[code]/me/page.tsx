@@ -513,7 +513,7 @@ export default function MyTicketPage() {
   const exploreCount = isTentative(player) ? 0 : tablesToExplore({
     playerId: player.id, arrivalTime: player.arrivalTime, departureTime: player.departureTime, interests,
     repeatGameIds: player.repeatGameIds ?? [], tables: allTables, games, bufferMinutes: event.settings.bufferMinutes,
-  }).length;
+  }).filter((e) => !e.rejected).length;
   const unvotedGamesCount = games.filter((g) => (!g.groupId || g.groupId === g.id) && interests[g.id] == null).length;
   const countBadge = (n: number, cls: string, meaning: string) => n > 0 && (
     <span className={'min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center ' + cls}

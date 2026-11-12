@@ -924,6 +924,17 @@ export async function joinPostedTable(
   requestPushSync(eventCode); // the table may have just reached its minimum
 }
 
+/** Takes the player off a table's "declined" list: it can be offered to them, and shown to them, again. */
+export async function undoTableRejection(eventCode: string, tableId: string, playerId: string): Promise<void> {
+  const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    const rejectedIds = ((snap.data() as Table).rejectedIds ?? []).filter((id) => id !== playerId);
+    tx.update(ref, { rejectedIds });
+  });
+}
+
 /**
  * Steps down from an algorithm-recommended table the player had accepted — still waiting for people or already
  * confirmed (a confirmed one that drops under the minimum goes back to waiting for players). They are marked as having

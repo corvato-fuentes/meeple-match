@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables, joinPostedTable, respondToRecommendation,
+  getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables, joinPostedTable, respondToRecommendation, undoTableRejection,
 } from '@/lib/firestore';
 import WaitingTableInfo, { ActionButton, PostedWho, RecommendedWho } from '@/components/ui/WaitingTableInfo';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
+import FilterChip from '@/components/ui/FilterChip';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import { tablesToExplore } from '@/lib/explore';
 import { isTentative } from '@/lib/registration';
@@ -32,6 +33,8 @@ export default function ExploreTablesPage() {
   const [allTables, setAllTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(true);
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  // The tables turned down are kept apart behind their own chip, in case they change their mind
+  const [showRejected, setShowRejected] = useState(false);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -63,10 +66,39 @@ export default function ExploreTablesPage() {
     .filter((id) => (playerMap.get(id)?.canExplain ?? []).includes(t.gameId)).map(nameOf);
   const tentative = isTentative(player);
 
-  const entries = tablesToExplore({
+  const allEntries = tablesToExplore({
     playerId: player.id, arrivalTime: player.arrivalTime, departureTime: player.departureTime,
     interests: player.interests, repeatGameIds: player.repeatGameIds ?? [], tables: allTables, games, bufferMinutes: event.settings.bufferMinutes,
   });
+
+  const entries = allEntries.filter((e) => e.rejected === showRejected);
+  const openCount = allEntries.filter((e) => !e.rejected).length;
+  const rejectedCount = allEntries.length - openCount;
+
+  // Back on the list: no longer remembered as turned down
+  async function reconsider(t: Table) {
+    if (!player || joiningId) return;
+    setJoiningId(t.id);
+    try {
+      await undoTableRejection(code, t.id, player.id);
+    } finally {
+      setJoiningId(null);
+    }
+  }
+
+  // Turns the table down for good: it is remembered as declined, so it leaves this list (and the count on the ticket) and is
+  // never offered again
+  async function reject(t: Table) {
+    if (!player || joiningId) return;
+    const game = gameMap.get(t.gameId);
+    if (!game) return;
+    setJoiningId(t.id);
+    try {
+      await respondToRecommendation(code, t.id, player.id, false, game.minPlayers, game.maxPlayers);
+    } finally {
+      setJoiningId(null);
+    }
+  }
 
   // Takes the table in place of the one it clashes with: the overlap popup settles which of theirs they leave
   async function swapIn(t: Table) {
@@ -100,9 +132,14 @@ export default function ExploreTablesPage() {
         </p>
       )}
 
+      <div className="flex flex-wrap gap-2">
+        <FilterChip active={!showRejected} onClick={() => setShowRejected(false)} label="🔎 Para explorar" count={openCount} activeClass="bg-indigo-500 border-indigo-500 text-white" />
+        <FilterChip active={showRejected} onClick={() => setShowRejected(true)} label="❌ Rechazadas" count={rejectedCount} activeClass="bg-gray-200 border-gray-200 text-gray-900" />
+      </div>
+
       {entries.length === 0 ? (
         <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">
-          Ahora no hay mesas de juegos que votaste que se pisen con tu agenda.
+          {showRejected ? 'No rechazaste ninguna mesa.' : 'Ahora no hay mesas de juegos que votaste que se pisen con tu agenda.'}
         </p>
       ) : (
         <div className="space-y-2">
@@ -114,11 +151,20 @@ export default function ExploreTablesPage() {
                   ? <PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} />
                   : <RecommendedWho t={t} game={gameMap.get(t.gameId)} nameOf={nameOf} />}
                 note={<>⚠️ Se pisa con {clashes.map((c) => `${c.gameName} (${c.startTime}–${c.endTime}${c.status === 'confirmed' ? ', confirmada' : ''})`).join(' y ')}</>} />
-              <div className="mt-3">
-                <ActionButton tone="indigo" onClick={() => swapIn(t)} disabled={joiningId === t.id || tentative}>
-                  {joiningId === t.id ? 'Cambiando...' : clashes.length > 1 ? `🔁 Cambiar las ${clashes.length} por esta mesa` : '🔁 Cambiar por esta mesa'}
-                </ActionButton>
-              </div>
+              {showRejected ? (
+                <div className="mt-3">
+                  <ActionButton tone="neutral" onClick={() => reconsider(t)} disabled={joiningId === t.id}>
+                    {joiningId === t.id ? 'Un momento...' : '↩️ Volver a considerar'}
+                  </ActionButton>
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <ActionButton tone="neutral" onClick={() => reject(t)} disabled={joiningId === t.id}>❌ Rechazar</ActionButton>
+                  <ActionButton tone="indigo" onClick={() => swapIn(t)} disabled={joiningId === t.id || tentative}>
+                    {joiningId === t.id ? 'Un momento...' : clashes.length > 1 ? `🔁 Cambiar las ${clashes.length}` : '🔁 Cambiar'}
+                  </ActionButton>
+                </div>
+              )}
             </div>
           ))}
         </div>
