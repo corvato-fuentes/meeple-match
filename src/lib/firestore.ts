@@ -1,7 +1,7 @@
 import {
   doc, collection, getDoc, getDocs, addDoc, updateDoc,
   query, where, onSnapshot, writeBatch, runTransaction,
-  orderBy, serverTimestamp,
+  orderBy, serverTimestamp, deleteField,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { MeepleEvent, EventAdminConfig, Game, Player, Table, InterestLevel } from './types';
@@ -10,6 +10,7 @@ import { randomInterest, randomOwnGameInterest, generateFakePostulatedTables } f
 import { generateTicketCodeCandidate } from './ticketCode';
 import { toMinutes, toTimeString } from './timeUtils';
 import { requestPushSync } from './pushClient';
+import { findDeletedTwin } from './gameMatch';
 import { displayNameOf } from './playerName';
 import { MIN_TABLE_SEATS } from './seats';
 import type { WaitingTableReview } from './tableAlgorithm';
@@ -105,7 +106,18 @@ export async function getGames(eventCode: string): Promise<Game[]> {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Game)).filter((g) => !g.deleted);
 }
 
+/**
+ * Adds a game. If it is the same game as one that was deleted and kept for its votes (see `removePlayerGame`), that game is
+ * brought back instead of making a new one: it keeps its id, so the votes, "sé explicarlo" and "ya lo jugué" marks people
+ * gave it count again with nothing to transfer. The tables that were cancelled with it stay cancelled.
+ */
 export async function addGame(eventCode: string, game: Omit<Game, 'id'>): Promise<string> {
+  const deleted = await getDocs(query(collection(db, 'events', eventCode, 'games'), where('deleted', '==', true)));
+  const twin = findDeletedTwin(deleted.docs.map((d) => ({ ...(d.data() as Game), id: d.id })), game);
+  if (twin) {
+    await updateDoc(doc(db, 'events', eventCode, 'games', twin.id), { ...game, deleted: deleteField(), groupId: null });
+    return twin.id;
+  }
   const ref = await addDoc(collection(db, 'events', eventCode, 'games'), game);
   return ref.id;
 }
