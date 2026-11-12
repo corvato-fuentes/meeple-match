@@ -244,6 +244,77 @@ export async function syncTodaysEvents(): Promise<{ events: number; sent: number
   return { events: events.size, sent };
 }
 
+/**
+ * Tells the organizers (the players an admin marked as organizers, on the devices where they turned notifications on) that
+ * someone who registered as "indeciso" sent the receipt. Everything — who, what, to whom — comes from the stored event: the
+ * caller only names a ticket, and it only works once per receipt and only if that player really holds one now.
+ */
+export async function notifyProofUploaded(code: string, ticketCode: string): Promise<{ devices: number }> {
+  if (!pushConfigured()) return { devices: 0 };
+  const player = await findPlayerByTicket(code, ticketCode);
+  if (!player) return { devices: 0 };
+  const data = player.data();
+  if (!data.paymentProofUrl || data.registrationStatus === 'tentative') return { devices: 0 };
+  // Once per receipt: a new one sent after a rejection is news again, the same one twice is not
+  const receiptKey = `proof-notice-${createHash('sha256').update(String(data.paymentProofUrl)).digest('hex').slice(0, 12)}`;
+  if ((await claimKeys(code, player.id, [receiptKey])).size === 0) return { devices: 0 };
+
+  const base = eventRef(code);
+  const organizers = await base.collection('players').where('isOrganizer', '==', true).get();
+  if (organizers.empty) return { devices: 0 };
+  const ticketByOrganizer = new Map(organizers.docs.map((d) => [d.id, d.data().ticketCode as string]));
+  const ids = [...ticketByOrganizer.keys()];
+  const subDocs = [];
+  for (let i = 0; i < ids.length; i += 30) { // Firestore's "in" takes up to 30 values
+    subDocs.push(...(await base.collection('pushSubs').where('playerId', 'in', ids.slice(i, i + 30)).get()).docs);
+  }
+  const message = { title: '💸 Nuevo comprobante', body: `${(data.name as string) || 'Un inscripto'} mandó su comprobante y quedó confirmado`, tag: `proof-${player.id}`, ttl: 6 * 3600 };
+  let devices = 0;
+  await Promise.all(subDocs.map(async (d) => {
+    const { playerId, subscription } = d.data() as { playerId: string; subscription: StoredSubscription };
+    const ticket = ticketByOrganizer.get(playerId);
+    if (!ticket) return;
+    const result = await deliver(subscription, { ...message, url: `/event/${code}/me?ticket=${encodeURIComponent(ticket)}` });
+    if (result === 'gone') await d.ref.delete().catch(() => {});
+    if (result === 'ok') devices++;
+  }));
+  return { devices };
+}
+
+/**
+ * Sends each listed player their own notification, on every device they turned notifications on. Texts and recipients are
+ * decided by the caller (server code), never taken from a browser. Devices the push service reports as gone are cleaned up.
+ */
+export async function notifyPlayers(
+  code: string,
+  items: { playerId: string; message: { title: string; body: string; tag: string; ttl: number } }[],
+): Promise<{ devices: number }> {
+  if (!pushConfigured() || items.length === 0) return { devices: 0 };
+  const base = eventRef(code);
+  const ids = [...new Set(items.map((i) => i.playerId))];
+  const playerSnaps = await adminDb.getAll(...ids.map((id) => base.collection('players').doc(id)));
+  const ticketByPlayer = new Map(playerSnaps.filter((s) => s.exists).map((s) => [s.id, s.data()!.ticketCode as string]));
+  const messageByPlayer = new Map(items.map((i) => [i.playerId, i.message]));
+  const subDocs = [];
+  for (let i = 0; i < ids.length; i += 30) { // Firestore's "in" takes up to 30 values
+    subDocs.push(...(await base.collection('pushSubs').where('playerId', 'in', ids.slice(i, i + 30)).get()).docs);
+  }
+  let devices = 0;
+  const CHUNK = 20;
+  for (let i = 0; i < subDocs.length; i += CHUNK) {
+    await Promise.all(subDocs.slice(i, i + CHUNK).map(async (d) => {
+      const { playerId, subscription } = d.data() as { playerId: string; subscription: StoredSubscription };
+      const message = messageByPlayer.get(playerId);
+      const ticket = ticketByPlayer.get(playerId);
+      if (!message || !ticket) return;
+      const result = await deliver(subscription, { ...message, url: `/event/${code}/me?ticket=${encodeURIComponent(ticket)}` });
+      if (result === 'gone') await d.ref.delete().catch(() => {});
+      if (result === 'ok') devices++;
+    }));
+  }
+  return { devices };
+}
+
 export interface BroadcastResult {
   devices: number;
   players: number;

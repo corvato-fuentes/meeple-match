@@ -12,6 +12,8 @@ export interface AttendanceRow {
   checkedInAt: number | null;
   /** Whether the player uploaded a payment proof (the image itself is only served by `previewPlayer`). */
   hasProof: boolean;
+  /** Registered without the receipt (flexible registration) and not confirmed yet. */
+  tentative: boolean;
 }
 
 /** Every registered player with their check-in time, sorted by name. */
@@ -22,7 +24,7 @@ export async function listAttendance(code: string): Promise<AttendanceRow[]> {
   ]);
   const at = new Map(arrivals.docs.map((d) => [d.id, d.data().at as number]));
   return players.docs
-    .map((d) => ({ id: d.id, name: (d.data().name as string) ?? '', checkedInAt: at.get(d.id) ?? null, hasProof: !!d.data().paymentProofUrl }))
+    .map((d) => ({ id: d.id, name: (d.data().name as string) ?? '', checkedInAt: at.get(d.id) ?? null, hasProof: !!d.data().paymentProofUrl, tentative: d.data().registrationStatus === 'tentative' }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

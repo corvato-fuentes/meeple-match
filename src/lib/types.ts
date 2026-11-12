@@ -23,6 +23,9 @@ export interface EventSettings {
   breaks: ScheduledBreak[];
   paymentRequired: boolean;
   paymentInfo: string | null; // account/transfer info shown to players when paymentRequired is true
+  // With payment required, lets people register WITHOUT the receipt as "indecisos": they can vote and add games but get no
+  // tables and don't count towards maxPlayers until they send the receipt (or an organizer confirms them). Off when missing.
+  flexibleRegistration?: boolean;
   registrationBannerUrl: string | null; // custom banner image shown to players on the registration screen
 }
 
@@ -93,6 +96,12 @@ export interface Player {
   playedGameIds: string[]; // gameIds the player already knows how to play, even if they can't teach it
   repeatGameIds: string[]; // gameIds the player is happy to play again in a second table
   paymentProofUrl: string | null; // Cloudinary secure_url; unguessable path, never linked on any public-facing page
+  // 'tentative' = registered without the receipt (flexible registration): no tables, not counted towards the maximum.
+  // Missing or 'confirmed' = a full registration, which is what everyone had before this existed.
+  registrationStatus?: 'confirmed' | 'tentative';
+  // What an organizer decided about the receipt: 'approved' or 'rejected' (the player is asked to send a new one). Missing
+  // = not reviewed yet (or no receipt). A new receipt resets it.
+  paymentReview?: 'approved' | 'rejected' | null;
   // Admin-flagged event organizer/staff — surfaced (with contact info) on the ticket-gated
   // Organizadores page so players know who to reach out to, unlike the public roster.
   isOrganizer?: boolean;

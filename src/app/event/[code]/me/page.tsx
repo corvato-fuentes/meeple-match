@@ -25,6 +25,8 @@ import InstallPrompt from '@/components/ui/InstallPrompt';
 import PlayerCountFields from '@/components/ui/PlayerCountFields';
 import LeaveTableConfirm from '@/components/ui/LeaveTableConfirm';
 import ShareTableButton from '@/components/ui/ShareTableButton';
+import ReceiptBanner from '@/components/ui/ReceiptBanner';
+import { isTentative, receiptStateOf, owesReceipt } from '@/lib/registration';
 import { isShareableTable, pendingTableKey } from '@/lib/shareTable';
 import TicketQr from '@/components/ui/TicketQr';
 import PushOptIn from '@/components/ui/PushOptIn';
@@ -405,6 +407,10 @@ export default function MyTicketPage() {
   // players to join up to the game's minimum), unless the owner alone already meets it.
   async function submitPropose(game: Game, replaceConfirmed = false) {
     if (!player || !event || !proposeStart || proposingSubmitting) return;
+    if (isTentative(player)) {
+      setProposeError('Confirmá tu inscripción (mandá el comprobante) para postular una mesa.');
+      return;
+    }
     // The poster is the table's explainer, so they have to know how to teach the game. Votes and
     // knowledge live on the primary copy when games are merged.
     const primaryId = game.groupId ?? game.id;
@@ -470,6 +476,8 @@ export default function MyTicketPage() {
 
   if (loading) return <div className="p-8 text-center">Cargando...</div>;
   if (!player || !event) return null;
+  // Where this player stands with the receipt the event asks for (if it does)
+  const receipt = receiptStateOf(player, event.settings);
 
   const myGames = games.filter((g) => g.ownerPlayerId === player.id);
   const coverFor = (gameId: string) => (
@@ -711,8 +719,16 @@ export default function MyTicketPage() {
 
       <AnnouncementBanner code={code} />
 
+      {owesReceipt(receipt) && (
+        <ReceiptBanner code={code} player={player} event={event} state={receipt as 'missing' | 'rejected'} onSent={(url) => {
+          const wasTentative = isTentative(player);
+          setPlayer((p) => p ? { ...p, registrationStatus: 'confirmed', paymentProofUrl: url, paymentReview: null } : p);
+          if (wasTentative) runTableGeneration(code, event).catch(() => {}); // now they are put in tables
+        }} />
+      )}
+
       {/* Same layout as before, just framed as a card like the other sections */}
-      <section className="max-w-sm mx-auto border border-gray-700 bg-gray-800 rounded-2xl p-5 text-center">
+      <section className={'max-w-sm mx-auto border bg-gray-800 rounded-2xl p-5 text-center ' + (owesReceipt(receipt) ? 'border-amber-700' : 'border-gray-700')}>
         <p className="text-sm text-gray-500 mb-1">{event.name}</p>
         <p className="text-4xl font-mono font-bold tracking-widest text-indigo-400">
           {player.ticketCode}
@@ -721,6 +737,22 @@ export default function MyTicketPage() {
           {copied ? '✓ Copiado' : 'Copiar código'}
         </button>
         <TicketQr code={code} ticketCode={player.ticketCode} />
+        {/* The ticket is not a confirmed place until the receipt is in (indeciso, asked for after registering, or rejected) */}
+        {owesReceipt(receipt) && (
+          <div className="mt-3 border border-amber-700 bg-amber-950/40 rounded-xl px-3 py-2 text-left">
+            <p className="text-sm font-semibold text-amber-300">
+              {receipt === 'rejected' ? '⚠️ Tu comprobante fue rechazado' : isTentative(player) ? '⚠️ Tu lugar no está confirmado' : '⚠️ Falta tu comprobante de pago'}
+            </p>
+            <p className="text-xs text-gray-300 mt-0.5">
+              {receipt === 'rejected'
+                ? 'Mandá uno nuevo para confirmar tu lugar.'
+                : isTentative(player)
+                  ? 'Hasta que envíes el comprobante estás como indeciso: el lugar no está reservado y no se te arman mesas.'
+                  : 'Mandalo para confirmar tu lugar en el evento.'}
+            </p>
+            <a href="#enviar-comprobante" className="inline-block text-xs text-indigo-300 hover:underline mt-1">Enviar el comprobante ↑</a>
+          </div>
+        )}
         <p className="text-lg font-semibold text-gray-100 mt-4">
           Hola, <span className="text-amber-300">{player.name}</span>!
         </p>

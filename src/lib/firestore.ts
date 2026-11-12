@@ -446,6 +446,19 @@ export async function findPlayerByContact(
   return null;
 }
 
+/**
+ * Sets whether a player holds a full registration. The admin uses it to confirm someone who pays in person (or without a
+ * receipt) and to move someone back to "indeciso". Confirming ignores the maximum: it is the organizers' call.
+ */
+export async function setPlayerRegistrationStatus(eventCode: string, playerId: string, status: 'confirmed' | 'tentative'): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { registrationStatus: status });
+}
+
+/** A player who registered as "indeciso" sends the receipt: it is saved and their registration becomes a full one. */
+export async function confirmRegistrationWithProof(eventCode: string, playerId: string, proofUrl: string): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { paymentProofUrl: proofUrl, registrationStatus: 'confirmed', paymentReview: null });
+}
+
 export async function addPlayer(eventCode: string, player: Omit<Player, 'id'>): Promise<string> {
   const ref = await addDoc(collection(db, 'events', eventCode, 'players'), {
     ...player,

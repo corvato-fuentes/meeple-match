@@ -17,6 +17,7 @@ import ShareTableButton from '@/components/ui/ShareTableButton';
 import { isShareableTable } from '@/lib/shareTable';
 import { otherOffersForGame } from '@/lib/offers';
 import { interestedInTable } from '@/lib/tableAlgorithm';
+import { confirmedPlayers, isTentative } from '@/lib/registration';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { minSeats } from '@/lib/seats';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
@@ -79,7 +80,7 @@ export default function PostulatedTablesPage() {
   useEffect(() => {
     if (healedOnce.current || !event || otherPlayers.length === 0 || allTables.length === 0) return;
     const unoffered = allTables.some((t) => t.postedByOwner && t.status === 'recommended' &&
-      interestedInTable(t, otherPlayers, allTables, event.settings.bufferMinutes)
+      interestedInTable(t, confirmedPlayers(otherPlayers), allTables, event.settings.bufferMinutes)
         .some((r) => !r.busy && !(t.candidateIds ?? []).includes(r.player.id) && !(t.queuedIds ?? []).includes(r.player.id)));
     if (!unoffered) return;
     healedOnce.current = true;
@@ -92,6 +93,8 @@ export default function PostulatedTablesPage() {
   const gameMap = new Map(games.map((g) => [g.id, g]));
   const otherPlayerMap = new Map(otherPlayers.map((p) => [p.id, p]));
   const myId = player.id;
+  // Registered without the receipt: they look at the tables but can't join one until they confirm
+  const tentative = isTentative(player);
 
   const nameOf = (id: string) => (id === myId ? 'Vos' : otherPlayerMap.get(id)?.name ?? 'alguien');
 
@@ -142,7 +145,7 @@ export default function PostulatedTablesPage() {
   }
 
   async function handleJoinOpenTable(t: Table) {
-    if (!player || joiningTableId) return;
+    if (!player || joiningTableId || isTentative(player)) return;
     const game = games.find((g) => g.id === t.gameId);
     if (!game) return;
     if (!(await resolveScheduleConflict(t))) return;
@@ -271,7 +274,7 @@ export default function PostulatedTablesPage() {
   };
 
   // People interested in the table who aren't in it: offered it, or voted its game and the slot fits them
-  const interestedRows = (t: Table) => interestedInTable(t, otherPlayers, allTables, event.settings.bufferMinutes);
+  const interestedRows = (t: Table) => interestedInTable(t, confirmedPlayers(otherPlayers), allTables, event.settings.bufferMinutes);
   const interestedIn = (t: Table) => interestedRows(t).length;
 
   const tableCard = (t: Table, kind: TableKind) => {
@@ -293,13 +296,13 @@ export default function PostulatedTablesPage() {
           ) : kind === 'open' && forYouIds.has(t.id) ? (
             // Offered to them because they voted the game and the slot fits: answer, like any other offer
             <div className="grid grid-cols-2 gap-2">
-              <ActionButton tone="neutral" onClick={() => handleRejectTable(t)} disabled={joiningTableId === t.id}>❌ Rechazar</ActionButton>
-              <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}>
+              <ActionButton tone="neutral" onClick={() => handleRejectTable(t)} disabled={joiningTableId === t.id || tentative}>❌ Rechazar</ActionButton>
+              <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id || tentative}>
                 {joiningTableId === t.id ? 'Sumando...' : '✅ Aceptar'}
               </ActionButton>
             </div>
           ) : kind === 'open' ? (
-            <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id}>
+            <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id || tentative}>
               {joiningTableId === t.id ? 'Sumando...' : '+ Sumarme'}
             </ActionButton>
           ) : leaveBtn(t)}

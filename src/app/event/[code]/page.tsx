@@ -8,6 +8,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { countGames } from '@/lib/gameCounts';
+import { confirmedPlayers, flexibleRegistrationOn } from '@/lib/registration';
 import { computeEventStatus, roundUp5 } from '@/lib/timeUtils';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
 import { uploadPaymentProof } from '@/lib/paymentProof';
@@ -65,6 +66,8 @@ export default function EventPage() {
     getPushStatus().then(setPushStatus).catch(() => setPushStatus('unsupported'));
   }, []);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  // Flexible registration: register without the receipt, as "indeciso", and send it later from the ticket
+  const [wantsTentative, setWantsTentative] = useState(false);
   const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
 
   const [myGames, setMyGames] = useState<DraftGame[]>([]);
@@ -128,7 +131,7 @@ export default function EventPage() {
       const [gs, players] = await Promise.all([getGames(code), getPlayers(code)]);
       setEvent(ev);
       setGames(gs);
-      setPlayerCount(players.length);
+      setPlayerCount(confirmedPlayers(players).length); // "indecisos" hold no place
       setArrivalTime(ev.startTime);
       setDepartureTime(ev.endTime);
       setStep('reaccess');
@@ -149,7 +152,7 @@ export default function EventPage() {
   async function handleStep1Next() {
     setContactError('');
     setExistingTicket(null);
-    if (event?.settings.maxPlayers != null && playerCount >= event.settings.maxPlayers) {
+    if (!tentative && event?.settings.maxPlayers != null && playerCount >= event.settings.maxPlayers) {
       setContactError('El evento ya alcanzó su capacidad máxima. No se pueden agregar más inscriptos.');
       return;
     }
@@ -271,9 +274,9 @@ export default function EventPage() {
     const pushPermission = wantPush && pushStatus === 'off' ? requestPushPermission().catch(() => null) : null;
     const displayName = displayNameOf(firstName, lastName, alias);
     const maxPlayers = event.settings.maxPlayers;
-    if (maxPlayers != null && playerCount >= maxPlayers) { alert('El evento está completo.'); setSubmitting(false); return; }
+    if (!tentative && maxPlayers != null && playerCount >= maxPlayers) { alert('El evento está completo.'); setSubmitting(false); return; }
     const ticketCode = await generateUniqueTicketCode(code);
-    const paymentProofUrl = paymentProofFile ? await uploadPaymentProof(code, ticketCode, paymentProofFile) : null;
+    const paymentProofUrl = !tentative && paymentProofFile ? await uploadPaymentProof(code, ticketCode, paymentProofFile) : null;
     const savedGameIds: string[] = [];
     const canExplainGameIds: string[] = [];
     const playedOwnGameIds: string[] = [];
@@ -294,6 +297,7 @@ export default function EventPage() {
       playedGameIds: [...playedOwnGameIds, ...playedOtherIds],
       repeatGameIds: [] as string[],
       paymentProofUrl,
+      ...(tentative && { registrationStatus: 'tentative' as const }),
     } as Parameters<typeof addPlayer>[1]).then((playerId) =>
       Promise.all(savedGameIds.map((gameId) => setGameOwner(code, gameId, playerId)))
     );
@@ -321,7 +325,11 @@ export default function EventPage() {
 
   if (step === 'loading') return <div className="p-8 text-center">Cargando...</div>;
 
-  const isFull = event?.settings.maxPlayers != null && playerCount >= event.settings.maxPlayers;
+  // With flexible registration an event with every place taken still takes "indecisos", who hold no place
+  const flexible = event ? flexibleRegistrationOn(event.settings) : false;
+  const atMax = event?.settings.maxPlayers != null && playerCount >= event.settings.maxPlayers;
+  const isFull = atMax && !flexible;
+  const tentative = flexible && (wantsTentative || atMax);
 
   if (step === 'closed') return (
     <div className="p-8 text-center text-gray-400 space-y-4">
@@ -352,9 +360,16 @@ export default function EventPage() {
               🚫 Este evento ya alcanzó su capacidad máxima ({playerCount}/{event?.settings.maxPlayers}). No se pueden agregar más inscriptos.
             </div>
           ) : (
-            <button onClick={() => setStep(1)} className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700">
-              Registrarme
-            </button>
+            <>
+              {atMax && (
+                <div className="border border-amber-800 bg-amber-950/30 rounded-xl px-4 py-3 text-sm text-amber-300">
+                  El evento ya tiene todos los lugares confirmados. Podés anotarte como indeciso: quedás sujeto a disponibilidad hasta que se libere un lugar.
+                </div>
+              )}
+              <button onClick={() => setStep(1)} className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700">
+                Registrarme
+              </button>
+            </>
           )
         )}
         {!showCodeInput ? (
@@ -436,13 +451,33 @@ export default function EventPage() {
             {event.settings.paymentInfo && (
               <p className="text-xs text-gray-300 whitespace-pre-wrap">{event.settings.paymentInfo}</p>
             )}
-            <p className="text-xs text-gray-500">Subí una foto del comprobante de la transferencia para confirmar tu lugar.</p>
-            <input type="file" accept="image/*"
-              onChange={handlePaymentProofChange}
-              className="w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700" />
-            {paymentProofPreview && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={paymentProofPreview} alt="Comprobante subido" className="max-h-40 rounded-lg border border-gray-700" />
+            {flexible && !atMax && (
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setWantsTentative(false)}
+                  className={'rounded-lg border py-1.5 text-xs font-medium ' + (!wantsTentative ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+                  Tengo el comprobante
+                </button>
+                <button type="button" onClick={() => setWantsTentative(true)}
+                  className={'rounded-lg border py-1.5 text-xs font-medium ' + (wantsTentative ? 'bg-amber-600 border-amber-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
+                  Todavía no sé
+                </button>
+              </div>
+            )}
+            {tentative ? (
+              <p className="text-xs text-amber-300">
+                Te anotás como <strong>indeciso</strong>: podés votar juegos y sumar los tuyos, pero tu lugar no queda reservado ni se te arman mesas hasta que mandes el comprobante desde tu ticket.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-gray-500">Subí una foto del comprobante de la transferencia para confirmar tu lugar.</p>
+                <input type="file" accept="image/*"
+                  onChange={handlePaymentProofChange}
+                  className="w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700" />
+                {paymentProofPreview && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={paymentProofPreview} alt="Comprobante subido" className="max-h-40 rounded-lg border border-gray-700" />
+                )}
+              </>
             )}
           </div>
         )}
@@ -458,7 +493,7 @@ export default function EventPage() {
             )}
           </div>
         )}
-        <button disabled={!firstName.trim() || !lastName.trim() || !arrivalTime || !departureTime || !phone.trim() || (event?.settings.paymentRequired ? !paymentProofFile : false) || checkingDuplicate}
+        <button disabled={!firstName.trim() || !lastName.trim() || !arrivalTime || !departureTime || !phone.trim() || (event?.settings.paymentRequired && !tentative ? !paymentProofFile : false) || checkingDuplicate}
           onClick={handleStep1Next}
           className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700 disabled:opacity-40">
           {checkingDuplicate ? 'Verificando...' : 'Siguiente →'}

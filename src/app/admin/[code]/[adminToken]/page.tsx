@@ -15,6 +15,8 @@ import ConfirmModal from '@/components/ui/ConfirmModal';
 import AnnounceCard from '@/components/ui/AnnounceCard';
 import Time24Input from '@/components/ui/Time24Input';
 import { countGames } from '@/lib/gameCounts';
+import { tentativeCount, registrationModeOf, settingsForMode, owesReceipt, receiptStateOf } from '@/lib/registration';
+import { remindReceipts } from '@/lib/paymentReviewClient';
 import type { MeepleEvent, Player, Table, Game } from '@/lib/types';
 
 /** "2026-11-15" → "15/11/2026" */
@@ -46,6 +48,9 @@ export default function AdminPage() {
   const [seedPromptOpen, setSeedPromptOpen] = useState(false);
   const [seedCountInput, setSeedCountInput] = useState('');
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  // People who already registered and now owe a receipt because the event started asking for one: offer to remind them
+  const [receiptReminder, setReceiptReminder] = useState<{ owing: number } | null>(null);
+  const [reminderMsg, setReminderMsg] = useState('');
 
   const [settingsDraft, setSettingsDraft] = useState<MeepleEvent['settings'] | null>(null);
   const [nameDraft, setNameDraft] = useState('');
@@ -218,6 +223,10 @@ export default function AdminPage() {
     setNameDraft(name);
     saveMyEvent({ code, adminToken, name, date });
     setSavingSettings(false);
+    if (!event.settings.paymentRequired && settingsDraft.paymentRequired) {
+      const owing = players.filter((p) => owesReceipt(receiptStateOf(p, settingsDraft))).length;
+      if (owing > 0) setReceiptReminder({ owing });
+    }
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 2000);
   }
@@ -293,6 +302,7 @@ export default function AdminPage() {
 
   const confirmedCount = tables.filter((t) => ['confirmed', 'in-progress'].includes(t.status)).length;
   const gameCount = countGames(games);
+  const tentativeTotal = tentativeCount(players);
   const recommendedCount = tables.filter((t) => t.status === 'recommended' && !t.postedByOwner).length;
   const postulatedCount = tables.filter((t) => t.status === 'recommended' && t.postedByOwner).length;
   const eventStatus = computeEventStatus(event.date, event.startTime, event.endTime);
@@ -351,8 +361,9 @@ export default function AdminPage() {
       </section>
 
       {/* Stats */}
-      <div className='grid grid-cols-2 gap-3'>
-        <StatCard label='Inscriptos' value={players.length} sub={event.settings.maxPlayers ? `/ ${event.settings.maxPlayers}` : ''} />
+      <div className={'grid gap-3 ' + (tentativeTotal > 0 ? 'grid-cols-3' : 'grid-cols-2')}>
+        <StatCard label={tentativeTotal > 0 ? 'Confirmados' : 'Inscriptos'} value={players.length - tentativeTotal} sub={event.settings.maxPlayers ? `/ ${event.settings.maxPlayers}` : ''} />
+        {tentativeTotal > 0 && <StatCard label='Indecisos' value={tentativeTotal} />}
         <StatCard label='Juegos registrados' value={gameCount.games} sub={gameCount.copies > gameCount.games ? `(${gameCount.copies} copias)` : ''} />
       </div>
       <div className='grid grid-cols-3 gap-3'>
@@ -494,10 +505,26 @@ export default function AdminPage() {
               onChange={(e) => handleDraftChange('physicalTables', e.target.value ? +e.target.value : null)} />
           </div>
         </div>
-        <div className='flex items-center gap-2'>
-          <input type='checkbox' id='paymentReq' checked={settingsDraft.paymentRequired}
-            onChange={(e) => handleDraftChange('paymentRequired', e.target.checked)} />
-          <label htmlFor='paymentReq' className='text-sm'>Requerir comprobante de pago</label>
+        <div className='space-y-2'>
+          <p className='text-sm font-medium'>Inscripción</p>
+          {([
+            ['free', 'Libre', 'No se pide comprobante ni se pregunta si va a venir. Cualquiera se anota.'],
+            ['flexible', 'Flexible', 'Se pide comprobante, pero se puede anotar como “indeciso” sin él: vota y suma juegos, aunque no tiene mesas ni cuenta para el máximo hasta que mande el comprobante o lo confirmes vos.'],
+            ['strict', 'Estricta', 'Se pide comprobante: sin pagar no se inscribe.'],
+          ] as const).map(([mode, title, hint]) => {
+            const active = registrationModeOf(settingsDraft) === mode;
+            return (
+              <button key={mode} type='button'
+                onClick={() => setSettingsDraft((d) => d ? { ...d, ...settingsForMode(mode) } : d)}
+                className={'w-full text-left rounded-lg border px-3 py-2 ' + (active ? 'border-indigo-500 bg-indigo-950/40' : 'border-gray-700 hover:bg-gray-800')}>
+                <span className='flex items-center gap-2 text-sm font-medium'>
+                  <span className={'inline-block w-3 h-3 rounded-full border ' + (active ? 'bg-indigo-500 border-indigo-400' : 'border-gray-600')} />
+                  {title}
+                </span>
+                <span className='block text-xs text-gray-500 mt-0.5'>{hint}</span>
+              </button>
+            );
+          })}
         </div>
 
         {settingsDraft.paymentRequired && (
@@ -555,6 +582,7 @@ export default function AdminPage() {
             {savingSettings ? 'Guardando...' : '💾 Guardar configuración'}
           </button>
           {savedFlash && <span className='text-green-400 text-sm'>✓ Guardado</span>}
+          {reminderMsg && <span className='text-xs text-gray-400'>{reminderMsg}</span>}
         </div>
       </section>
 
@@ -685,6 +713,20 @@ export default function AdminPage() {
         </div>
       </section>
 
+      <ConfirmModal
+        open={!!receiptReminder}
+        title='Hay gente sin comprobante'
+        message={receiptReminder ? `${receiptReminder.owing} persona${receiptReminder.owing === 1 ? '' : 's'} ya inscripta${receiptReminder.owing === 1 ? '' : 's'} todavía no mand${receiptReminder.owing === 1 ? 'ó' : 'aron'} comprobante. ¿Les enviás un recordatorio ahora? Lo reciben como notificación si la tienen activada, y en su ticket ven el aviso de todas formas.` : ''}
+        confirmLabel='Enviar recordatorio'
+        onConfirm={async () => {
+          setReceiptReminder(null);
+          try {
+            const r = await remindReceipts(code, adminToken);
+            setReminderMsg(`Recordatorio enviado a ${r.devices ?? 0} dispositivo${r.devices === 1 ? '' : 's'}.`);
+          } catch { setReminderMsg('No se pudo enviar el recordatorio.'); }
+          setTimeout(() => setReminderMsg(''), 6000);
+        }}
+        onCancel={() => setReceiptReminder(null)} />
       <ConfirmModal
         open={confirmResetOpen}
         title='¿Resetear los datos de prueba?'

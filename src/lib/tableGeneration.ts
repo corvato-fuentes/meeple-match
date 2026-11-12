@@ -6,6 +6,7 @@ import { generateTables, reviewWaitingTables } from '@/lib/tableAlgorithm';
 import { tablesWithStaleOffers } from '@/lib/offers';
 import { isEventOver, toMinutes, toTimeString } from '@/lib/timeUtils';
 import { requestPushSync } from '@/lib/pushClient';
+import { confirmedPlayers } from '@/lib/registration';
 import type { MeepleEvent, Player, Table } from '@/lib/types';
 
 /** True when the table's time slot isn't fully inside the event's current schedule. */
@@ -94,7 +95,8 @@ export async function runTableGeneration(
     // (e.g. the admin shortened the day after it was proposed) is just stale demand — drop it so the
     // pass below can propose a fresh one inside the window. Confirmed and owner-posted tables are
     // never touched here; the admin sees those flagged instead.
-    const allPlayers = rawPlayers
+    // "Indecisos" (registered without the receipt) are not put in tables until they confirm
+    const allPlayers = confirmedPlayers(rawPlayers)
       .map((p) => withinEventWindow(p, event.startTime, event.endTime))
       .filter((p): p is Player => p !== null);
     const stale = allTables.filter(

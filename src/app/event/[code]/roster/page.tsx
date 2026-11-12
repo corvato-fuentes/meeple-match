@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, getGames, getPlayers } from '@/lib/firestore';
+import { isTentative, confirmedPlayers } from '@/lib/registration';
 import type { MeepleEvent, Game, Player } from '@/lib/types';
 
 /** Public, read-only roster of everyone registered — no email/phone/payment info shown here. */
@@ -33,7 +34,7 @@ export default function RosterPage() {
       <div className="flex items-center gap-3 mb-6">
         <Link href={`/event/${code}`} className="text-gray-500 hover:text-gray-300">←</Link>
         <h1 className="text-xl font-bold">Inscriptos — {event.name}</h1>
-        <span className="text-sm text-gray-500">{players.length}</span>
+        <span className="text-sm text-gray-500">{confirmedPlayers(players).length}{players.length > confirmedPlayers(players).length && ` + ${players.length - confirmedPlayers(players).length} indecisos`}</span>
       </div>
 
       {sorted.length === 0 ? (
@@ -43,7 +44,10 @@ export default function RosterPage() {
           {sorted.map((p) => (
             <div key={p.id} className="border border-gray-700 rounded-xl p-3 bg-gray-800">
               <div className="flex justify-between items-start">
-                <p className="font-semibold">{p.name}</p>
+                <p className="font-semibold">
+                  {p.name}
+                  {isTentative(p) && <span className="ml-2 text-xs bg-amber-900 text-amber-300 px-1.5 rounded align-middle">indeciso</span>}
+                </p>
                 <span className="text-xs text-gray-500 shrink-0">{p.arrivalTime}–{p.departureTime}</span>
               </div>
               {p.bringGameIds.length > 0 && (

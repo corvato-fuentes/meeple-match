@@ -8,6 +8,7 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import { computeEventStatus } from '@/lib/timeUtils';
+import { isTentative } from '@/lib/registration';
 import { dayLabel, isShareableTable, pendingTableKey, seatsLine, shareHeadline, shareInfoOf, type ShareInfo } from '@/lib/shareTable';
 import type { SharedTablePreview } from '@/lib/shareTableServer';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
@@ -144,6 +145,11 @@ export default function SharedTableView({ code, tableId, preview }: { code: stri
       {joined || seated ? (
         <>
           <p className="text-center text-sm text-green-400">{joined ? '¡Listo! Te sumaste a esta mesa.' : 'Ya estás en esta mesa.'}</p>
+          <Link href={ticketHref} className="block text-center bg-indigo-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-indigo-700">Ir a mi ticket</Link>
+        </>
+      ) : isTentative(player) ? (
+        <>
+          <p className="text-center text-sm text-amber-300">Estás anotado como indeciso: mandá el comprobante desde tu ticket para poder sumarte a una mesa.</p>
           <Link href={ticketHref} className="block text-center bg-indigo-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-indigo-700">Ir a mi ticket</Link>
         </>
       ) : isShareableTable(t, game) ? (

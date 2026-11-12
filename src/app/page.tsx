@@ -101,6 +101,7 @@ export default function LandingPage() {
           breaks: [],
           paymentRequired: false,
           paymentInfo: null,
+          flexibleRegistration: false,
           registrationBannerUrl: null,
         },
       });
