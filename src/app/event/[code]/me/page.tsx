@@ -901,7 +901,7 @@ export default function MyTicketPage() {
                       const today = g && t.status === 'confirmed' ? estimateAtCurrentSeats(t, g) : null;
                       return today && (
                         <p className="text-xs text-gray-500 mt-0.5">
-                          ⏳ Con {today.seats} jugadores duraría ~{today.minutes} min (hasta las {today.endTime}); la mesa reserva hasta las {t.endTime}
+                          ⏳ Con {today.seats} jugadores: ~{today.minutes} min (hasta las {today.endTime}) · la mesa reserva hasta las {t.endTime}
                         </p>
                       );
                     })()}

@@ -75,7 +75,7 @@ export default function WaitingTableInfo({ t, game, accent, who, badge, note, in
           </p>
           {today && (
             <p className='text-xs text-gray-500'>
-              ⏳ Con {today.seats} jugadores duraría ~{today.minutes} min (hasta las {today.endTime}); la mesa reserva hasta las {t.endTime}
+              ⏳ Con {today.seats} jugadores: ~{today.minutes} min (hasta las {today.endTime}) · la mesa reserva hasta las {t.endTime}
             </p>
           )}
           {who}

@@ -158,17 +158,17 @@ export function tablesOutsideAvailability(args: {
 }
 
 /**
- * How long the table would actually last with the people it has now (never fewer than the game's minimum), when that is
- * shorter than the time it reserves. Shown next to the reservation so people see both: what it takes today and what is held
- * for it. Null when the table already takes the whole reservation, e.g. it is full.
+ * How long the table would actually last with the people it has now (never fewer than the game's minimum). Shown next to
+ * the time the table reserves, so people see both: what it takes today and what is held for it. Null once every seat is
+ * taken: then the two are the same thing.
  */
 export function estimateAtCurrentSeats(
-  table: Pick<Table, 'startTime' | 'endTime' | 'playerIds'>, game: Game
+  table: Pick<Table, 'startTime' | 'playerIds'>, game: Game
 ): { seats: number; minutes: number; endTime: string } | null {
-  const seats = Math.min(game.maxPlayers, Math.max(minSeats(game), table.playerIds.length));
+  if (table.playerIds.length >= game.maxPlayers) return null;
+  const seats = Math.max(minSeats(game), table.playerIds.length);
   const minutes = estimatedDuration(game, seats);
-  const endTime = toTimeString(Math.min(toMinutes(table.startTime) + minutes, 24 * 60 - 1));
-  return toMinutes(endTime) < toMinutes(table.endTime) ? { seats, minutes, endTime } : null;
+  return { seats, minutes, endTime: toTimeString(Math.min(toMinutes(table.startTime) + minutes, 24 * 60 - 1)) };
 }
 
 /** The game's full min↔max duration span — shortest at minPlayers, longest at maxPlayers seated. */

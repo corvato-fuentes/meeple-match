@@ -394,9 +394,12 @@ describe('estimateAtCurrentSeats — what the table lasts today, next to what it
     expect(estimateAtCurrentSeats(t({ playerIds: ['a'] }), dune)?.seats).toBe(2);
     expect(estimateAtCurrentSeats(t({ playerIds: [] }), dune)?.seats).toBe(2);
   });
-  it('is null when the table already takes its whole reservation', () => {
+  it('is given whatever the table reserves, so the two times can always be read side by side', () => {
+    expect(estimateAtCurrentSeats(t({ endTime: '16:30' }), dune)).toEqual({ seats: 2, minutes: 105, endTime: '16:30' });
+    expect(estimateAtCurrentSeats(t({ endTime: '15:30' }), dune)?.endTime).toBe('16:30'); // even when the reservation is shorter
+  });
+  it('is null once every seat is taken: the two are the same thing', () => {
     expect(estimateAtCurrentSeats(t({ playerIds: ['a', 'b', 'c', 'd'] }), dune)).toBeNull();
-    expect(estimateAtCurrentSeats(t({ endTime: '16:30' }), dune)).toBeNull();
   });
 });
 
