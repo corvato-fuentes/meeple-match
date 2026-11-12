@@ -13,6 +13,7 @@ import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import { uploadRegistrationBanner } from '@/lib/paymentProof';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import AnnounceCard from '@/components/ui/AnnounceCard';
+import Time24Input from '@/components/ui/Time24Input';
 import { countGames } from '@/lib/gameCounts';
 import type { MeepleEvent, Player, Table, Game } from '@/lib/types';
 
@@ -532,15 +533,13 @@ export default function AdminPage() {
               </div>
               <div>
                 <label className='text-xs text-gray-400 block mb-1'>Desde</label>
-                <input type='time' value={b.start}
-                  className='border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
-                  onChange={(e) => handleDraftChange('breaks', settingsDraft.breaks.map((x, xi) => xi === i ? { ...x, start: e.target.value } : x))} />
+                <Time24Input label='Pausa desde' value={b.start}
+                  onChange={(v) => handleDraftChange('breaks', settingsDraft.breaks.map((x, xi) => xi === i ? { ...x, start: v } : x))} />
               </div>
               <div>
                 <label className='text-xs text-gray-400 block mb-1'>Hasta</label>
-                <input type='time' value={b.end}
-                  className='border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
-                  onChange={(e) => handleDraftChange('breaks', settingsDraft.breaks.map((x, xi) => xi === i ? { ...x, end: e.target.value } : x))} />
+                <Time24Input label='Pausa hasta' value={b.end}
+                  onChange={(v) => handleDraftChange('breaks', settingsDraft.breaks.map((x, xi) => xi === i ? { ...x, end: v } : x))} />
               </div>
               <button onClick={() => handleDraftChange('breaks', settingsDraft.breaks.filter((_, xi) => xi !== i))}
                 className='text-red-400 hover:text-red-300 text-xs border border-gray-700 rounded-lg px-2 py-1.5'>

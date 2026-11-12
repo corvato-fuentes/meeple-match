@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateTable, setTableEnd, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
+import Time24Input from '@/components/ui/Time24Input';
 import { sameGameOverlaps, expectedTableEnd } from '@/lib/tableAlgorithm';
 import type { MeepleEvent, Table, Player, Game } from '@/lib/types';
 
@@ -189,13 +190,11 @@ export default function TablesPage() {
                           })()}
                           {isEditing && draft ? (
                             <div className='flex gap-2 mt-1'>
-                              <input type='time' value={draft.startTime}
-                                onChange={(e) => setDraft((d) => d ? { ...d, startTime: e.target.value } : d)}
-                                className='border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm' />
+                              <Time24Input label='Hora de inicio' value={draft.startTime}
+                                onChange={(v) => setDraft((d) => d ? { ...d, startTime: v } : d)} />
                               <span className='self-center text-gray-500'>–</span>
-                              <input type='time' value={draft.endTime}
-                                onChange={(e) => setDraft((d) => d ? { ...d, endTime: e.target.value } : d)}
-                                className='border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm' />
+                              <Time24Input label='Hora de fin' value={draft.endTime}
+                                onChange={(v) => setDraft((d) => d ? { ...d, endTime: v } : d)} />
                             </div>
                           ) : (
                             <p className='text-sm text-gray-400'>{t.startTime}–{t.endTime} · Lote {t.batchNumber}</p>
