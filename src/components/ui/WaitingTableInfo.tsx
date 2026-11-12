@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import GameCover from '@/components/ui/GameCover';
-import { estimatedDurationRange } from '@/lib/tableAlgorithm';
+import { estimatedDurationRange, estimateAtCurrentSeats } from '@/lib/tableAlgorithm';
 import { minSeats } from '@/lib/seats';
 import type { Game, GameComplexity, Table } from '@/lib/types';
 
@@ -42,6 +42,8 @@ export default function WaitingTableInfo({ t, game, accent, who, badge, note, in
   const [shortest, longest] = game ? estimatedDurationRange(game) : [null, null];
   const min = game ? minSeats(game) : 0;
   const seatsLeft = game ? Math.max(0, game.maxPlayers - t.playerIds.length) : null;
+  // The table reserves the time for every seat taken; with fewer people it would end earlier, and both are shown
+  const today = game ? estimateAtCurrentSeats(t, game) : null;
   const missing = game ? Math.max(0, min - t.playerIds.length) : null;
   // One clear line for the seats. Until the table reaches its minimum it says how many are missing and how many fit;
   // after that it says the table is set and how many places are left.
@@ -71,6 +73,11 @@ export default function WaitingTableInfo({ t, game, accent, who, badge, note, in
               <> · ⏱ ~{shortest === longest ? shortest : `${shortest}–${longest}`} min · {COMPLEXITY_LABEL[game.complexity]}</>
             )}
           </p>
+          {today && (
+            <p className='text-xs text-gray-500'>
+              ⏳ Con {today.seats} jugadores duraría ~{today.minutes} min (hasta las {today.endTime}); la mesa reserva hasta las {t.endTime}
+            </p>
+          )}
           {who}
           <span className='block pt-1.5 space-y-1'>
         {interested != null && (

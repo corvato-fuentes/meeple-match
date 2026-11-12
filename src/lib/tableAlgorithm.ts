@@ -128,24 +128,47 @@ export function estimatedDuration(game: Game, playerCount: number): number {
 }
 
 /**
- * When a table should end given who it is for now. A CONFIRMED table (it is in the schedule) lasts what the game takes
- * for the people actually seated. One still waiting for players keeps room for the ones it is for: an owner-posted one
- * the game's full duration (the owner picked its start), one the algorithm built everyone it is for — who is seated plus
- * who is still offered it. Never fewer people than the game's minimum nor more than its maximum. The time is capped at
- * the end of the day.
+ * When a table should end: it reserves the time the game takes with every seat taken (explanation included), from the moment
+ * it exists. The reservation does not move when people join or leave, so what the schedule shows is what is held: nobody
+ * who books another table after this one can end up overlapped by it growing. The time is capped at the end of the day.
  */
-export function expectedTableEnd(table: Pick<Table, 'startTime' | 'status' | 'playerIds' | 'candidateIds' | 'rejectedIds' | 'postedByOwner'>, game: Game): string {
-  const start = toMinutes(table.startTime);
-  let minutes: number;
-  if (table.status === 'confirmed') {
-    minutes = estimatedDuration(game, Math.min(game.maxPlayers, Math.max(minSeats(game), table.playerIds.length)));
-  } else if (table.postedByOwner) {
-    minutes = roundUp5(game.durationMinutes);
-  } else {
-    const waiting = (table.candidateIds ?? []).filter((id) => !table.playerIds.includes(id) && !(table.rejectedIds ?? []).includes(id)).length;
-    minutes = estimatedDuration(game, Math.min(game.maxPlayers, Math.max(minSeats(game), table.playerIds.length + waiting)));
-  }
-  return toTimeString(Math.min(start + minutes, 24 * 60 - 1));
+export function expectedTableEnd(table: Pick<Table, 'startTime'>, game: Game): string {
+  return toTimeString(Math.min(toMinutes(table.startTime) + estimatedDuration(game, game.maxPlayers), 24 * 60 - 1));
+}
+
+/**
+ * The tables that haven't started where the player is seated but would no longer be able to be with the arrival and
+ * departure they are about to save: one starts before they arrive (plus the buffer a person needs after arriving) or ends
+ * after they leave. Waiting-for-players and confirmed tables only; the ones already underway are not asked about.
+ */
+export function tablesOutsideAvailability(args: {
+  tables: Table[];
+  playerId: string;
+  arrivalTime: string;
+  departureTime: string;
+  bufferMinutes: number;
+}): Table[] {
+  const { tables, playerId, arrivalTime, departureTime, bufferMinutes } = args;
+  const from = toMinutes(arrivalTime) + bufferMinutes;
+  const to = toMinutes(departureTime);
+  return tables
+    .filter((t) => (t.status === 'recommended' || t.status === 'confirmed') && t.playerIds.includes(playerId) &&
+      (toMinutes(t.startTime) < from || toMinutes(t.endTime) > to))
+    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+}
+
+/**
+ * How long the table would actually last with the people it has now (never fewer than the game's minimum), when that is
+ * shorter than the time it reserves. Shown next to the reservation so people see both: what it takes today and what is held
+ * for it. Null when the table already takes the whole reservation, e.g. it is full.
+ */
+export function estimateAtCurrentSeats(
+  table: Pick<Table, 'startTime' | 'endTime' | 'playerIds'>, game: Game
+): { seats: number; minutes: number; endTime: string } | null {
+  const seats = Math.min(game.maxPlayers, Math.max(minSeats(game), table.playerIds.length));
+  const minutes = estimatedDuration(game, seats);
+  const endTime = toTimeString(Math.min(toMinutes(table.startTime) + minutes, 24 * 60 - 1));
+  return toMinutes(endTime) < toMinutes(table.endTime) ? { seats, minutes, endTime } : null;
 }
 
 /** The game's full min↔max duration span — shortest at minPlayers, longest at maxPlayers seated. */
@@ -235,9 +258,9 @@ function findEarliestWindow(
   gameCopies: number,
   ownerWindows: { start: string; end: string; ownerId: string; lendable: boolean }[]
 ): { start: string; end: string } | null {
-  // Recomputed from the size of THIS tentative group — every time the incremental group-builder
-  // (buildGreedy) tries adding one more candidate, the required playing time grows accordingly.
-  const durationMinutes = estimatedDuration(game, players.length);
+  // A table reserves the time for every seat taken, however many people it starts with: people join later and the time
+  // can't grow after others have planned around it (see expectedTableEnd).
+  const durationMinutes = estimatedDuration(game, game.maxPlayers);
   const candidates = new Set<number>();
   players.forEach((p) => {
     // Buffer applies after arrival too — nobody sits down and starts playing the instant they walk in

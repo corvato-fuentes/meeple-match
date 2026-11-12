@@ -11,7 +11,7 @@ import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor } from '@/lib/offers';
 import { countGames } from '@/lib/gameCounts';
 import { useOpenGameRequests } from '@/hooks/useOpenGameRequests';
-import { postedSlotConflict, replaceableByPostedTable } from '@/lib/tableAlgorithm';
+import { postedSlotConflict, replaceableByPostedTable, tablesOutsideAvailability, estimateAtCurrentSeats } from '@/lib/tableAlgorithm';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
@@ -36,6 +36,16 @@ import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/Knowl
 import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
+
+/** What the player is told before new arrival / departure hours take them out of tables they are seated at. */
+function timesMessage(tables: Table[], myId: string): string {
+  const list = tables.map((t) => `${t.gameName} (${t.startTime}–${t.endTime}${t.status === 'confirmed' ? ', confirmada' : ''})`).join(', ');
+  const owns = tables.filter((t) => t.postedByOwner && t.explainerId === myId).map((t) => t.gameName);
+  const explains = tables.filter((t) => !t.postedByOwner && t.explainerId === myId).map((t) => t.gameName);
+  return `No podrías jugar: ${list}. Si guardás, te bajás de ${tables.length === 1 ? 'esa mesa' : 'esas mesas'}.` +
+    (owns.length > 0 ? ` ${owns.length === 1 ? 'La mesa que postulaste se cancela' : 'Las mesas que postulaste se cancelan'} (${owns.join(', ')}).` : '') +
+    (explains.length > 0 ? ` Sos quien explica ${explains.join(', ')}: pasa a otra persona de la mesa, y si no hay quien lo explique se cancela.` : '');
+}
 
 /** What the poster is told before their table replaces suggested ones: which tables, and how many people it moves. */
 function replaceMessage(gameName: string, tables: Table[]): string {
@@ -97,6 +107,8 @@ export default function MyTicketPage() {
   const [draftArrival, setDraftArrival] = useState('');
   const [draftDeparture, setDraftDeparture] = useState('');
   const [savingTimes, setSavingTimes] = useState(false);
+  // Tables the new arrival / departure would leave the player out of, waiting for their OK
+  const [pendingTimes, setPendingTimes] = useState<Table[] | null>(null);
   const [leavingTable, setLeavingTable] = useState<Table | null>(null);
   const [leavingTableId, setLeavingTableId] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -333,11 +345,22 @@ export default function MyTicketPage() {
     }
   }
 
-  async function saveTimes() {
+  async function saveTimes(leaveAffected = false) {
     if (!player || savingTimes) return;
+    // Tables they are seated at that the new hours would leave out: asked about first, never dropped silently
+    const affected = event ? tablesOutsideAvailability({
+      tables: allTables, playerId: player.id, arrivalTime: draftArrival, departureTime: draftDeparture, bufferMinutes: event.settings.bufferMinutes,
+    }) : [];
+    if (affected.length > 0 && !leaveAffected) { setPendingTimes(affected); return; }
+    setPendingTimes(null);
     setSavingTimes(true);
     try {
       await updatePlayerTimes(code, player.id, draftArrival, draftDeparture);
+      // Stepping down goes through the usual path, which hands over the explaining, drops a table under its minimum back to
+      // waiting, or cancels one that has nobody left to run it
+      for (const t of affected) {
+        await leaveTable(code, t, player.id, games.find((g) => g.id === t.gameId)?.minPlayers ?? 1);
+      }
       setPlayer((p) => p ? { ...p, arrivalTime: draftArrival, departureTime: draftDeparture } : p);
       setEditingTimes(false);
       // Fire-and-forget: availability changed, so tables may need to be reshuffled.
@@ -671,6 +694,14 @@ export default function MyTicketPage() {
 
       <LeaveTableConfirm table={leavingTable} myId={player.id} onConfirm={handleLeaveTable} onCancel={() => setLeavingTable(null)} />
       <ConfirmModal
+        open={!!pendingTimes}
+        title="Con estos horarios no llegás a algunas mesas"
+        message={pendingTimes ? timesMessage(pendingTimes, player.id) : ''}
+        confirmLabel="Guardar y bajarme"
+        danger
+        onConfirm={() => saveTimes(true)}
+        onCancel={() => setPendingTimes(null)} />
+      <ConfirmModal
         open={!!pendingReplace}
         title="Ya hay una mesa recomendada a esa hora"
         message={pendingReplace ? replaceMessage(pendingReplace.game.name, pendingReplace.tables) : ''}
@@ -760,7 +791,7 @@ export default function MyTicketPage() {
                 className="flex-1 border border-gray-700 rounded-lg py-1.5 text-sm font-medium">
                 Cancelar
               </button>
-              <button onClick={saveTimes} disabled={savingTimes}
+              <button onClick={() => saveTimes()} disabled={savingTimes}
                 className="flex-1 bg-indigo-600 rounded-lg py-1.5 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
                 {savingTimes ? 'Guardando...' : 'Guardar'}
               </button>
@@ -865,6 +896,15 @@ export default function MyTicketPage() {
                       </span>
                     </div>
                     <p className="text-sm text-gray-400 mt-1">Mesa #{slotByTableId.get(t.id) ?? t.tableNumber} · {t.startTime}–{t.endTime}</p>
+                    {(() => {
+                      const g = games.find((x) => x.id === t.gameId);
+                      const today = g && t.status === 'confirmed' ? estimateAtCurrentSeats(t, g) : null;
+                      return today && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          ⏳ Con {today.seats} jugadores duraría ~{today.minutes} min (hasta las {today.endTime}); la mesa reserva hasta las {t.endTime}
+                        </p>
+                      );
+                    })()}
                     {/* Who is on the table: the players, with the one explaining marked */}
                     <p className="text-xs text-gray-400 mt-1.5">
                       👥 {[...new Set([...t.playerIds, t.explainerId])].map((id) => {

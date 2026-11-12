@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
-  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable, expectedTableEnd,
+  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable, expectedTableEnd, tablesOutsideAvailability, estimateAtCurrentSeats,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
 
@@ -361,32 +361,69 @@ describe('interestedInTable — who is interested in a table, offered or not yet
 });
 
 // ── expectedTableEnd ────────────────────────────────────────────────────────
-describe('expectedTableEnd — when a table should end for the people it is for', () => {
+describe('expectedTableEnd — the time a table reserves', () => {
   // setup 15 + explanation 30 + 30 per player: 2 players 105 min, 4 players 165 min
   const dune = game('g1', { minPlayers: 2, maxPlayers: 4, setupMinutes: 15, explanationMinutes: 30, perPlayerMinutes: 30, durationMinutes: 165 });
-  const t = (o: Partial<Table> = {}) => table('t', { startTime: '14:45', playerIds: ['a', 'b', 'c', 'd'], ...o });
 
-  it('sizes a table the algorithm built for who is seated plus who is still offered it', () => {
-    expect(expectedTableEnd(t(), dune)).toBe('17:30');
-    expect(expectedTableEnd(t({ playerIds: ['a', 'b'] }), dune)).toBe('16:30');
-    expect(expectedTableEnd(t({ playerIds: ['a', 'b'], candidateIds: ['c'], rejectedIds: [] }), dune)).toBe('17:00');
+  it('reserves what the game takes with every seat taken, whoever is in the table now', () => {
+    expect(expectedTableEnd({ startTime: '14:45' }, dune)).toBe('17:30');
+    expect(expectedTableEnd({ startTime: '10:00' }, dune)).toBe('12:45');
   });
-  it('never goes under the minimum seats of the game nor over its maximum, and ignores whoever declined', () => {
-    expect(expectedTableEnd(t({ playerIds: [] }), dune)).toBe('16:30');
-    expect(expectedTableEnd(t({ playerIds: ['a', 'b', 'c'], candidateIds: ['d', 'e', 'f'] }), dune)).toBe('17:30');
-    expect(expectedTableEnd(t({ playerIds: ['a', 'b'], candidateIds: ['c'], rejectedIds: ['c'] }), dune)).toBe('16:30');
+  it('follows the numbers of the game, not of the table: a game with five seats reserves the time of five players', () => {
+    expect(expectedTableEnd({ startTime: '14:00' }, { ...dune, maxPlayers: 5 })).toBe('17:15');
   });
-  it('a table an owner posted keeps the whole duration of the game', () => {
-    expect(expectedTableEnd(t({ postedByOwner: true, playerIds: ['a'] }), dune)).toBe('17:30');
+  it('a game with only a flat duration reserves that', () => {
+    expect(expectedTableEnd({ startTime: '10:00' }, game('g2', { durationMinutes: 62, setupMinutes: undefined, explanationMinutes: undefined, perPlayerMinutes: undefined }))).toBe('11:05');
   });
   it('is capped at the end of the day', () => {
-    expect(expectedTableEnd(t({ startTime: '23:00' }), dune)).toBe('23:59');
+    expect(expectedTableEnd({ startTime: '23:00' }, dune)).toBe('23:59');
   });
-  it('a confirmed table lasts what the game takes for who is seated, not for who is only offered it', () => {
-    const confirmed = (o: Partial<Table> = {}) => t({ status: 'confirmed', ...o });
-    expect(expectedTableEnd(confirmed({ playerIds: ['a', 'b'], candidateIds: ['c', 'd'] }), dune)).toBe('16:30');
-    expect(expectedTableEnd(confirmed({ playerIds: ['a', 'b', 'c'] }), dune)).toBe('17:00');
-    expect(expectedTableEnd(confirmed({ postedByOwner: true, playerIds: ['a', 'b'] }), dune)).toBe('16:30');
+});
+
+// ── estimateAtCurrentSeats ──────────────────────────────────────────────────
+describe('estimateAtCurrentSeats — what the table lasts today, next to what it reserves', () => {
+  // setup 15 + explanation 30 + 30 per player: 2 players 105 min, 3 players 135, 4 players 165
+  const dune = game('g1', { minPlayers: 2, maxPlayers: 4, setupMinutes: 15, explanationMinutes: 30, perPlayerMinutes: 30, durationMinutes: 165 });
+  const t = (o: Partial<Table> = {}) => ({ startTime: '14:45', endTime: '17:30', playerIds: ['a', 'b'], ...o });
+
+  it('gives the time it takes with the people it has now', () => {
+    expect(estimateAtCurrentSeats(t(), dune)).toEqual({ seats: 2, minutes: 105, endTime: '16:30' });
+    expect(estimateAtCurrentSeats(t({ playerIds: ['a', 'b', 'c'] }), dune)).toEqual({ seats: 3, minutes: 135, endTime: '17:00' });
+  });
+  it('counts at least the minimum of the game, even with fewer people', () => {
+    expect(estimateAtCurrentSeats(t({ playerIds: ['a'] }), dune)?.seats).toBe(2);
+    expect(estimateAtCurrentSeats(t({ playerIds: [] }), dune)?.seats).toBe(2);
+  });
+  it('is null when the table already takes its whole reservation', () => {
+    expect(estimateAtCurrentSeats(t({ playerIds: ['a', 'b', 'c', 'd'] }), dune)).toBeNull();
+    expect(estimateAtCurrentSeats(t({ endTime: '16:30' }), dune)).toBeNull();
+  });
+});
+
+// ── tablesOutsideAvailability ───────────────────────────────────────────────
+describe('tablesOutsideAvailability — tables a change of arrival or departure would leave out', () => {
+  const mine = (id: string, start: string, end: string, o: Partial<Table> = {}) =>
+    table(id, { playerIds: ['me', 'x'], status: 'confirmed', startTime: start, endTime: end, ...o });
+  const check = (arrivalTime: string, departureTime: string, tables: Table[]) =>
+    tablesOutsideAvailability({ tables, playerId: 'me', arrivalTime, departureTime, bufferMinutes: 15 }).map((t) => t.id);
+
+  it('lists a table that ends after they leave and one that starts before they arrive (buffer after arriving counted)', () => {
+    const tables = [mine('late', '16:00', '18:00'), mine('early', '10:00', '12:00'), mine('fine', '13:00', '15:00')];
+    expect(check('10:30', '17:00', tables)).toEqual(['early', 'late']);
+    expect(check('09:00', '20:00', tables)).toEqual([]);
+  });
+  it('arriving exactly buffer minutes before the start is enough', () => {
+    expect(check('09:45', '20:00', [mine('t', '10:00', '12:00')])).toEqual([]);
+    expect(check('09:50', '20:00', [mine('t', '10:00', '12:00')])).toEqual(['t']);
+  });
+  it('only tables they are seated at that have not started; others are not their business', () => {
+    expect(check('13:00', '14:00', [
+      mine('other', '10:00', '12:00', { playerIds: ['x', 'y'] }),
+      mine('underway', '10:00', '12:00', { status: 'in-progress' }),
+      mine('done', '10:00', '12:00', { status: 'completed' }),
+      mine('cancelled', '10:00', '12:00', { status: 'cancelled' }),
+      mine('waiting', '10:00', '12:00', { status: 'recommended' }),
+    ])).toEqual(['waiting']);
   });
 });
 

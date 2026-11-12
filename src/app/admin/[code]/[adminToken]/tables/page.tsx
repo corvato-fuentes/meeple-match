@@ -168,13 +168,13 @@ export default function TablesPage() {
                           )}
                           <p className='font-medium'>{t.gameName}</p>
                           {!isEditing && (t.status === 'recommended' || t.status === 'confirmed') && (() => {
-                            // The window should last as long as the game takes for the people it is for (see expectedTableEnd)
+                            // A table reserves the time the game takes with every seat taken (see expectedTableEnd)
                             const game = gameMap.get(t.gameId);
                             const end = game ? expectedTableEnd(t, game) : t.endTime;
                             if (end === t.endTime) return null;
                             return (
                               <p className='text-xs text-amber-300 flex flex-wrap items-center gap-x-2'>
-                                <span>⏱️ Según los tiempos del juego dura hasta las {end}, y el horario dice {t.endTime}.</span>
+                                <span>⏱️ Con los tiempos del juego, la mesa reserva hasta las {end}; su horario dice {t.endTime}.</span>
                                 <button onClick={() => setTableEnd(code, t.id, end)}
                                   className='border border-amber-700 rounded px-1.5 py-0.5 hover:bg-amber-950/40'>Ajustar a {end}</button>
                               </p>
