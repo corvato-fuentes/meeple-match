@@ -506,6 +506,9 @@ export default function MyTicketPage() {
     if (!game || t.playerIds.length >= game.maxPlayers) return false;
     return isPlayerFreeFor(t.startTime, t.endTime);
   }).length;
+  // Games nobody has asked this player about yet: votes are what the tables are built from, so they are worth a nudge.
+  // A merged game is voted once (on its primary entry).
+  const unvotedGamesCount = games.filter((g) => (!g.groupId || g.groupId === g.id) && interests[g.id] == null).length;
   const countBadge = (n: number, cls: string, meaning: string) => n > 0 && (
     <span className={'min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center ' + cls}
       title={meaning} aria-label={`${n} ${meaning}`}>
@@ -876,7 +879,7 @@ export default function MyTicketPage() {
           </div>
           {/* What is waiting for you, right under the title where you look first (the counters on the two buttons below
               are easy to miss): only shown when there is something to do, and each line goes to that screen. */}
-          {(pendingRecommendedCount > 0 || joinablePostedCount > 0) && (
+          {(pendingRecommendedCount > 0 || joinablePostedCount > 0 || unvotedGamesCount > 0) && (
             <div className="space-y-2 mb-3">
               {pendingRecommendedCount > 0 && (
                 <Link href={`/event/${code}/recommended?ticket=${player.ticketCode}`}
@@ -891,6 +894,13 @@ export default function MyTicketPage() {
                   <span>
                     📣 Hay <strong>{joinablePostedCount}</strong> {joinablePostedCount === 1 ? 'mesa postulada abierta' : 'mesas postuladas abiertas'} para vos
                   </span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
+              {unvotedGamesCount > 0 && (
+                <Link href={`/event/${code}/games?ticket=${player.ticketCode}`}
+                  className="flex items-center justify-between gap-3 border border-indigo-700 bg-indigo-950/30 text-indigo-200 rounded-xl px-3 py-2.5 text-sm hover:bg-indigo-950/50">
+                  <span>🗳️ Tenés <strong>{unvotedGamesCount}</strong> {unvotedGamesCount === 1 ? 'juego' : 'juegos'} por votar</span>
                   <span aria-hidden="true">→</span>
                 </Link>
               )}
