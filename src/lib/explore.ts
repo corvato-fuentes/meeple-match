@@ -4,8 +4,8 @@ import type { Game, Table } from './types';
 
 export interface ExploreEntry {
   table: Table;
-  /** The table of the player's own that this one clashes with (buffer included). */
-  clash: Table;
+  /** The tables of the player's own that this one clashes with (buffer included), earliest first — more than one for a long table. */
+  clashes: Table[];
 }
 
 /**
@@ -40,9 +40,10 @@ export function tablesToExplore(args: {
     if (!game || t.playerIds.length >= game.maxPlayers) continue;
     if (mine.some((m) => m.gameId === t.gameId) && !repeatGameIds.includes(t.gameId)) continue;
     if (toMinutes(t.startTime) < from || toMinutes(t.endTime) > to) continue;
-    const clash = mine.find((m) =>
-      overlaps(toTimeString(toMinutes(m.startTime) - bufferMinutes), toTimeString(toMinutes(m.endTime) + bufferMinutes), t.startTime, t.endTime));
-    if (clash) out.push({ table: t, clash });
+    const clashes = mine
+      .filter((m) => overlaps(toTimeString(toMinutes(m.startTime) - bufferMinutes), toTimeString(toMinutes(m.endTime) + bufferMinutes), t.startTime, t.endTime))
+      .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+    if (clashes.length > 0) out.push({ table: t, clashes });
   }
   return out.sort((a, b) => toMinutes(a.table.startTime) - toMinutes(b.table.startTime));
 }

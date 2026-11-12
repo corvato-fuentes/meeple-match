@@ -18,7 +18,12 @@ describe('tablesToExplore — tables the player wants but their agenda has no ro
     const out = tablesToExplore({ playerId: 'me', arrivalTime: '10:00', departureTime: '20:00', interests: { g1: 'yes' }, repeatGameIds: [], tables: [mine, clashing], games, bufferMinutes: 10 });
     expect(out).toHaveLength(1);
     expect(out[0].table.id).toBe('c');
-    expect(out[0].clash.id).toBe('mine');
+    expect(out[0].clashes.map((c) => c.id)).toEqual(['mine']);
+  });
+  it('a long table can clash with several of theirs, and says with all of them', () => {
+    const other = table('other', { gameId: 'g9', status: 'recommended', playerIds: ['me', 'w'], startTime: '16:30', endTime: '17:30' });
+    const out = tablesToExplore({ playerId: 'me', arrivalTime: '10:00', departureTime: '20:00', interests: { g1: 'yes' }, repeatGameIds: [], tables: [other, mine, table('long', { startTime: '15:00', endTime: '18:00' })], games, bufferMinutes: 10 });
+    expect(out[0].clashes.map((c) => c.id)).toEqual(['mine', 'other']);
   });
   it('the buffer between tables counts: a table starting 5 minutes after theirs ends is a clash', () => {
     expect(run([mine, table('tight', { startTime: '16:05', endTime: '17:00' })])).toEqual(['tight']);

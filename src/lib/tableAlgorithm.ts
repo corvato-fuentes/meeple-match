@@ -74,12 +74,27 @@ export function findConflictingTable(
   tables: Table[],
   excludeTableId?: string
 ): Table | null {
-  return tables.find((t) =>
-    t.id !== excludeTableId &&
-    t.status !== 'cancelled' &&
-    t.playerIds.includes(playerId) &&
-    overlaps(t.startTime, t.endTime, start, end)
-  ) ?? null;
+  return findConflictingTables(playerId, start, end, tables, excludeTableId)[0] ?? null;
+}
+
+/**
+ * All of the player's tables whose window overlaps the given one, earliest first: a long table can overlap several short ones,
+ * and taking it means leaving every one of them.
+ */
+export function findConflictingTables(
+  playerId: string,
+  start: string,
+  end: string,
+  tables: Table[],
+  excludeTableId?: string
+): Table[] {
+  return tables
+    .filter((t) =>
+      t.id !== excludeTableId &&
+      t.status !== 'cancelled' &&
+      t.playerIds.includes(playerId) &&
+      overlaps(t.startTime, t.endTime, start, end))
+    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
+  computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, findConflictingTables, generateTables, overlaps,
   reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable, expectedTableEnd, tablesOutsideAvailability, estimateAtCurrentSeats, interestAtSlot, suggestPostedStarts, suggestMovesForPostedTable,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
@@ -35,6 +35,19 @@ const generate = (players: Player[], games: Game[], existing: Table[] = [], { bu
   generateTables(players, games, existing, buffer, physical, 1, breaks);
 
 // ── small helpers ───────────────────────────────────────────────────────────
+describe('findConflictingTables — a table can overlap several tables of the player', () => {
+  const mine = (id: string, start: string, end: string, o: Partial<Table> = {}) => table(id, { playerIds: ['p1', 'x'], startTime: start, endTime: end, ...o });
+  it('gives every table of theirs it overlaps, earliest first, and leaves out the ones that do not', () => {
+    const tables = [mine('b', '12:00', '13:00'), mine('a', '10:30', '11:30'), mine('far', '15:00', '16:00'), table('theirs', { playerIds: ['p2'], startTime: '10:30', endTime: '13:00' })];
+    expect(findConflictingTables('p1', '11:00', '12:30', tables).map((t) => t.id)).toEqual(['a', 'b']);
+  });
+  it('ignores cancelled tables and the one being taken', () => {
+    const tables = [mine('a', '10:30', '11:30', { status: 'cancelled' }), mine('self', '11:00', '12:00'), mine('b', '11:30', '12:30')];
+    expect(findConflictingTables('p1', '11:00', '12:30', tables, 'self').map((t) => t.id)).toEqual(['b']);
+    expect(findConflictingTables('p1', '18:00', '19:00', tables)).toEqual([]);
+  });
+});
+
 describe('overlaps / findConflictingTable', () => {
   it('overlaps is true only for real overlap — touching windows do not overlap', () => {
     expect(overlaps('10:00', '11:00', '10:30', '11:30')).toBe(true);

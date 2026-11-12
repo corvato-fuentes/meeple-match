@@ -91,8 +91,8 @@ export default function ExploreTablesPage() {
         <h1 className="text-xl font-bold">🔎 Explorar mesas</h1>
       </div>
       <p className="text-xs text-gray-500">
-        Mesas de juegos que votaste que se pisan con tu agenda, por eso no te las ofrecimos. Si alguna te gusta más que la mesa con la que se
-        pisa, podés cambiarte. Nadie te cambia de mesa por su cuenta.
+        Mesas de juegos que votaste que se pisan con tu agenda, por eso no te las ofrecimos. Antes de cambiarte tené en cuenta que dejás tu
+        lugar en la otra mesa: los demás cuentan con vos, y si se queda sin jugadores, o si sos el único que la explica, puede desarmarse.
       </p>
       {tentative && (
         <p className="text-sm text-amber-300 border border-amber-800 bg-amber-950/30 rounded-xl px-3 py-2">
@@ -106,17 +106,17 @@ export default function ExploreTablesPage() {
         </p>
       ) : (
         <div className="space-y-2">
-          {entries.map(({ table: t, clash }) => (
+          {entries.map(({ table: t, clashes }) => (
             <div key={t.id} className="border border-indigo-800 bg-indigo-950/20 rounded-xl p-3">
               <WaitingTableInfo t={t} game={gameMap.get(t.gameId)} accent="indigo" interested={null} seatWord={t.status === 'confirmed' ? 'jugadores' : 'anotados'}
                 onView={() => {}}
                 who={t.postedByOwner
                   ? <PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} />
                   : <RecommendedWho t={t} game={gameMap.get(t.gameId)} nameOf={nameOf} />}
-                note={<>⚠️ Se pisa con {clash.gameName} ({clash.startTime}–{clash.endTime}{clash.status === 'confirmed' ? ', confirmada' : ''})</>} />
+                note={<>⚠️ Se pisa con {clashes.map((c) => `${c.gameName} (${c.startTime}–${c.endTime}${c.status === 'confirmed' ? ', confirmada' : ''})`).join(' y ')}</>} />
               <div className="mt-3">
                 <ActionButton tone="indigo" onClick={() => swapIn(t)} disabled={joiningId === t.id || tentative}>
-                  {joiningId === t.id ? 'Cambiando...' : '🔁 Cambiar por esta mesa'}
+                  {joiningId === t.id ? 'Cambiando...' : clashes.length > 1 ? `🔁 Cambiar las ${clashes.length} por esta mesa` : '🔁 Cambiar por esta mesa'}
                 </ActionButton>
               </div>
             </div>
