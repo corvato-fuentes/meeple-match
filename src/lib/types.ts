@@ -23,6 +23,7 @@ export interface EventSettings {
   breaks: ScheduledBreak[];
   paymentRequired: boolean;
   paymentInfo: string | null; // account/transfer info shown to players when paymentRequired is true
+  paymentAlias?: string | null; // the alias to transfer to, on its own so it can be shown big and copied; paymentInfo has the rest
   // With payment required, lets people register WITHOUT the receipt as "indecisos": they can vote and add games but get no
   // tables and don't count towards maxPlayers until they send the receipt (or an organizer confirms them). Off when missing.
   flexibleRegistration?: boolean;

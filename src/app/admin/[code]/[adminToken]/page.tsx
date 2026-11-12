@@ -529,12 +529,18 @@ export default function AdminPage() {
 
         {settingsDraft.paymentRequired && (
           <div className='border-t border-gray-800 pt-3'>
-            <label className='text-xs text-gray-400 block mb-1'>Datos para la transferencia</label>
-            <textarea rows={3} placeholder='Alias / CBU / titular, para que el jugador transfiera antes de subir el comprobante'
+            <label className='text-xs text-gray-400 block mb-1'>Alias para transferir</label>
+            <input type='text' placeholder='ej: meeple.loop.mp' autoCapitalize='none' autoCorrect='off' spellCheck={false}
+              className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm font-mono'
+              value={settingsDraft.paymentAlias ?? ''}
+              onChange={(e) => handleDraftChange('paymentAlias', e.target.value.trim() || null)} />
+            <p className='text-xs text-gray-500 mt-1'>El jugador lo ve destacado, con un botón para copiarlo.</p>
+            <label className='text-xs text-gray-400 block mb-1 mt-3'>Otros datos o aviso <span className='text-gray-500'>(opcional)</span></label>
+            <textarea rows={3} placeholder='Opcional: CBU, titular, monto, o un aviso sobre el pago (ej: “la seña se devuelve si no llegás a avisar”)'
               className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm'
               value={settingsDraft.paymentInfo ?? ''}
               onChange={(e) => handleDraftChange('paymentInfo', e.target.value || null)} />
-            <p className='text-xs text-gray-500 mt-1'>Se muestra al jugador junto con el campo para subir la foto del comprobante.</p>
+            <p className='text-xs text-gray-500 mt-1'>No hace falta completarlo. Si escribís algo, se muestra al jugador debajo del alias, junto con el campo para subir el comprobante.</p>
             <button onClick={handleDeletePaymentProofs} disabled={deletingProofs}
               className='mt-2 text-xs border border-red-800 text-red-400 rounded-lg px-3 py-1.5 hover:bg-red-950 disabled:opacity-50'>
               {deletingProofs ? 'Borrando...' : '🗑️ Borrar todos los comprobantes de pago'}

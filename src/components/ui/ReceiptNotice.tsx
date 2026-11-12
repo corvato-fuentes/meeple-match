@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { sendReceipt } from '@/lib/receipt';
+import PaymentDetails from '@/components/ui/PaymentDetails';
 import type { ReceiptState } from '@/lib/registration';
 import type { MeepleEvent, Player } from '@/lib/types';
 
@@ -65,7 +66,7 @@ export default function ReceiptNotice({ code, player, event, state, onSent }: {
       </button>
       {open && (
         <div className="px-3 pb-3 pt-2 space-y-2 border-t border-amber-900/60">
-          {event.settings.paymentInfo && <p className="text-xs text-gray-300 whitespace-pre-wrap">{event.settings.paymentInfo}</p>}
+          <PaymentDetails alias={event.settings.paymentAlias} info={event.settings.paymentInfo} />
           <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             className="w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700" />
           <button onClick={send} disabled={!file || sending}

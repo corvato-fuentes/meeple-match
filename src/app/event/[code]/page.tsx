@@ -8,6 +8,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { countGames } from '@/lib/gameCounts';
+import PaymentDetails from '@/components/ui/PaymentDetails';
 import { confirmedPlayers, flexibleRegistrationOn } from '@/lib/registration';
 import { computeEventStatus, roundUp5 } from '@/lib/timeUtils';
 import { generateUniqueTicketCode } from '@/lib/ticketCode';
@@ -448,9 +449,7 @@ export default function EventPage() {
         {event?.settings.paymentRequired && (
           <div className="border border-indigo-800 bg-indigo-950/30 rounded-xl p-3 space-y-2">
             <p className="text-sm font-medium">💸 Comprobante de pago</p>
-            {event.settings.paymentInfo && (
-              <p className="text-xs text-gray-300 whitespace-pre-wrap">{event.settings.paymentInfo}</p>
-            )}
+            <PaymentDetails alias={event.settings.paymentAlias} info={event.settings.paymentInfo} />
             {flexible && !atMax && (
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setWantsTentative(false)}
