@@ -11,7 +11,7 @@ import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor } from '@/lib/offers';
 import { countGames } from '@/lib/gameCounts';
 import { useOpenGameRequests } from '@/hooks/useOpenGameRequests';
-import { postedSlotConflict, replaceableByPostedTable, tablesOutsideAvailability, estimateAtCurrentSeats } from '@/lib/tableAlgorithm';
+import { postedSlotConflict, replaceableByPostedTable, tablesOutsideAvailability, estimateAtCurrentSeats, suggestPostedStarts, interestAtSlot } from '@/lib/tableAlgorithm';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
@@ -26,7 +26,7 @@ import PlayerCountFields from '@/components/ui/PlayerCountFields';
 import LeaveTableConfirm from '@/components/ui/LeaveTableConfirm';
 import ShareTableButton from '@/components/ui/ShareTableButton';
 import ReceiptNotice from '@/components/ui/ReceiptNotice';
-import { isTentative, receiptStateOf, owesReceipt } from '@/lib/registration';
+import { isTentative, receiptStateOf, owesReceipt, confirmedPlayers } from '@/lib/registration';
 import { isShareableTable, pendingTableKey } from '@/lib/shareTable';
 import TicketQr from '@/components/ui/TicketQr';
 import PushOptIn from '@/components/ui/PushOptIn';
@@ -1064,8 +1064,45 @@ export default function MyTicketPage() {
                       ) : (
                         <>
                           <p className="text-xs text-gray-400">Elegí a qué hora arrancás a explicarlo — dura {roundUp5(g.durationMinutes)}min.</p>
-                          <TimeWheelPicker value={proposeStart} onChange={setProposeStart}
-                            minTime={player.arrivalTime} maxTime={player.departureTime} />
+                          {(() => {
+                            // Times that work for most of the people who voted this game (and the poster can really take)
+                            const primary = g.groupId ?? g.id;
+                            const pool = confirmedPlayers(players);
+                            const suggestions = suggestPostedStarts({
+                              game: { id: primary, durationMinutes: g.durationMinutes }, poster: player, players: pool, tables: allTables,
+                              bufferMinutes: event.settings.bufferMinutes, eventStart: event.startTime, eventEnd: event.endTime,
+                              gameCopies: games.filter((x) => (x.groupId ?? x.id) === primary).length || 1, physicalTables: event.settings.physicalTables,
+                            });
+                            const chosen = proposeStart ? interestAtSlot({
+                              gameId: primary, start: proposeStart, end: toTimeString(toMinutes(proposeStart) + roundUp5(g.durationMinutes)),
+                              posterId: player.id, players: pool, tables: allTables, bufferMinutes: event.settings.bufferMinutes,
+                            }) : null;
+                            return (
+                              <>
+                                {suggestions.length > 0 && (
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-indigo-300">💡 Horarios que les sirven a más interesados</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {suggestions.map((sg) => (
+                                        <button key={sg.start} type="button" onClick={() => setProposeStart(sg.start)}
+                                          className={'text-xs rounded-lg border px-2.5 py-1 ' + (proposeStart === sg.start ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-indigo-800 text-indigo-200 hover:bg-indigo-950/40')}>
+                                          🕐 {sg.start} · pueden {sg.available} de {sg.interested}
+                                          {sg.available * 2 > sg.interested && <span className="ml-1 text-green-300">· la mayoría</span>}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                <TimeWheelPicker value={proposeStart} onChange={setProposeStart}
+                                  minTime={player.arrivalTime} maxTime={player.departureTime} />
+                                {chosen && chosen.interested > 0 && (
+                                  <p className={'text-xs ' + (chosen.available * 2 > chosen.interested ? 'text-green-300' : 'text-amber-300')}>
+                                    Con este horario pueden {chosen.available} de {chosen.interested} interesados{chosen.available * 2 > chosen.interested ? ' (la mayoría)' : ''}
+                                  </p>
+                                )}
+                              </>
+                            );
+                          })()}
                           {proposeError && <p className="text-xs text-red-400">{proposeError}</p>}
                           <div className="flex gap-2">
                             <button onClick={() => setProposingGameId(null)}

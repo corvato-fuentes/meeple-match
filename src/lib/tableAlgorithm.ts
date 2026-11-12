@@ -137,6 +137,93 @@ export function expectedTableEnd(table: Pick<Table, 'startTime'>, game: Game): s
 }
 
 /**
+ * How many of the people who voted a game yes could take a table of it at [start, end): `interested` is everyone who voted
+ * it who still need a table (not the poster, and not someone who already has one of this game: they are not waiting), and
+ * `available` the ones it works for — they are there and free. Used to tell whoever posts a table how well a time fits.
+ */
+export function interestAtSlot(args: {
+  gameId: string; start: string; end: string; posterId: string; players: Player[]; tables: Table[]; bufferMinutes: number;
+}): { interested: number; available: number } {
+  const { gameId, start, end, posterId, players, tables, bufferMinutes } = args;
+  const hypothetical = {
+    id: '__new__', gameId, startTime: start, endTime: end, playerIds: [posterId], candidateIds: [], rejectedIds: [],
+    status: 'recommended', postedByOwner: true,
+  } as unknown as Table;
+  const rows = interestedInTable(hypothetical, players, tables, bufferMinutes);
+  const waiting = rows.filter((r) => !r.hasOtherTable);
+  return { interested: waiting.length, available: waiting.filter((r) => !r.busy).length };
+}
+
+export interface StartSuggestion { start: string; end: string; available: number; interested: number }
+
+/**
+ * Start times worth suggesting to whoever posts a table: the ones that work for the most people who voted the game. Only times
+ * the poster can really take (they're there and free, a copy of the game and a table of the venue are free then — see
+ * `postedSlotConflict`) on a 15-minute grid, best first and at least an hour apart so the list gives choices instead of
+ * neighbours. A time nobody interested can take is never suggested.
+ */
+export function suggestPostedStarts(args: {
+  game: Pick<Game, 'durationMinutes'> & { id: string };
+  poster: Player;
+  players: Player[];
+  tables: Table[];
+  bufferMinutes: number;
+  eventStart: string;
+  eventEnd: string;
+  gameCopies: number;
+  physicalTables: number | null;
+  limit?: number;
+}): StartSuggestion[] {
+  const { game, poster, players, tables, bufferMinutes, eventStart, eventEnd, gameCopies, physicalTables, limit = 3 } = args;
+  const minutes = roundUp5(game.durationMinutes);
+  const firstStart = Math.max(toMinutes(eventStart), toMinutes(poster.arrivalTime) + bufferMinutes);
+  const lastEnd = Math.min(toMinutes(eventEnd), toMinutes(poster.departureTime));
+  const posterBusy = getBusyWindows(poster.id, tables);
+  const all: StartSuggestion[] = [];
+  for (let start = roundUpToGrid(firstStart); start + minutes <= lastEnd; start += ROUND_MIN) {
+    const s = toTimeString(start);
+    const e = toTimeString(start + minutes);
+    if (!isAvailable(poster, s, e, posterBusy, bufferMinutes)) continue;
+    if (postedSlotConflict({ tables, gameId: game.id, start: s, end: e, bufferMinutes, gameCopies, physicalTables })) continue;
+    const { interested, available } = interestAtSlot({ gameId: game.id, start: s, end: e, posterId: poster.id, players, tables, bufferMinutes });
+    if (available > 0) all.push({ start: s, end: e, available, interested });
+  }
+  all.sort((a, b) => b.available - a.available || toMinutes(a.start) - toMinutes(b.start));
+  const picked: StartSuggestion[] = [];
+  for (const c of all) {
+    if (picked.every((p) => Math.abs(toMinutes(p.start) - toMinutes(c.start)) >= 60)) picked.push(c);
+    if (picked.length >= limit) break;
+  }
+  return picked;
+}
+
+/**
+ * For a table its owner already posted (still waiting for players): how well its current time works for the people who voted
+ * the game, and the times that would work for more of them — people vote after a table is posted too. Everything is looked
+ * at with the table itself taken out of the schedule, so its own seats don't count against it. The table keeps its length.
+ */
+export function suggestMovesForPostedTable(args: {
+  table: Table;
+  poster: Player;
+  players: Player[];
+  tables: Table[];
+  bufferMinutes: number;
+  eventStart: string;
+  eventEnd: string;
+  gameCopies: number;
+  physicalTables: number | null;
+}): { current: { interested: number; available: number }; better: StartSuggestion[] } {
+  const { table, poster, players, tables, bufferMinutes, eventStart, eventEnd, gameCopies, physicalTables } = args;
+  const others = tables.filter((t) => t.id !== table.id);
+  const current = interestAtSlot({ gameId: table.gameId, start: table.startTime, end: table.endTime, posterId: poster.id, players, tables: others, bufferMinutes });
+  const options = suggestPostedStarts({
+    game: { id: table.gameId, durationMinutes: toMinutes(table.endTime) - toMinutes(table.startTime) },
+    poster, players, tables: others, bufferMinutes, eventStart, eventEnd, gameCopies, physicalTables, limit: 4,
+  });
+  return { current, better: options.filter((o) => o.start !== table.startTime && o.available > current.available).slice(0, 2) };
+}
+
+/**
  * The tables that haven't started where the player is seated but would no longer be able to be with the arrival and
  * departure they are about to save: one starts before they arrive (plus the buffer a person needs after arriving) or ends
  * after they leave. Waiting-for-players and confirmed tables only; the ones already underway are not asked about.
@@ -209,8 +296,9 @@ export function postedSlotConflict(args: {
  * Each one is marked `busy` when they couldn't take it — it doesn't fit their hours, they're at another table then, or
  * (for a table an owner posted) they already have a table of that game, unless they'd join a second one. Worked out from
  * the votes themselves, so it doesn't depend on the offers already having been written. Whoever declined the table is out.
+ * `hasOtherTable` tells the ones who are busy only because they already have a table of this game.
  */
-export function interestedInTable(table: Table, players: Player[], tables: Table[], bufferMinutes: number): { player: Player; busy: boolean }[] {
+export function interestedInTable(table: Table, players: Player[], tables: Table[], bufferMinutes: number): { player: Player; busy: boolean; hasOtherTable: boolean }[] {
   const seated = new Set(table.playerIds);
   const rejected = new Set(table.rejectedIds ?? []);
   const asked = new Set([...(table.candidateIds ?? []), ...(table.queuedIds ?? [])]);
@@ -221,7 +309,7 @@ export function interestedInTable(table: Table, players: Player[], tables: Table
       const seatedElsewhere = !!table.postedByOwner && !(p.repeatGameIds ?? []).includes(table.gameId) &&
         others.some((o) => o.gameId === table.gameId && o.status !== 'cancelled' && o.playerIds.includes(p.id));
       const busy = seatedElsewhere || !isAvailable(p, table.startTime, table.endTime, getBusyWindows(p.id, others), bufferMinutes);
-      return { player: p, busy };
+      return { player: p, busy, hasOtherTable: seatedElsewhere };
     });
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeIdleGaps, estimatedDuration, estimatedDurationRange, findConflictingTable, generateTables, overlaps,
-  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable, expectedTableEnd, tablesOutsideAvailability, estimateAtCurrentSeats,
+  reviewWaitingTables, postedSlotConflict, replaceableByPostedTable, sameGameOverlaps, interestedInTable, expectedTableEnd, tablesOutsideAvailability, estimateAtCurrentSeats, interestAtSlot, suggestPostedStarts, suggestMovesForPostedTable,
 } from './tableAlgorithm';
 import type { Game, Player, Table } from './types';
 
@@ -400,6 +400,87 @@ describe('estimateAtCurrentSeats — what the table lasts today, next to what it
   });
   it('is null once every seat is taken: the two are the same thing', () => {
     expect(estimateAtCurrentSeats(t({ playerIds: ['a', 'b', 'c', 'd'] }), dune)).toBeNull();
+  });
+});
+
+// ── interestAtSlot / suggestPostedStarts ───────────────────────────────────
+describe('suggesting start times for a posted table', () => {
+  // A one-hour game; everybody is around from 10:00 to 20:00 unless said otherwise
+  const g1 = game('g1', { durationMinutes: 60 });
+  const poster = player('poster', { interests: { g1: 'yes' }, canExplain: ['g1'] });
+  const fan = (id: string, o: Partial<Player> = {}) => player(id, { interests: { g1: 'yes' }, ...o });
+  const args = (players: Player[], tables: Table[] = []) => ({
+    game: g1, poster, players: [poster, ...players], tables, bufferMinutes: 10, eventStart: '10:00', eventEnd: '20:00', gameCopies: 1, physicalTables: null,
+  });
+
+  it('counts how many interested people a time works for, and how many voted the game', () => {
+    const others = [fan('a'), fan('b', { departureTime: '12:00' }), fan('c'), player('d', { interests: { g1: 'no' } })];
+    expect(interestAtSlot({ gameId: 'g1', start: '11:30', end: '12:30', posterId: 'poster', players: [poster, ...others], tables: [], bufferMinutes: 10 }))
+      .toEqual({ interested: 3, available: 2 }); // b leaves at 12:00; d did not vote it
+    expect(interestAtSlot({ gameId: 'g1', start: '15:00', end: '16:00', posterId: 'poster', players: [poster, ...others], tables: [], bufferMinutes: 10 }))
+      .toEqual({ interested: 3, available: 2 }); // b is gone by then too
+  });
+
+  it('does not count people who already have a table of the game: they are not waiting for one', () => {
+    const theirs = table('theirs', { gameId: 'g1', status: 'confirmed', playerIds: ['a', 'b'], startTime: '10:30', endTime: '11:30' });
+    const players = [poster, fan('a'), fan('b'), fan('c')];
+    expect(interestAtSlot({ gameId: 'g1', start: '15:00', end: '16:00', posterId: 'poster', players, tables: [theirs], bufferMinutes: 10 }))
+      .toEqual({ interested: 1, available: 1 }); // only c is still looking for a table of it
+  });
+
+  it('suggests the times that work for the most interested people, best first', () => {
+    // Two only come from 14:00; three are there all day but one is busy in a table until 13:00
+    const busy = table('busy', { gameId: 'g2', status: 'confirmed', playerIds: ['c', 'x'], startTime: '11:00', endTime: '13:00' });
+    const players = [fan('a', { arrivalTime: '14:00' }), fan('b', { arrivalTime: '14:00' }), fan('c')];
+    const out = suggestPostedStarts(args(players, [busy]));
+    expect(out[0]).toMatchObject({ available: 3, interested: 3 });
+    expect(toStart(out[0])).toBeGreaterThanOrEqual(14 * 60 + 10);
+  });
+
+  it('never suggests a time the poster cannot take, nor one where the only copy is in a confirmed table', () => {
+    const posterBusy = table('pb', { gameId: 'g2', status: 'confirmed', playerIds: ['poster', 'x'], startTime: '10:00', endTime: '18:00' });
+    const sameGame = table('sg', { gameId: 'g1', status: 'confirmed', playerIds: ['x', 'y'], startTime: '18:00', endTime: '19:00' });
+    const out = suggestPostedStarts(args([fan('a'), fan('b')], [posterBusy, sameGame]));
+    expect(out).toEqual([]); // the poster is busy until 18:00 + buffer, and the copy is in use from 18:00
+  });
+
+  it('gives choices at least an hour apart, and nothing when nobody interested can come', () => {
+    const out = suggestPostedStarts(args([fan('a'), fan('b'), fan('c')]));
+    expect(out.length).toBe(3);
+    for (let i = 1; i < out.length; i++) expect(Math.abs(toStart(out[i]) - toStart(out[i - 1]))).toBeGreaterThanOrEqual(60);
+    expect(suggestPostedStarts(args([player('n', { interests: { g1: 'no' } })]))).toEqual([]);
+  });
+});
+const toStart = (s: { start: string }) => { const [h, m] = s.start.split(':').map(Number); return h * 60 + m; };
+
+describe('suggestMovesForPostedTable — a table already posted', () => {
+  const poster = player('poster', { interests: { g1: 'yes' }, canExplain: ['g1'] });
+  const fan = (id: string, o: Partial<Player> = {}) => player(id, { interests: { g1: 'yes' }, ...o });
+  // Posted for 10:15, but the people who voted it afterwards only get there at 14:00
+  const posted = table('posted', { gameId: 'g1', postedByOwner: true, status: 'recommended', explainerId: 'poster', playerIds: ['poster'], startTime: '10:15', endTime: '11:15' });
+  const run = (players: Player[], tables: Table[] = [posted]) => suggestMovesForPostedTable({
+    table: posted, poster, players: [poster, ...players], tables, bufferMinutes: 10, eventStart: '10:00', eventEnd: '20:00', gameCopies: 1, physicalTables: null,
+  });
+
+  it('says how many interested people the current time works for and suggests times that work for more', () => {
+    const out = run([fan('a', { arrivalTime: '14:00' }), fan('b', { arrivalTime: '14:00' }), fan('c', { arrivalTime: '10:00' })]);
+    expect(out.current).toEqual({ interested: 3, available: 1 });
+    expect(out.better.length).toBeGreaterThan(0);
+    expect(out.better[0].available).toBe(3);
+    expect(out.better.every((b) => b.available > out.current.available)).toBe(true);
+  });
+  it('does not count the table against itself: the poster is free for another time even though they are seated at it', () => {
+    const out = run([fan('a', { arrivalTime: '14:00' })]);
+    expect(out.better.length).toBeGreaterThan(0);
+  });
+  it('suggests nothing when the time it has is already as good as any other', () => {
+    expect(run([fan('a'), fan('b')]).better).toEqual([]);
+    expect(run([]).better).toEqual([]);
+  });
+  it('keeps the length of the table it moves', () => {
+    const long = { ...posted, endTime: '12:45' };
+    const out = suggestMovesForPostedTable({ table: long, poster, players: [poster, fan('a', { arrivalTime: '14:00' })], tables: [long], bufferMinutes: 10, eventStart: '10:00', eventEnd: '20:00', gameCopies: 1, physicalTables: null });
+    for (const b of out.better) expect(toStart({ start: b.end }) - toStart({ start: b.start })).toBe(150);
   });
 });
 

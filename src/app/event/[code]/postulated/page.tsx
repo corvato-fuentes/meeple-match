@@ -4,7 +4,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables, getPlayerTables,
-  joinPostedTable, leavePostedTable, respondToRecommendation,
+  joinPostedTable, leavePostedTable, respondToRecommendation, moveOwnerTable,
 } from '@/lib/firestore';
 import WaitingTableInfo, { ActionButton, PostedWho } from '@/components/ui/WaitingTableInfo';
 import { toMinutes } from '@/lib/timeUtils';
@@ -14,6 +14,7 @@ import ConfirmModal from '@/components/ui/ConfirmModal';
 import FilterChip from '@/components/ui/FilterChip';
 import OtherOffersPrompt from '@/components/ui/OtherOffersPrompt';
 import ShareTableButton from '@/components/ui/ShareTableButton';
+import MoveTableSuggestion from '@/components/ui/MoveTableSuggestion';
 import { isShareableTable } from '@/lib/shareTable';
 import { otherOffersForGame } from '@/lib/offers';
 import { interestedInTable } from '@/lib/tableAlgorithm';
@@ -142,6 +143,13 @@ export default function PostulatedTablesPage() {
     } finally {
       setLeavingTableId(null);
     }
+  }
+
+  // The owner moves their table to a time that suits more of the people who voted it; the ones in it are asked again
+  async function handleMoveMyTable(t: Table, startTime: string, endTime: string) {
+    if (!player || !event) return;
+    await moveOwnerTable(code, t.id, player.id, startTime, endTime);
+    runTableGeneration(code, event).catch(() => {}); // offers the table afresh to everyone it now fits
   }
 
   async function handleJoinOpenTable(t: Table) {
@@ -307,6 +315,10 @@ export default function PostulatedTablesPage() {
             </ActionButton>
           ) : leaveBtn(t)}
         </div>
+        {kind === 'own' && (
+          <MoveTableSuggestion table={t} poster={player} players={confirmedPlayers(otherPlayers)} allTables={allTables} games={games} event={event}
+            onMove={(start, end) => handleMoveMyTable(t, start, end)} />
+        )}
         {isShareableTable(t, gameMap.get(t.gameId)) && (
           <div className="mt-2"><ShareTableButton code={code} table={t} game={gameMap.get(t.gameId)!} event={event} /></div>
         )}

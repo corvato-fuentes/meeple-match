@@ -780,6 +780,23 @@ export async function applyWaitingTableReviews(eventCode: string, reviews: Waiti
 }
 
 /**
+ * The owner moves a table they posted (still waiting for players) to another time. The people already anotados don't stay
+ * seated at a time they didn't choose: they go back to being offered the table and have to accept it again. Offers and
+ * declines made for the old time are cleared, so everyone it now fits is offered it afresh. A confirmed table doesn't move.
+ */
+export async function moveOwnerTable(eventCode: string, tableId: string, posterId: string, startTime: string, endTime: string): Promise<void> {
+  const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    const t = snap.data() as Table;
+    if (!t.postedByOwner || t.status !== 'recommended' || t.explainerId !== posterId) return;
+    tx.update(ref, { startTime, endTime, playerIds: [posterId], candidateIds: t.playerIds.filter((id) => id !== posterId), queuedIds: [], rejectedIds: [] });
+  });
+  requestPushSync(eventCode); // the people who were in it are asked again
+}
+
+/**
  * Owner posts a table for a game directly ("lo traigo, arranco a las 16hs") instead of the
  * algorithm assembling it from votes. Starts 'recommended' (unless the owner alone already meets
  * the game's minPlayers) with only the owner seated — other players join it directly via
