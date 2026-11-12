@@ -14,6 +14,8 @@ export interface AttendanceRow {
   hasProof: boolean;
   /** Registered without the receipt (flexible registration) and not confirmed yet. */
   tentative: boolean;
+  /** An organizer confirmed the payment without a receipt (e.g. paid in person): settled, shown only for reference. */
+  confirmedWithoutProof: boolean;
 }
 
 /** Every registered player with their check-in time, sorted by name. */
@@ -24,7 +26,7 @@ export async function listAttendance(code: string): Promise<AttendanceRow[]> {
   ]);
   const at = new Map(arrivals.docs.map((d) => [d.id, d.data().at as number]));
   return players.docs
-    .map((d) => ({ id: d.id, name: (d.data().name as string) ?? '', checkedInAt: at.get(d.id) ?? null, hasProof: !!d.data().paymentProofUrl, tentative: d.data().registrationStatus === 'tentative' }))
+    .map((d) => ({ id: d.id, name: (d.data().name as string) ?? '', checkedInAt: at.get(d.id) ?? null, hasProof: !!d.data().paymentProofUrl || d.data().paymentReview === 'approved', tentative: d.data().registrationStatus === 'tentative', confirmedWithoutProof: !d.data().paymentProofUrl && d.data().paymentReview === 'approved' }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

@@ -59,6 +59,10 @@ describe('receiptStateOf', () => {
     expect(owesReceipt('sent')).toBe(false);
     expect(owesReceipt('rejected')).toBe(true);
   });
+  it('an organizer confirming the payment settles it even with no receipt (paid in person)', () => {
+    expect(receiptStateOf({ paymentProofUrl: null, paymentReview: 'approved' }, on)).toBe('sent');
+    expect(owesReceipt(receiptStateOf({ paymentProofUrl: null, paymentReview: 'approved' }, on))).toBe(false);
+  });
   it('a rejection counts even if the proof is still stored', () => {
     expect(receiptStateOf({ paymentProofUrl: null, paymentReview: 'rejected' }, on)).toBe('rejected');
   });

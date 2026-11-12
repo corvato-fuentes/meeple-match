@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, verifyAdminToken, subscribePlayers, getGames, subscribeTables, deletePlayer, updatePlayerTimes, setPlayerOrganizer, setPlayerRegistrationStatus } from '@/lib/firestore';
-import { isTentative, tentativeCount, confirmedPlayers, receiptStateOf, owesReceipt } from '@/lib/registration';
+import { tentativeCount, confirmedPlayers, receiptStateOf, owesReceipt } from '@/lib/registration';
 import { reviewReceipt, remindReceipts } from '@/lib/paymentReviewClient';
-import { countByState, playerTableEntries, type PlayerTableState } from '@/lib/playerTables';
+import { countByState, playerTableEntries } from '@/lib/playerTables';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
+import AdminPlayerCard from '@/components/admin/AdminPlayerCard';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
 export default function PlayersPage() {
@@ -21,8 +21,6 @@ export default function PlayersPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null); // a receipt decision or a reminder in flight
   const [remindMsg, setRemindMsg] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [expandedVotesId, setExpandedVotesId] = useState<string | null>(null);
-  const [expandedTablesId, setExpandedTablesId] = useState<string | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resendingAll, setResendingAll] = useState(false);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
@@ -141,15 +139,6 @@ export default function PlayersPage() {
   const gameMap = new Map(games.map((g) => [g.id, g]));
   const owingCount = players.filter((p) => owesReceipt(receiptStateOf(p, event.settings))).length;
 
-  const VOTE_LABEL: Record<string, string> = { yes: '👍 Quiero jugarlo', no: '👎 No me interesa' };
-  const TABLE_STATE_LABEL: Record<PlayerTableState, { label: string; cls: string }> = {
-    confirmed: { label: '✅ Confirmada', cls: 'text-green-400' },
-    accepted: { label: '⏳ Aceptó, esperando jugadores', cls: 'text-amber-300' },
-    offered: { label: '🤔 Sin responder', cls: 'text-gray-300' },
-    queued: { label: '⏳ En cola, espera a quien explica', cls: 'text-gray-400' },
-    rejected: { label: '🚫 Rechazó', cls: 'text-gray-500' },
-  };
-
   return (
     <main className='max-w-2xl mx-auto px-4 py-10'>
       <div className='flex items-center gap-3 mb-2'>
@@ -181,184 +170,18 @@ export default function PlayersPage() {
         <div className='space-y-3'>
           {players.map((p) => {
             const tableEntries = playerTableEntries(p.id, tables);
-            const tableCounts = countByState(tableEntries);
-            const receipt = receiptStateOf(p, event.settings);
-            const votedCount = Object.values(p.interests).filter((v) => v === 'yes' || v === 'no').length;
-            const likedCount = Object.values(p.interests).filter((v) => v === 'yes').length;
             return (
-              <div key={p.id} className='border border-gray-700 rounded-xl p-4 bg-gray-800'>
-                <div className='flex justify-between items-start'>
-                  <div>
-                    <p className='font-semibold'>
-                      {p.name}
-                      {isTentative(p) && <span className='ml-2 text-xs bg-amber-900 text-amber-300 px-1.5 rounded align-middle'>🤔 indeciso</span>}
-                      {receipt === 'missing' && <span className='ml-2 text-xs bg-amber-900/60 text-amber-300 px-1.5 rounded align-middle'>💸 sin comprobante</span>}
-                      {receipt === 'rejected' && <span className='ml-2 text-xs bg-red-900 text-red-300 px-1.5 rounded align-middle'>❌ comprobante rechazado</span>}
-                      {receipt === 'sent' && p.paymentReview === 'approved' && <span className='ml-2 text-xs bg-green-900 text-green-300 px-1.5 rounded align-middle'>✅ pago aprobado</span>}
-                      {receipt === 'sent' && p.paymentReview !== 'approved' && <span className='ml-2 text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded align-middle'>🧾 por revisar</span>}
-                    </p>
-                    {p.alias && <p className='text-xs text-gray-500'>{p.firstName} {p.lastName}</p>}
-                    {editingTimesId === p.id ? (
-                      <div className='border border-gray-700 rounded-xl p-3 bg-gray-900 space-y-2 my-1 max-w-xs'>
-                        <div className='grid grid-cols-2 gap-2'>
-                          <div>
-                            <label className='text-xs text-gray-400'>Llega</label>
-                            <TimeWheelPicker value={draftArrival} onChange={setDraftArrival}
-                              minTime={event.startTime} maxTime={event.endTime} />
-                          </div>
-                          <div>
-                            <label className='text-xs text-gray-400'>Se va</label>
-                            <TimeWheelPicker value={draftDeparture} onChange={setDraftDeparture}
-                              minTime={event.startTime} maxTime={event.endTime} />
-                          </div>
-                        </div>
-                        <div className='flex gap-2'>
-                          <button onClick={() => setEditingTimesId(null)}
-                            className='flex-1 border border-gray-700 rounded-lg py-1 text-xs font-medium'>
-                            Cancelar
-                          </button>
-                          <button onClick={() => saveTimes(p.id)} disabled={savingTimes}
-                            className='flex-1 bg-indigo-600 rounded-lg py-1 text-xs font-medium hover:bg-indigo-700 disabled:opacity-50'>
-                            {savingTimes ? 'Guardando...' : 'Guardar'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className='text-sm text-gray-400'>
-                        {p.arrivalTime}–{p.departureTime} · ticket: <span className='font-mono'>{p.ticketCode}</span>
-                        <button onClick={() => startEditTimes(p)} className='ml-2 text-xs text-indigo-400 hover:underline'>
-                          ✏️ editar
-                        </button>
-                      </p>
-                    )}
-                    <p className='text-xs text-gray-500'>
-                      {p.email ?? 'sin email'} · {p.phone ?? 'sin teléfono'}
-                      {p.registeredAt?.toDate && ` · inscrito ${p.registeredAt.toDate().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}`}
-                    </p>
-                  </div>
-                  <span className='text-xs text-green-400 shrink-0'>✅ {tableCounts.confirmed} confirmada{tableCounts.confirmed !== 1 ? 's' : ''}</span>
-                </div>
-                <div className='flex flex-wrap items-center gap-x-3 gap-y-1 mt-2'>
-                  {p.paymentProofUrl && (
-                    <button onClick={() => setViewingProof(p.paymentProofUrl)}
-                      className='inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline'>
-                      🧾 Ver comprobante
-                    </button>
-                  )}
-                  {/* Review: approve or reject what was sent; confirm someone who paid without sending one */}
-                  {p.paymentProofUrl && p.paymentReview !== 'approved' && (
-                    <button onClick={() => handleReview(p, 'approve')} disabled={reviewingId === p.id}
-                      className='inline-flex items-center gap-1 text-xs text-green-400 hover:underline disabled:opacity-50'>
-                      ✅ Aprobar
-                    </button>
-                  )}
-                  {p.paymentProofUrl && p.paymentReview !== 'rejected' && (
-                    <button onClick={() => handleReview(p, 'reject')} disabled={reviewingId === p.id}
-                      className='inline-flex items-center gap-1 text-xs text-red-400 hover:underline disabled:opacity-50'>
-                      ❌ Rechazar
-                    </button>
-                  )}
-                  {!p.paymentProofUrl && receipt !== 'not-required' && (
-                    <button onClick={() => handleReview(p, 'approve')} disabled={reviewingId === p.id}
-                      className='inline-flex items-center gap-1 text-xs text-green-400 hover:underline disabled:opacity-50'>
-                      ✅ Confirmar sin comprobante
-                    </button>
-                  )}
-                  {owesReceipt(receipt) && (
-                    <button onClick={() => handleRemind(p)} disabled={reviewingId === p.id}
-                      className='inline-flex items-center gap-1 text-xs text-amber-300 hover:underline disabled:opacity-50'>
-                      🔔 Recordar
-                    </button>
-                  )}
-                  {!isTentative(p) && event.settings.flexibleRegistration && (
-                    <button onClick={() => setPlayerRegistrationStatus(code, p.id, 'tentative')}
-                      className='inline-flex items-center gap-1 text-xs text-gray-500 hover:underline'>
-                      🤔 Pasar a indeciso
-                    </button>
-                  )}
-                  {p.email && (
-                    <button onClick={() => handleResend(p)} disabled={resendingId === p.id}
-                      className='inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline disabled:opacity-50'>
-                      {resendingId === p.id ? 'Enviando...' : '✉️ Reenviar código'}
-                    </button>
-                  )}
-                  <button onClick={() => setPlayerOrganizer(code, p.id, !p.isOrganizer)}
-                    className={'inline-flex items-center gap-1 text-xs hover:underline ' + (p.isOrganizer ? 'text-amber-400' : 'text-gray-500')}>
-                    {p.isOrganizer ? '⭐ Es organizador' : '☆ Marcar como organizador'}
-                  </button>
-                  <button onClick={() => handleDeletePlayer(p)} disabled={deletingId === p.id}
-                    className='inline-flex items-center gap-1 text-xs text-red-400 hover:underline disabled:opacity-50'>
-                    {deletingId === p.id ? 'Eliminando...' : '🗑️ Eliminar jugador'}
-                  </button>
-                </div>
-                {p.bringGameIds.length > 0 && (
-                  <div className='mt-2 flex flex-wrap gap-1'>
-                    {p.bringGameIds.map((gid) => (
-                      <span key={gid} className='text-xs bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded-full'>
-                        {gameMap.get(gid)?.name ?? gid}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {tableEntries.length === 0 && <p className='mt-2 text-xs text-gray-500'>Sin mesas todavía</p>}
-                {tableEntries.length > 0 && (
-                  <div className='mt-2'>
-                    <button onClick={() => setExpandedTablesId((cur) => cur === p.id ? null : p.id)}
-                      className='block w-full text-left text-xs text-gray-500 hover:text-gray-300'>
-                      {expandedTablesId === p.id ? '▾' : '▸'} Ver mesas ({tableEntries.length})
-                      {/* What they did with the tables: confirmed ones, accepted ones still short of people, unanswered offers */}
-                      <span className='block pl-3 text-[11px] text-gray-500'>
-                        {[
-                          tableCounts.confirmed > 0 && `✅ ${tableCounts.confirmed} confirmada${tableCounts.confirmed !== 1 ? 's' : ''}`,
-                          tableCounts.accepted > 0 && `⏳ ${tableCounts.accepted} esperando jugadores`,
-                          tableCounts.offered > 0 && `🤔 ${tableCounts.offered} sin responder`,
-                          tableCounts.queued > 0 && `⏳ ${tableCounts.queued} en cola`,
-                          tableCounts.rejected > 0 && `🚫 ${tableCounts.rejected} rechazada${tableCounts.rejected !== 1 ? 's' : ''}`,
-                        ].filter(Boolean).join(' · ')}
-                      </span>
-                    </button>
-                    {expandedTablesId === p.id && (
-                      <div className='mt-1.5 space-y-1'>
-                        {tableEntries.map(({ table: t, state, explains }) => (
-                          <div key={t.id} className='flex items-center justify-between gap-2 text-xs text-gray-300 bg-gray-900 rounded-lg px-2 py-1'>
-                            <span className='min-w-0 truncate'>
-                              {t.gameName} <span className='text-gray-500'>· {t.startTime}–{t.endTime}</span>
-                              {explains && <span className='text-purple-300'> · explica</span>}
-                            </span>
-                            <span className={'shrink-0 ' + TABLE_STATE_LABEL[state].cls}>{TABLE_STATE_LABEL[state].label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {votedCount === 0 && <p className='mt-2 text-xs text-amber-400'>⚠️ No votó ningún juego</p>}
-                {votedCount > 0 && (
-                  <div className='mt-2'>
-                    <button onClick={() => setExpandedVotesId((cur) => cur === p.id ? null : p.id)}
-                      className='block w-full text-left text-xs text-gray-500 hover:text-gray-300'>
-                      {expandedVotesId === p.id ? '▾' : '▸'} Ver votos ({votedCount})
-                      <span className='block pl-3 text-[11px] text-gray-500'>
-                        Votó {votedCount} juego{votedCount !== 1 ? 's' : ''} · le gustaron {likedCount}
-                      </span>
-                    </button>
-                    {expandedVotesId === p.id && (
-                      <div className='mt-1.5 space-y-1'>
-                        {Object.entries(p.interests).map(([gid, level]) => (
-                          <div key={gid} className='flex items-center justify-between text-xs text-gray-300 bg-gray-900 rounded-lg px-2 py-1'>
-                            <span>{gameMap.get(gid)?.name ?? gid} <span className='text-gray-500'>({gameMap.get(gid)?.ownerName ?? '?'})</span></span>
-                            <span className='flex items-center gap-1.5 shrink-0'>
-                              {VOTE_LABEL[level] ?? level}
-                              {p.canExplain.includes(gid) && <span className='text-purple-300'>explica</span>}
-                              {(p.repeatGameIds ?? []).includes(gid) && <span className='text-indigo-300'>🔁</span>}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <AdminPlayerCard key={p.id} player={p} event={event}
+                gameName={(gid) => gameMap.get(gid)?.name ?? gid} ownerOf={(gid) => gameMap.get(gid)?.ownerName ?? '?'}
+                tableEntries={tableEntries} tableCounts={countByState(tableEntries)} receipt={receiptStateOf(p, event.settings)}
+                editingTimes={editingTimesId === p.id} draftArrival={draftArrival} draftDeparture={draftDeparture} savingTimes={savingTimes}
+                onStartEditTimes={() => startEditTimes(p)} onChangeArrival={setDraftArrival} onChangeDeparture={setDraftDeparture}
+                onSaveTimes={() => saveTimes(p.id)} onCancelEditTimes={() => setEditingTimesId(null)}
+                reviewing={reviewingId === p.id} resending={resendingId === p.id} deleting={deletingId === p.id}
+                onViewProof={setViewingProof} onReview={(decision) => handleReview(p, decision)} onRemind={() => handleRemind(p)}
+                onSetTentative={() => setPlayerRegistrationStatus(code, p.id, 'tentative')}
+                onResend={() => handleResend(p)} onToggleOrganizer={() => setPlayerOrganizer(code, p.id, !p.isOrganizer)}
+                onDelete={() => handleDeletePlayer(p)} />
             );
           })}
         </div>

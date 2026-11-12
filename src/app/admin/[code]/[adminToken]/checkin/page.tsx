@@ -7,7 +7,7 @@ import { parseCheckinPayload } from '@/lib/checkin';
 import QrScanner from '@/components/ui/QrScanner';
 import type { MeepleEvent } from '@/lib/types';
 
-interface Row { id: string; name: string; checkedInAt: number | null; hasProof: boolean; tentative?: boolean }
+interface Row { id: string; name: string; checkedInAt: number | null; hasProof: boolean; tentative?: boolean; confirmedWithoutProof?: boolean }
 interface Review { id: string; name: string; proofUrl: string | null }
 type Filter = 'missing' | 'arrived' | 'all';
 /** `undoId`: the player the message is about, so the banner can offer to take that check-in back right there. */
@@ -285,6 +285,7 @@ export default function CheckInPage() {
                 <div className="min-w-0">
                   <p className="text-sm truncate">{r.name}</p>
                   {r.checkedInAt != null && <p className="text-xs text-green-400">Llegó a las {timeOf(r.checkedInAt)}</p>}
+                  {r.confirmedWithoutProof && <p className="text-xs text-gray-500">Pago confirmado · sin comprobante</p>}
                   {event.settings.paymentRequired && r.checkedInAt == null && !r.hasProof && <p className="text-xs text-amber-400">{r.tentative ? '🤔 Indeciso · sin comprobante' : 'Sin comprobante'}</p>}
                 </div>
                 <button onClick={() => handleRow(r)}
