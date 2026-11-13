@@ -7,12 +7,9 @@ import { saveMyEvent, parseAdminLink } from '@/lib/myEvents';
 import { createMathTradeEvent, generateUniqueMathTradeCode } from '@/lib/mathtradeFirestore';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import { isLocalhostName, listedByDefault } from '@/lib/publicEvents';
+import { IN_DEVELOPMENT_NOTE, MATH_TRADE_ENABLED } from '@/lib/features';
 
 type Open = 'event' | 'trade' | 'admin' | null;
-
-// Creating an exchange (math trade) is not available yet: off for everyone, localhost included.
-// Set NEXT_PUBLIC_MATH_TRADE_CREATE=1 (e.g. in .env.local) to turn it on while it is being built.
-const TRADE_CREATION_ENABLED = process.env.NEXT_PUBLIC_MATH_TRADE_CREATE === '1';
 
 /** One thing an organizer can do, as a card: collapsed it is a title and a button, open it is its form. */
 function Card({ icon, title, hint, open, onOpen, onClose, button, disabled, note, children }: {
@@ -88,7 +85,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
 
   async function handleCreateTrade(e: React.FormEvent) {
     e.preventDefault();
-    if (!TRADE_CREATION_ENABLED) return;
+    if (!MATH_TRADE_ENABLED) return;
     setTradeLoading(true);
     try {
       const code = await generateUniqueMathTradeCode();
@@ -177,8 +174,8 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
       </Card>
 
       <Card icon='🔁' title='Crear un intercambio (Math Trade)' hint='Un intercambio de juegos en cadena entre varios jugadores.'
-        note={TRADE_CREATION_ENABLED ? undefined : '🚧 Funcionalidad en desarrollo: todavía no está disponible.'}
-        open={open === 'trade'} onOpen={() => setOpen('trade')} onClose={() => setOpen(null)} button='Crear intercambio →' disabled={!TRADE_CREATION_ENABLED}>
+        note={MATH_TRADE_ENABLED ? undefined : IN_DEVELOPMENT_NOTE}
+        open={open === 'trade'} onOpen={() => setOpen('trade')} onClose={() => setOpen(null)} button='Crear intercambio →' disabled={!MATH_TRADE_ENABLED}>
         <form onSubmit={handleCreateTrade} className='space-y-3'>
           <div>
             <label className='block text-sm font-medium mb-1'>Nombre del math trade</label>
