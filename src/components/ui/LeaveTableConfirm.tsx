@@ -1,6 +1,7 @@
 'use client';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import type { Table } from '@/lib/types';
+import { isExplainOnly } from '@/lib/explainOnly';
 
 /**
  * "Bajarme de la mesa" confirmation, the same wherever a player can step down from a table. It says what will happen:
@@ -23,6 +24,9 @@ export default function LeaveTableConfirm({ table, myId, onConfirm, onCancel }: 
   if (table) {
     if (ownerPosted) {
       message = `Vas a cancelar tu mesa de ${when}. Los jugadores anotados la van a dejar de ver.`;
+    } else if (explainer && isExplainOnly(table)) {
+      // They only explain: no seat to give up
+      message = `Vas a dejar de explicar ${when}. Si otro de la mesa puede explicarla, la toma; si no, la mesa se cancela y los demás vuelven a quedar libres. No te la vamos a volver a ofrecer.`;
     } else if (explainer) {
       message = `Vas a dejar tu lugar en ${when} y a dejar de explicarla. Si otro de la mesa puede explicarla, la toma; si no, la mesa se cancela y los demás vuelven a quedar libres.`;
     } else if (table.postedByOwner) {

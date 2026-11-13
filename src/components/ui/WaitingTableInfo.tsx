@@ -4,6 +4,7 @@ import Link from 'next/link';
 import GameCover from '@/components/ui/GameCover';
 import { estimatedDurationRange, estimateAtCurrentSeats } from '@/lib/tableAlgorithm';
 import { minSeats } from '@/lib/seats';
+import { isExplainOnly } from '@/lib/explainOnly';
 import type { Game, GameComplexity, Table } from '@/lib/types';
 
 const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
@@ -126,6 +127,15 @@ export function RecommendedWho({ t, game, nameOf }: { t: Table; game: Game | und
     );
   }
   const explainer = nameOf(t.explainerId);
+  // An explainer who only explains: not at the table to play, held just for the explanation
+  if (isExplainOnly(t)) {
+    return (
+      <>
+        {owner && owner !== explainer && <Line>🎒 Lo trae: <Name>{owner}</Name></Line>}
+        <Line>🎓 Lo explica (solo explica{t.explainEndTime ? ` hasta las ${t.explainEndTime}` : ''}): <Name>{explainer}</Name></Line>
+      </>
+    );
+  }
   if (game && owner === explainer) return <Line>🎒🎓 Lo trae, lo explica y juega: <Name>{explainer}</Name></Line>;
   return (
     <>

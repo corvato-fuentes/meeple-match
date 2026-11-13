@@ -1,6 +1,7 @@
 import type { Player, Game, Table } from './types';
 import { toMinutes, toTimeString, windowDuration, roundUp5 } from './timeUtils';
 import { minSeats } from './seats';
+import { occupiedWindow } from './explainOnly';
 
 interface TableProposal {
   gameId: string;
@@ -35,9 +36,11 @@ export interface GenerateTablesResult {
 }
 
 function getBusyWindows(playerId: string, tables: Table[]) {
-  return tables
-    .filter((t) => t.playerIds.includes(playerId) && t.status !== 'cancelled')
-    .map((t) => ({ start: t.startTime, end: t.endTime }));
+  // What each table holds of the player: all of it for someone seated, just the explanation for an explainer who only explains
+  return tables.flatMap((t) => {
+    const w = occupiedWindow(t, playerId);
+    return w ? [w] : [];
+  });
 }
 
 function isAvailable(
@@ -89,11 +92,12 @@ export function findConflictingTables(
   excludeTableId?: string
 ): Table[] {
   return tables
-    .filter((t) =>
-      t.id !== excludeTableId &&
-      t.status !== 'cancelled' &&
-      t.playerIds.includes(playerId) &&
-      overlaps(t.startTime, t.endTime, start, end))
+    .filter((t) => {
+      if (t.id === excludeTableId) return false;
+      // The part of the day the table holds the player: all of it, or just the explanation for an explainer who only explains
+      const w = occupiedWindow(t, playerId);
+      return !!w && overlaps(w.start, w.end, start, end);
+    })
     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
 }
 
@@ -254,8 +258,11 @@ export function tablesOutsideAvailability(args: {
   const from = toMinutes(arrivalTime) + bufferMinutes;
   const to = toMinutes(departureTime);
   return tables
-    .filter((t) => (t.status === 'recommended' || t.status === 'confirmed') && t.playerIds.includes(playerId) &&
-      (toMinutes(t.startTime) < from || toMinutes(t.endTime) > to))
+    .filter((t) => {
+      if (t.status !== 'recommended' && t.status !== 'confirmed') return false;
+      const w = occupiedWindow(t, playerId); // an explainer who only explains is held just for the explanation
+      return !!w && (toMinutes(w.start) < from || toMinutes(w.end) > to);
+    })
     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
 }
 

@@ -21,6 +21,8 @@ import ShareTableButton from '@/components/ui/ShareTableButton';
 import { isShareableTable } from '@/lib/shareTable';
 import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
+import ExplainerOffer from '@/components/ui/ExplainerOffer';
+import { explainEndFor, isInTable } from '@/lib/explainOnly';
 import KnowledgeLevelPicker, { chosenLevel, type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor, otherOffersForGame } from '@/lib/offers';
@@ -167,19 +169,21 @@ export default function RecommendedTablesPage() {
   // Accept/reject for an algorithm-recommended table. On accept, if they were also offered ANOTHER table of the same
   // game, ask about that one right away (join it too, or turn it down); only when there is none, and they haven't opted
   // into a repeat for this game yet, ask in general whether they'd join a second table of it.
-  async function handleRespondToRecommendation(t: Table, accept: boolean, fromPrompt = false) {
+  // `onlyExplain` (only when accepting an offer to explain): the explainer takes no seat and is held just for the explanation
+  async function handleRespondToRecommendation(t: Table, accept: boolean, fromPrompt = false, onlyExplain = false) {
     if (!player || respondingTableId) return;
     const game = gameMap.get(t.gameId);
     if (!game) return;
+    const onlyUntil = accept && onlyExplain ? explainEndFor(t, game) : undefined;
     if (accept) {
       setAcceptingTable(t);
-      const ok = await resolveScheduleConflict(t); // pops up the overlap warning when there is one
+      const ok = await resolveScheduleConflict(t, onlyUntil ? { start: t.startTime, end: onlyUntil } : undefined); // pops up the overlap warning when there is one
       setAcceptingTable(null);
       if (!ok) return;
     }
     setRespondingTableId(t.id);
     try {
-      await respondToRecommendation(code, t.id, player.id, accept, game.minPlayers, game.maxPlayers);
+      await respondToRecommendation(code, t.id, player.id, accept, game.minPlayers, game.maxPlayers, onlyUntil);
       // Accepting takes this person's time: a table that was waiting for them to explain something else at that hour
       // can no longer count on them, so re-check the waiting tables (it moves them on to someone else or cancels them).
       if (accept && event) runTableGeneration(code, event).catch(() => {});
@@ -188,7 +192,8 @@ export default function RecommendedTablesPage() {
         answeredOffers.current.add(t.id);
         const others = otherOffersForGame(allTables, player.id, t.gameId, t.id, (id) => gameMap.get(id)).filter((o) => !answeredOffers.current.has(o.id));
         if (others.length > 0) setOtherOffers(others);
-        else if (!fromPrompt && !(player.repeatGameIds ?? []).includes(t.gameId)) setRepeatPromptGameId(t.gameId);
+        // Someone who only explains is not playing this table: asking about a second one to play makes no sense
+        else if (!fromPrompt && !onlyExplain && !(player.repeatGameIds ?? []).includes(t.gameId)) setRepeatPromptGameId(t.gameId);
       }
     } finally {
       setRespondingTableId(null);
@@ -228,7 +233,7 @@ export default function RecommendedTablesPage() {
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   const myAcceptedRecommendedTables = allTables
-    .filter((t) => t.status === 'recommended' && !t.postedByOwner && t.playerIds.includes(player.id))
+    .filter((t) => t.status === 'recommended' && !t.postedByOwner && isInTable(t, player.id))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   // Tables built for me that are still waiting for their explainer to confirm: not offered to me yet, but shown so they
@@ -240,7 +245,7 @@ export default function RecommendedTablesPage() {
   // Ones I accepted that already hit the minimum and got confirmed — also shown on the main
   // ticket page, but useful here too to see the whole recommendation flow through.
   const myConfirmedRecommendedTables = allTables
-    .filter((t) => !t.postedByOwner && ['confirmed', 'in-progress'].includes(t.status) && t.playerIds.includes(player.id))
+    .filter((t) => !t.postedByOwner && ['confirmed', 'in-progress'].includes(t.status) && isInTable(t, player.id))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   // One list with filter chips instead of three columns: a table keeps its place when it changes
@@ -293,17 +298,20 @@ export default function RecommendedTablesPage() {
       <div key={t.id} className={`border rounded-xl p-3 ${border}`}>
         <WaitingTableInfo t={t} game={game} accent={kind === 'confirmed' ? 'green' : 'amber'} interested={interested}
           seatWord='confirmados' onView={(k) => setViewing({ tableId: t.id, kind: k })}
-          note={kind === 'pending' && asExplainer ? '🎓 Podés explicar este juego — si aceptás primero, jugás en la mesa y recién ahí se les ofrece a los demás' : undefined}
+          note={kind === 'pending' && asExplainer ? '🎓 Podés explicar este juego — elegí si además jugás o solo lo explicás; recién ahí se les ofrece a los demás' : undefined}
           who={<RecommendedWho t={t} game={game} nameOf={nameOfPlayer} />}
           badge={<span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[kind].cls}`}>{KIND_BADGE[kind].label}</span>} />
         <div className="mt-3">
-          {kind === 'pending' ? (
+          {kind === 'pending' && asExplainer ? (
+            <ExplainerOffer table={t} game={game} disabled={respondingTableId === t.id} saving={respondingTableId === t.id}
+              onAnswer={(accept, only) => handleRespondToRecommendation(t, accept, false, only)} />
+          ) : kind === 'pending' ? (
             <div className="grid grid-cols-2 gap-2">
               <ActionButton tone="neutral" onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}>
-                {asExplainer ? '❌ No puedo explicarlo' : '❌ Rechazar'}
+                ❌ Rechazar
               </ActionButton>
               <ActionButton tone="amber" onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id}>
-                {respondingTableId === t.id ? 'Guardando...' : asExplainer ? '✅ Explico y juego' : '✅ Aceptar'}
+                {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
               </ActionButton>
             </div>
           ) : kind === 'queued' ? (

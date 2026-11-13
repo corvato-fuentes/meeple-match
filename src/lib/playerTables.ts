@@ -1,4 +1,5 @@
 import type { Table } from './types';
+import { isInTable } from './explainOnly';
 
 /**
  * Where one player stands on one table — what the admin wants to see next to what they voted:
@@ -24,8 +25,9 @@ export function playerTableEntries(playerId: string, tables: Table[]): PlayerTab
   const entries: PlayerTableEntry[] = [];
   for (const t of tables) {
     if (t.status === 'cancelled') continue;
-    if (t.playerIds.includes(playerId)) {
-      // While a table waits for an explainer, `explainerId` is only a placeholder: nobody explains it yet
+    if (isInTable(t, playerId)) {
+      // While a table waits for an explainer, `explainerId` is only a placeholder: nobody explains it yet. The explainer who only
+      // explains is not seated but is part of the table all the same.
       entries.push({ table: t, state: SET_STATUSES.includes(t.status) ? 'confirmed' : 'accepted', explains: !t.awaitingExplainer && t.explainerId === playerId });
     } else if (t.status === 'recommended' || t.status === 'confirmed') {
       if ((t.rejectedIds ?? []).includes(playerId)) entries.push({ table: t, state: 'rejected', explains: false });

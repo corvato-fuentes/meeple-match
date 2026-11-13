@@ -10,6 +10,7 @@ import {
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor } from '@/lib/offers';
 import { isFirmTable } from '@/lib/freeSeats';
+import { isExplainOnly } from '@/lib/explainOnly';
 import { countGames } from '@/lib/gameCounts';
 import { useOpenGameRequests } from '@/hooks/useOpenGameRequests';
 import { postedSlotConflict, replaceableByPostedTable, tablesOutsideAvailability, estimateAtCurrentSeats, suggestPostedStarts, interestAtSlot } from '@/lib/tableAlgorithm';
@@ -939,7 +940,10 @@ export default function MyTicketPage() {
                         {statusLabel[t.status] ?? t.status}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-400 mt-1">Mesa #{slotByTableId.get(t.id) ?? t.tableNumber} · {t.startTime}–{t.endTime}</p>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Mesa #{slotByTableId.get(t.id) ?? t.tableNumber} · {t.startTime}–{isExplainer && isExplainOnly(t) ? t.explainEndTime ?? t.endTime : t.endTime}
+                      {isExplainer && isExplainOnly(t) && <span className="text-purple-300"> · solo explicás (la mesa sigue hasta las {t.endTime})</span>}
+                    </p>
                     {(() => {
                       const g = games.find((x) => x.id === t.gameId);
                       const today = g && t.status === 'confirmed' ? estimateAtCurrentSeats(t, g) : null;
@@ -961,7 +965,7 @@ export default function MyTicketPage() {
                         <span className="text-xs bg-indigo-900 text-indigo-300 px-1.5 rounded">🎲 Jugador</span>
                       )}
                       {isExplainer && (
-                        <span className="text-xs bg-purple-900 text-purple-300 px-1.5 rounded">🎓 Explicador</span>
+                        <span className="text-xs bg-purple-900 text-purple-300 px-1.5 rounded">🎓 Explicador{isExplainOnly(t) ? ' (solo explicás)' : ''}</span>
                       )}
                     </div>
                     {t.status === 'confirmed' && (

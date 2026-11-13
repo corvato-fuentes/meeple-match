@@ -29,9 +29,13 @@ export interface ConflictPrompt {
 export function useScheduleConflict(code: string, player: Player | null, allTables: Table[]) {
   const [conflictPrompt, setConflictPrompt] = useState<(ConflictPrompt & { resolve: (ok: boolean) => void }) | null>(null);
 
-  function resolveScheduleConflict(t: Table): Promise<boolean> {
+  /**
+   * `window` is the part of the table the player would hold when it is not the whole of it: someone who only explains is held just
+   * for the explanation, so only what overlaps that matters.
+   */
+  function resolveScheduleConflict(t: Table, window?: { start: string; end: string }): Promise<boolean> {
     if (!player) return Promise.resolve(false);
-    const conflicts = findConflictingTables(player.id, t.startTime, t.endTime, allTables, t.id);
+    const conflicts = findConflictingTables(player.id, window?.start ?? t.startTime, window?.end ?? t.endTime, allTables, t.id);
     if (conflicts.length === 0) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
       const kind = conflicts.some((c) => c.status !== 'recommended' && c.status !== 'confirmed') ? 'locked'

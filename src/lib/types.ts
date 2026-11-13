@@ -128,8 +128,14 @@ export interface Table {
   gameName: string;
   startTime: string;
   endTime: string;
-  explainerId: string; // the explainer always plays at the table — there are no drop-in teachers
+  explainerId: string; // plays at the table too, unless they chose to only explain (see `explainerPlays`)
   playerIds: string[]; // accepted/joined players so far — the confirmed roster once status becomes 'confirmed'
+  // The explainer chose to ONLY explain: they are not in `playerIds` (no seat is taken for them) and the table holds their time
+  // just for the explanation, from the start until `explainEndTime`; after that they are free for other tables. Missing or true =
+  // the explainer plays as well, which is how every table works unless the explainer says otherwise. Whoever takes over the
+  // explaining later (the explainer left) is always someone seated, so these go back to the default (see asPlayingExplainer).
+  explainerPlays?: boolean;
+  explainEndTime?: string | null;
   status: TableStatus;
   isManuallyEdited: boolean;
   batchNumber: number;

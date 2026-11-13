@@ -12,6 +12,7 @@ import { toMinutes, toTimeString } from './timeUtils';
 import { requestPushSync } from './pushClient';
 import { findDeletedTwin } from './gameMatch';
 import { nextExplainer } from './explainer';
+import { asPlayingExplainer, isExplainOnly } from './explainOnly';
 import { displayNameOf } from './playerName';
 import { MIN_TABLE_SEATS } from './seats';
 import type { WaitingTableReview } from './tableAlgorithm';
@@ -580,7 +581,7 @@ export async function setPlayerOrganizer(eventCode: string, playerId: string, is
  */
 export async function removePlayerFromTable(eventCode: string, table: Table, playerId: string): Promise<void> {
   const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
-  const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId'>> = { playerIds: remainingPlayerIds };
+  const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId' | 'explainerPlays' | 'explainEndTime'>> = { playerIds: remainingPlayerIds };
   if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
   else if (table.explainerId === playerId) {
     // Only someone who said they can explain the game takes over; with nobody, the table is undone
@@ -588,7 +589,7 @@ export async function removePlayerFromTable(eventCode: string, table: Table, pla
     const byId = new Map(docs.filter((d) => d.exists()).map((d) => [d.id, d.data() as Player]));
     const next = nextExplainer([table.gameId], remainingPlayerIds, (id) => byId.get(id));
     if (!next) { await dissolveTable(eventCode, table); return; }
-    fields.explainerId = next;
+    Object.assign(fields, asPlayingExplainer(next)); // whoever takes over is seated, so they play as well
   }
   await updateDoc(doc(db, 'events', eventCode, 'tables', table.id), fields);
 }
@@ -670,7 +671,7 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
         if (remainingPlayerIds.length === 0) { fields.status = 'cancelled'; Object.assign(fields, dissolvedIfWaiting(table)); }
         else {
           const next = nextExplainer([table.gameId, promoted.id], remainingPlayerIds, playerById);
-          if (next) fields.explainerId = next; else Object.assign(fields, dissolvedFields(table));
+          if (next) Object.assign(fields, asPlayingExplainer(next)); else Object.assign(fields, dissolvedFields(table));
         }
       }
       batch.update(tableDoc.ref, fields);
@@ -686,7 +687,7 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
     if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
     else if (wasExplainer) {
       const next = nextExplainer([table.gameId], remainingPlayerIds, playerById);
-      if (next) fields.explainerId = next; else Object.assign(fields, dissolvedFields(table));
+      if (next) Object.assign(fields, asPlayingExplainer(next)); else Object.assign(fields, dissolvedFields(table));
     }
     batch.update(tableDoc.ref, fields);
   });
@@ -867,7 +868,12 @@ export async function respondToRecommendation(
   playerId: string,
   accept: boolean,
   minPlayers: number,
-  maxPlayers: number
+  maxPlayers: number,
+  /**
+   * Only for the offer to EXPLAIN a table that is still waiting for its explainer: the time the explanation ends, when the person
+   * chose to only explain. They don't take a seat; the table holds them just until then.
+   */
+  onlyExplainUntil?: string
 ): Promise<void> {
   const ref = doc(db, 'events', eventCode, 'tables', tableId);
   const minSeats = Math.max(MIN_TABLE_SEATS, minPlayers);
@@ -885,10 +891,13 @@ export async function respondToRecommendation(
       const queued = table.queuedIds ?? [];
       if (accept) {
         if (table.playerIds.includes(playerId)) return;
-        tx.update(ref, {
-          awaitingExplainer: false, explainerId: playerId, playerIds: [...table.playerIds, playerId],
-          candidateIds: [...candidateIds, ...queued], queuedIds: [],
-        });
+        const pool = { candidateIds: [...candidateIds, ...queued], queuedIds: [] as string[] };
+        if (onlyExplainUntil) {
+          // Explains and leaves: no seat, so the table still needs its own players; it is held for them only until `onlyExplainUntil`
+          tx.update(ref, { awaitingExplainer: false, explainerId: playerId, explainerPlays: false, explainEndTime: onlyExplainUntil, ...pool });
+        } else {
+          tx.update(ref, { awaitingExplainer: false, ...asPlayingExplainer(playerId), playerIds: [...table.playerIds, playerId], ...pool });
+        }
         return;
       }
       const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
@@ -1004,7 +1013,9 @@ export async function leaveAlgorithmTable(eventCode: string, tableId: string, pl
     if (!snap.exists()) return;
     const table = snap.data() as Table;
     if (table.postedByOwner || (table.status !== 'recommended' && table.status !== 'confirmed')) return;
-    if (!table.playerIds.includes(playerId)) return;
+    // Seated, or the explainer who only explains (not seated, but part of the table all the same)
+    const onlyExplains = table.explainerId === playerId && isExplainOnly(table);
+    if (!table.playerIds.includes(playerId) && !onlyExplains) return;
 
     const remaining = table.playerIds.filter((id) => id !== playerId);
     const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
@@ -1021,6 +1032,8 @@ export async function leaveAlgorithmTable(eventCode: string, tableId: string, pl
     }
     tx.update(ref, {
       playerIds: remaining, explainerId, rejectedIds,
+      // Whoever takes over explaining is seated, so they play as well (the explain-only choice was the one who left)
+      ...(explainerId !== table.explainerId && asPlayingExplainer(explainerId)),
       ...(table.status === 'confirmed' && remaining.length < Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'recommended' as const }),
     });
   });
@@ -1115,7 +1128,7 @@ export async function updateTableStatus(
 export async function updateTable(
   eventCode: string,
   tableId: string,
-  fields: Partial<Pick<Table, 'startTime' | 'endTime' | 'playerIds' | 'explainerId'>>
+  fields: Partial<Pick<Table, 'startTime' | 'endTime' | 'playerIds' | 'explainerId' | 'explainerPlays' | 'explainEndTime'>>
 ): Promise<void> {
   await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), {
     ...fields,

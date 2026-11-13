@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import GameCover from '@/components/ui/GameCover';
 import { pickNextTable, formatMinutes, type NextTableKind } from '@/lib/nextTable';
+import { isExplainOnly } from '@/lib/explainOnly';
 import type { Game, Player, Table } from '@/lib/types';
 
 const STYLE: Record<NextTableKind, { box: string; label: string; badge: string }> = {
@@ -31,7 +32,7 @@ export default function NextTableCard({ myTables, eventDate, games, players, myI
     return () => clearInterval(id);
   }, []);
 
-  const next = pickNextTable(myTables, eventDate, now);
+  const next = pickNextTable(myTables, eventDate, now, myId);
   if (!next) return null;
 
   const { table: t, kind } = next;
@@ -41,6 +42,7 @@ export default function NextTableCard({ myTables, eventDate, games, players, myI
   const brings = game ? (game.ownerPlayerId === myId ? 'Vos' : game.ownerName) : null;
   const mates = t.playerIds.filter((id) => id !== myId).map(nameOf);
   const slot = slotByTableId.get(t.id);
+  const onlyExplains = isExplainOnly(t) && t.explainerId === myId;
 
   const when =
     kind === 'live' ? `Termina en ${formatMinutes(next.minutesLeft ?? 0)}`
@@ -57,7 +59,10 @@ export default function NextTableCard({ myTables, eventDate, games, players, myI
         <GameCover imageUrl={game?.imageUrl} size="md" />
         <div className="min-w-0">
           <p className="text-lg font-bold leading-snug">{t.gameName}</p>
-          <p className="text-sm text-gray-400">{t.startTime}–{t.endTime}</p>
+          <p className="text-sm text-gray-400">
+            {t.startTime}–{onlyExplains ? t.explainEndTime ?? t.endTime : t.endTime}
+            {onlyExplains && <span className="text-purple-300"> · solo explicás (la mesa sigue hasta las {t.endTime})</span>}
+          </p>
         </div>
         <div className="ml-auto text-right shrink-0">
           <p className="text-[11px] uppercase tracking-wide text-gray-500">Mesa</p>
@@ -66,8 +71,8 @@ export default function NextTableCard({ myTables, eventDate, games, players, myI
       </div>
       <div className="space-y-0.5 text-sm text-gray-300">
         {brings && <p>📦 Trae: <span className="text-gray-100">{brings}</span></p>}
-        {t.explainerId && <p>🎓 Explica: <span className="text-gray-100">{nameOf(t.explainerId)}</span></p>}
-        {mates.length > 0 && <p>👥 Jugás con: <span className="text-gray-100">{mates.join(', ')}</span></p>}
+        {t.explainerId && !onlyExplains && <p>🎓 Explica: <span className="text-gray-100">{nameOf(t.explainerId)}</span></p>}
+        {mates.length > 0 && <p>👥 {onlyExplains ? 'Se la explicás a' : 'Jugás con'}: <span className="text-gray-100">{mates.join(', ')}</span></p>}
       </div>
     </section>
   );

@@ -1,5 +1,6 @@
 import type { Table } from './types';
 import { toMinutes } from './timeUtils';
+import { occupiedWindow } from './explainOnly';
 
 // A table starting within this many minutes is flagged as "starting soon" (same threshold as the board).
 export const SOON_THRESHOLD_MIN = 20;
@@ -37,7 +38,9 @@ export function formatMinutes(total: number): string {
  * next to start. Returns null when there is nothing left to show (no confirmed tables, or the
  * event day is over / every table already finished).
  */
-export function pickNextTable(myTables: Table[], eventDate: string, now: Date): NextTable | null {
+export function pickNextTable(myTables: Table[], eventDate: string, now: Date, playerId?: string): NextTable | null {
+  // Until when the table holds this person: all of it, or just the explanation if they only explain it
+  const endOf = (t: Table) => (playerId ? occupiedWindow(t, playerId)?.end : undefined) ?? t.endTime;
   const upcomingFirst = myTables
     .filter((t) => t.status === 'confirmed' || t.status === 'in-progress')
     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
@@ -48,8 +51,8 @@ export function pickNextTable(myTables: Table[], eventDate: string, now: Date): 
   if (eventDate > today) return { kind: 'future', table: upcomingFirst[0] };
 
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const live = upcomingFirst.find((t) => toMinutes(t.startTime) <= nowMin && nowMin < toMinutes(t.endTime));
-  if (live) return { kind: 'live', table: live, minutesLeft: toMinutes(live.endTime) - nowMin };
+  const live = upcomingFirst.find((t) => toMinutes(t.startTime) <= nowMin && nowMin < toMinutes(endOf(t)));
+  if (live) return { kind: 'live', table: live, minutesLeft: toMinutes(endOf(live)) - nowMin };
 
   const next = upcomingFirst.find((t) => toMinutes(t.startTime) > nowMin);
   if (!next) return null;

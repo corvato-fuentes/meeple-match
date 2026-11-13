@@ -9,6 +9,8 @@ import {
 import {
   blockedMessage, freeSeatsOf, hasOpenSeat, hasWaitingSeat, missingToConfirm, seatOptionFor, type SeatOption,
 } from '@/lib/freeSeats';
+import { explainEndFor, isExplainOnly, isInTable } from '@/lib/explainOnly';
+import ExplainerOffer from '@/components/ui/ExplainerOffer';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots, slotMapFor } from '@/lib/physicalSlots';
@@ -158,7 +160,7 @@ export default function BoardPage() {
     const groups: Record<RecGroup, Table[]> = { pending: [], accepted: [], other: [] };
     for (const t of recommendedTables) {
       if (!viewer) groups.other.push(t);
-      else if (t.playerIds.includes(viewer.id)) groups.accepted.push(t);
+      else if (isInTable(t, viewer.id)) groups.accepted.push(t);
       // Offered it, or about to be (queued behind an explainer who hasn't confirmed): both are "mine to follow" first
       else if (([...(t.candidateIds ?? []), ...(t.queuedIds ?? [])]).includes(viewer.id) && !(t.rejectedIds ?? []).includes(viewer.id)) groups.pending.push(t);
       else groups.other.push(t);
@@ -169,7 +171,7 @@ export default function BoardPage() {
   // Drives the "Solo mis mesas" toggle for the cards view — the grid view filters separately
   // (via ScheduleGrid's onlyPlayerId) so its table numbering/timeline stay anchored to the full schedule.
   const cardTables = useMemo(
-    () => onlyMine && viewer ? scheduledTables.filter((t) => t.playerIds.includes(viewer.id)) : scheduledTables,
+    () => onlyMine && viewer ? scheduledTables.filter((t) => isInTable(t, viewer.id)) : scheduledTables,
     [scheduledTables, onlyMine, viewer]
   );
 
@@ -201,11 +203,11 @@ export default function BoardPage() {
   // cards and the lists.
   const myId = viewer?.id ?? null;
   const exploreConfirmed = useMemo(
-    () => scheduledTables.filter((t) => openIds.has(t.id) && (myId === null || !t.playerIds.includes(myId))),
+    () => scheduledTables.filter((t) => openIds.has(t.id) && (myId === null || !isInTable(t, myId))),
     [scheduledTables, openIds, myId]
   );
   const exploreConfirmedIds = useMemo(() => new Set(exploreConfirmed.map((t) => t.id)), [exploreConfirmed]);
-  const exploreWaiting = useMemo(() => waitingOpen.filter((t) => myId === null || !t.playerIds.includes(myId)), [waitingOpen, myId]);
+  const exploreWaiting = useMemo(() => waitingOpen.filter((t) => myId === null || !isInTable(t, myId)), [waitingOpen, myId]);
   const freeCount = exploreConfirmed.length + exploreWaiting.length;
   const takeable = useMemo(() => {
     const m = new Map<string, SeatOption>();
@@ -243,7 +245,7 @@ export default function BoardPage() {
       const status = (glyph: string, color: string, title: string): CellBadge => ({ glyph, color, title, label: `${title}: ${t.gameName}`, clickable: false });
       const option = takeable.get(t.id);
       if (option) { m.set(t.id, { ...seatLook(option, t), clickable: true }); continue; }
-      if (viewer && t.playerIds.includes(viewer.id)) { m.set(t.id, status('✓', 'bg-emerald-800', 'Estás en esta mesa')); continue; }
+      if (viewer && isInTable(t, viewer.id)) { m.set(t.id, status('✓', 'bg-emerald-800', 'Estás en esta mesa')); continue; }
       if (t.status === 'recommended') continue; // still waiting for players and nothing to do about it: no icon
       const game = gameMap.get(t.gameId);
       const over = t.status === 'completed' || eventIsPast || (eventIsToday && nowMinutes >= toMinutes(t.endTime));
@@ -335,19 +337,21 @@ export default function BoardPage() {
   // Aceptar / Rechazar on a recommended card — the same answer as on the Mesas recomendadas page, so it can be given
   // right here. Accepting first checks the overlap popup, and re-checks the waiting tables afterwards (it takes the
   // viewer's time, so a table that was waiting for them to explain something else at that hour has to move on).
-  async function handleRespondToRecommendation(t: Table, accept: boolean) {
+  // `onlyExplain` (only when accepting an offer to explain): the explainer takes no seat and is held just for the explanation
+  async function handleRespondToRecommendation(t: Table, accept: boolean, onlyExplain = false) {
     if (!viewer || respondingTableId) return;
     const game = games.find((g) => g.id === t.gameId);
     if (!game) return;
+    const onlyUntil = accept && onlyExplain ? explainEndFor(t, game) : undefined;
     if (accept) {
       setAcceptingTable(t);
-      const ok = await resolveScheduleConflict(t);
+      const ok = await resolveScheduleConflict(t, onlyUntil ? { start: t.startTime, end: onlyUntil } : undefined);
       setAcceptingTable(null);
       if (!ok) return;
     }
     setRespondingTableId(t.id);
     try {
-      await respondToRecommendation(code, t.id, viewer.id, accept, game.minPlayers, game.maxPlayers);
+      await respondToRecommendation(code, t.id, viewer.id, accept, game.minPlayers, game.maxPlayers, onlyUntil);
       if (accept && event) runTableGeneration(code, event).catch(() => {});
     } finally {
       setRespondingTableId(null);
@@ -422,8 +426,8 @@ export default function BoardPage() {
   }
 
   // The place was already offered to the viewer: Aceptar / Rechazar, the same answer as on Mesas recomendadas
-  async function answerSeatOffer(t: Table, accept: boolean) {
-    await handleRespondToRecommendation(t, accept);
+  async function answerSeatOffer(t: Table, accept: boolean, onlyExplain = false) {
+    await handleRespondToRecommendation(t, accept, onlyExplain);
     closeSeat();
   }
 
@@ -636,6 +640,8 @@ export default function BoardPage() {
                   // makes them a candidate; they still have to accept the table. The note sits with the info lines and
                   // every card ends in one big button: the action you can take, or the state you are in.
                   const mine: { note?: string; button: ReactNode } | null = !viewer ? null
+                    : t.explainerId === viewer.id && isExplainOnly(t)
+                      ? { button: <ActionButton tone='done'>🎓 Confirmaste: vas a solo explicar hasta las {t.explainEndTime ?? t.startTime}</ActionButton> }
                     : t.explainerId === viewer.id && t.playerIds.includes(viewer.id)
                       ? { button: <ActionButton tone='done'>🎓 Confirmaste: vas a explicar y jugar</ActionButton> }
                     : t.playerIds.includes(viewer.id)
@@ -644,14 +650,17 @@ export default function BoardPage() {
                       ? { button: <ActionButton tone='muted'>🚫 Rechazaste esta mesa</ActionButton> }
                     : (t.candidateIds ?? []).includes(viewer.id)
                       ? {
-                          note: t.awaitingExplainer ? '🎓 Podés explicar este juego — si lo explicás, jugás en la mesa' : undefined,
-                          button: (
+                          note: t.awaitingExplainer ? '🎓 Podés explicar este juego — elegí si además jugás o solo lo explicás' : undefined,
+                          button: t.awaitingExplainer ? (
+                            <ExplainerOffer table={t} game={game} disabled={respondingTableId === t.id} saving={respondingTableId === t.id}
+                              onAnswer={(accept, only) => handleRespondToRecommendation(t, accept, only)} />
+                          ) : (
                             <div className='grid grid-cols-2 gap-2'>
                               <ActionButton tone='neutral' onClick={() => handleRespondToRecommendation(t, false)} disabled={respondingTableId === t.id}>
-                                {t.awaitingExplainer ? '❌ No puedo explicarlo' : '❌ Rechazar'}
+                                ❌ Rechazar
                               </ActionButton>
                               <ActionButton tone='amber' onClick={() => handleRespondToRecommendation(t, true)} disabled={respondingTableId === t.id}>
-                                {respondingTableId === t.id ? 'Guardando...' : t.awaitingExplainer ? '✅ Explico y juego' : '✅ Aceptar'}
+                                {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
                               </ActionButton>
                             </div>
                           ),
@@ -827,7 +836,9 @@ export default function BoardPage() {
                 </div>
               </div>
               <div className='text-xs text-gray-400 space-y-0.5'>
-                {t.explainerId && !t.awaitingExplainer && <p>🎓 Explica: <span className='text-gray-200'>{nameOfPlayer(t.explainerId)}</span></p>}
+                {t.explainerId && !t.awaitingExplainer && (
+                  <p>🎓 Explica{isExplainOnly(t) ? ` (solo explica hasta las ${t.explainEndTime ?? t.startTime})` : ''}: <span className='text-gray-200'>{nameOfPlayer(t.explainerId)}</span></p>
+                )}
                 {t.awaitingExplainer && <p>🎓 Todavía espera que alguien confirme que la explica.</p>}
                 {t.playerIds.length > 0 && <p>👥 {waiting ? 'Anotados' : 'Jugando'}: <span className='text-gray-200'>{t.playerIds.map(nameOfPlayer).join(', ')}</span></p>}
               </div>
@@ -837,16 +848,21 @@ export default function BoardPage() {
                     🙋 El algoritmo te ofreció este lugar.
                     {!waiting && ' La mesa ya está confirmada: los demás cuentan con vos si aceptás.'}
                   </p>
-                  <div className='grid grid-cols-2 gap-2'>
-                    <button onClick={() => answerSeatOffer(t, false)} disabled={respondingTableId === t.id}
-                      className='border border-gray-700 rounded-lg py-2 text-gray-300 hover:bg-gray-800 disabled:opacity-50'>
-                      {t.awaitingExplainer ? '❌ No puedo explicarlo' : '❌ Rechazar'}
-                    </button>
-                    <button onClick={() => answerSeatOffer(t, true)} disabled={respondingTableId === t.id}
-                      className='bg-amber-600 text-white rounded-lg py-2 font-semibold hover:bg-amber-700 disabled:opacity-50'>
-                      {respondingTableId === t.id ? 'Guardando...' : t.awaitingExplainer ? '✅ Explico y juego' : '✅ Aceptar'}
-                    </button>
-                  </div>
+                  {t.awaitingExplainer ? (
+                    <ExplainerOffer table={t} game={game} disabled={respondingTableId === t.id} saving={respondingTableId === t.id}
+                      onAnswer={(accept, only) => answerSeatOffer(t, accept, only)} />
+                  ) : (
+                    <div className='grid grid-cols-2 gap-2'>
+                      <button onClick={() => answerSeatOffer(t, false)} disabled={respondingTableId === t.id}
+                        className='border border-gray-700 rounded-lg py-2 text-gray-300 hover:bg-gray-800 disabled:opacity-50'>
+                        ❌ Rechazar
+                      </button>
+                      <button onClick={() => answerSeatOffer(t, true)} disabled={respondingTableId === t.id}
+                        className='bg-amber-600 text-white rounded-lg py-2 font-semibold hover:bg-amber-700 disabled:opacity-50'>
+                        {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
               {option?.kind === 'join' && (
@@ -1032,7 +1048,7 @@ function ScheduleGrid({
 
   if (buckets.length === 0) return null;
 
-  const hasOwnTables = !onlyPlayerId || activeTables.some((t) => t.playerIds.includes(onlyPlayerId));
+  const hasOwnTables = !onlyPlayerId || activeTables.some((t) => isInTable(t, onlyPlayerId));
   const noneToShow = !hasOwnTables ? 'Todavía no tenés mesas agendadas.'
     : onlyIds && waiting.length === 0 && !activeTables.some((t) => onlyIds.has(t.id)) ? 'No quedan mesas con lugar libre.' : null;
 
@@ -1098,7 +1114,7 @@ function ScheduleGrid({
           <tbody>
             {Array.from({ length: rowCount }, (_, slotIdx) => {
               const rowTables = assignments
-                .filter((a) => a.slot === slotIdx && (!onlyPlayerId || a.table.playerIds.includes(onlyPlayerId)) && (!onlyIds || onlyIds.has(a.table.id)))
+                .filter((a) => a.slot === slotIdx && (!onlyPlayerId || isInTable(a.table, onlyPlayerId)) && (!onlyIds || onlyIds.has(a.table.id)))
                 .map((a) => a.table);
               if ((onlyPlayerId || onlyIds) && rowTables.length === 0) return null;
               const rowEntries: GridEntry[] = rowTables.map((t) => ({
@@ -1206,6 +1222,13 @@ function TableSection({
                   </div>
                 );
               })}
+              {/* An explainer who only explains is not seated, so they are not in the list above: they have a line of their own */}
+              {isExplainOnly(t) && t.explainerId && (
+                <div className='flex items-center gap-2 text-sm'>
+                  <span className='text-gray-300'>🎓 {playerMap.get(t.explainerId)?.name ?? t.explainerId}</span>
+                  <span className='text-xs bg-purple-900 text-purple-300 px-1.5 rounded'>solo explica hasta las {t.explainEndTime ?? t.startTime}</span>
+                </div>
+              )}
             </div>
             {openIds?.has(t.id) && (
               <div className='mt-3 flex items-center justify-between gap-2'>

@@ -3,11 +3,12 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateTable, setTableEnd, dissolveTable, getPlayers, getGames } from '@/lib/firestore';
-import { toMinutes } from '@/lib/timeUtils';
+import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import Time24Input from '@/components/ui/Time24Input';
 import { sameGameOverlaps, expectedTableEnd } from '@/lib/tableAlgorithm';
 import { nextExplainer } from '@/lib/explainer';
+import { asPlayingExplainer, isExplainOnly } from '@/lib/explainOnly';
 import type { MeepleEvent, Table, Player, Game } from '@/lib/types';
 
 const STATUS_OPTIONS: Table['status'][] = ['recommended', 'confirmed', 'in-progress', 'completed', 'cancelled'];
@@ -106,18 +107,25 @@ export default function TablesPage() {
     )) return;
     // The explainer has to be someone sitting at the table. With nobody who can explain it, the table can't be played: it is
     // undone (its people go back to the pool), after asking
-    const explainerId = draft.playerIds.includes(draft.explainerId) ? draft.explainerId : '';
+    // An explainer who only explains is not seated, and that is fine: they stay as they are (see Table.explainerPlays)
+    const keepsOnlyExplainer = isExplainOnly(t) && draft.explainerId === t.explainerId;
+    const explainerId = keepsOnlyExplainer || draft.playerIds.includes(draft.explainerId) ? draft.explainerId : '';
     if (!explainerId && draft.playerIds.length > 0) {
       if (!window.confirm(`Ninguno de los jugadores de la mesa de ${t.gameName} marcó que sabe explicarla, y no elegiste quién la explica. Sin explicador la mesa se deshace y la gente vuelve a quedar libre. ¿Deshacerla?`)) return;
       await dissolveTable(code, t);
       cancelEdit();
       return;
     }
+    // If the table moves, the explanation moves with it (same length, never past the end); a different explainer is seated, so plays too
+    const explainFields = keepsOnlyExplainer
+      ? { explainEndTime: toTimeString(Math.min(toMinutes(draft.startTime) + (toMinutes(t.explainEndTime ?? t.endTime) - toMinutes(t.startTime)), toMinutes(draft.endTime))) }
+      : explainerId && explainerId !== t.explainerId ? asPlayingExplainer(explainerId) : {};
     await updateTable(code, t.id, {
       startTime: draft.startTime,
       endTime: draft.endTime,
       playerIds: draft.playerIds,
       explainerId,
+      ...explainFields,
     });
     cancelEdit();
   }
@@ -243,11 +251,16 @@ export default function TablesPage() {
                       <div className='space-y-1'>
                         <p className='text-xs font-semibold text-gray-400'>✅ Confirmados ({currentIds.length})</p>
                         {currentIds.length === 0 && <p className='text-xs text-gray-500'>Nadie todavía.</p>}
+                        {isExplainOnly(t) && (
+                          <p className='text-xs text-purple-300'>
+                            🎓 {playerMap.get(t.explainerId)?.name ?? t.explainerId} solo explica (hasta las {t.explainEndTime ?? t.startTime}): no ocupa lugar
+                          </p>
+                        )}
                         {(() => {
                           const explainerNow = isEditing && draft ? draft.explainerId : t.explainerId;
                           return (
                             <>
-                              {currentIds.length > 0 && !currentIds.includes(explainerNow) && (t.status === 'recommended' || t.status === 'confirmed') && (
+                              {currentIds.length > 0 && !currentIds.includes(explainerNow) && !(isExplainOnly(t) && explainerNow === t.explainerId) && (t.status === 'recommended' || t.status === 'confirmed') && (
                                 <p className='text-xs text-amber-300'>⚠️ Sin explicador{isEditing ? ': elegí quién la explica con “🎓 Que explique”; si no, al guardar la mesa se deshace' : ''}</p>
                               )}
                               {currentIds.map((pid) => {

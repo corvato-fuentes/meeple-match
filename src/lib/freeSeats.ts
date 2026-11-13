@@ -2,6 +2,7 @@ import type { Game, Player, Table } from './types';
 import { isTentative } from './registration';
 import { isOfferFor } from './offers';
 import { minSeats } from './seats';
+import { isInTable } from './explainOnly';
 import { toMinutes } from './timeUtils';
 
 /**
@@ -66,7 +67,7 @@ export function seatOptionFor(args: {
   if (!viewer || !game || !(hasOpenSeat(table, game, started) || hasWaitingSeat(table, game, started))) return null;
   const blocked = (reason: BlockedReason): SeatOption => ({ kind: 'blocked', reason });
 
-  if (table.playerIds.includes(viewer.id)) return blocked({ kind: 'in-table' });
+  if (isInTable(table, viewer.id)) return blocked({ kind: 'in-table' }); // seated, or the explainer who only explains
   if ((table.rejectedIds ?? []).includes(viewer.id)) return blocked({ kind: 'rejected' });
   if (isTentative(viewer)) return blocked({ kind: 'tentative' });
   if (table.awaitingExplainer && (table.queuedIds ?? []).includes(viewer.id)) return blocked({ kind: 'queued' });
