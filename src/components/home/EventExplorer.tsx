@@ -21,7 +21,7 @@ const chip = (on: boolean) =>
 
 /**
  * Every event that is open to join and not over yet, as cards: flyer, name, day, hours, place, how many are in, and a way into it.
- * It can be seen as a list or on a map with a pin for each event that could be located; on the map the list stays underneath.
+ * It can be seen as a list or on a map with a pin for each event that could be located: one view at a time.
  * Organizers can leave their event out (in the event's settings). Whether an event is over is decided here, with the hours.
  */
 export default function EventExplorer() {
@@ -68,15 +68,16 @@ export default function EventExplorer() {
             <EventMap events={pinned} />
             {pinned.length < state.events.length && (
               <p className='text-xs text-gray-500'>
-                {state.events.length - pinned.length === 1 ? '1 evento no tiene' : `${state.events.length - pinned.length} eventos no tienen`} ubicación en el mapa: están en la lista de abajo.
+                {state.events.length - pinned.length === 1 ? '1 evento no tiene' : `${state.events.length - pinned.length} eventos no tienen`} ubicación en el mapa: lo{state.events.length - pinned.length === 1 ? '' : 's'} ves en «Lista».
               </p>
             )}
           </>
         ) : (
-          <p className='text-sm text-gray-500 border border-gray-700 rounded-xl p-4 text-center'>Ningún evento tiene ubicación en el mapa todavía. Están en la lista de abajo.</p>
+          <p className='text-sm text-gray-500 border border-gray-700 rounded-xl p-4 text-center'>Ningún evento tiene ubicación en el mapa todavía. Los ves en «Lista».</p>
         )
       )}
-      {state.events.map((e) => (
+      {/* The map and the list are two views of the same events: one at a time */}
+      {view === 'list' && state.events.map((e) => (
         <div key={e.code} className='border border-gray-700 rounded-xl p-3 bg-gray-900'>
           <EventSummary name={e.name} bannerUrl={e.bannerUrl} date={e.date} startTime={e.startTime} endTime={e.endTime}
             location={e.location} when={whenOf(e, state.now)}>
