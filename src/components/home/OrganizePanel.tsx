@@ -10,6 +10,10 @@ import { isLocalhostName, listedByDefault } from '@/lib/publicEvents';
 
 type Open = 'event' | 'trade' | 'admin' | null;
 
+// Creating an exchange (math trade) is not available yet: off for everyone, localhost included.
+// Set NEXT_PUBLIC_MATH_TRADE_CREATE=1 (e.g. in .env.local) to turn it on while it is being built.
+const TRADE_CREATION_ENABLED = process.env.NEXT_PUBLIC_MATH_TRADE_CREATE === '1';
+
 /** One thing an organizer can do, as a card: collapsed it is a title and a button, open it is its form. */
 function Card({ icon, title, hint, open, onOpen, onClose, button, disabled, note, children }: {
   icon: string; title: string; hint: string; open: boolean; onOpen: () => void; onClose: () => void;
@@ -84,7 +88,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
 
   async function handleCreateTrade(e: React.FormEvent) {
     e.preventDefault();
-    if (!isLocalhost) return;
+    if (!TRADE_CREATION_ENABLED) return;
     setTradeLoading(true);
     try {
       const code = await generateUniqueMathTradeCode();
@@ -173,8 +177,8 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
       </Card>
 
       <Card icon='🔁' title='Crear un intercambio (Math Trade)' hint='Un intercambio de juegos en cadena entre varios jugadores.'
-        note={isLocalhost ? undefined : '🚧 Funcionalidad en desarrollo: todavía no está disponible.'}
-        open={open === 'trade'} onOpen={() => setOpen('trade')} onClose={() => setOpen(null)} button='Crear intercambio →' disabled={!isLocalhost}>
+        note={TRADE_CREATION_ENABLED ? undefined : '🚧 Funcionalidad en desarrollo: todavía no está disponible.'}
+        open={open === 'trade'} onOpen={() => setOpen('trade')} onClose={() => setOpen(null)} button='Crear intercambio →' disabled={!TRADE_CREATION_ENABLED}>
         <form onSubmit={handleCreateTrade} className='space-y-3'>
           <div>
             <label className='block text-sm font-medium mb-1'>Nombre del math trade</label>
