@@ -6,6 +6,7 @@ import { generateUniqueShortCode } from '@/lib/shortCode';
 import { saveMyEvent, parseAdminLink } from '@/lib/myEvents';
 import { createMathTradeEvent, generateUniqueMathTradeCode } from '@/lib/mathtradeFirestore';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
+import { isLocalhostName, listedByDefault } from '@/lib/publicEvents';
 
 type Open = 'event' | 'trade' | 'admin' | null;
 
@@ -39,8 +40,15 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
   const router = useRouter();
   const [open, setOpen] = useState<Open>(openAdmin ? 'admin' : null);
   const [isLocalhost, setIsLocalhost] = useState(false);
+  // Shown in "Explorar eventos" or not. On by default — except when the app runs on localhost, where what gets created is
+  // for testing (it is the same database) and should not appear in the public list; the organizer can still tick it.
+  const [listed, setListed] = useState(true);
   useEffect(() => {
-    queueMicrotask(() => setIsLocalhost(['localhost', '127.0.0.1'].includes(window.location.hostname)));
+    queueMicrotask(() => {
+      const local = isLocalhostName(window.location.hostname);
+      setIsLocalhost(local);
+      setListed(listedByDefault(local));
+    });
   }, []);
 
   // ── create an event ────────────────────────────────────────────────────────
@@ -59,6 +67,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
         settings: {
           bufferMinutes: 15, maxPlayers: null, maxGamesPerPlayer: null, physicalTables: null, breaks: [],
           paymentRequired: false, paymentInfo: null, paymentAlias: null, flexibleRegistration: false, registrationBannerUrl: null,
+          listed,
         },
       });
       saveMyEvent({ code, adminToken, name: form.name, date: form.date });
@@ -135,6 +144,18 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
             <label className='block text-sm font-medium mb-1'>Link de Google Maps (opcional)</label>
             <input type='url' className={field} value={form.mapUrl} onChange={(e) => setForm({ ...form, mapUrl: e.target.value })} placeholder='https://maps.app.goo.gl/...' />
           </div>
+          <label className='flex items-start gap-2 text-sm text-gray-300'>
+            <input type='checkbox' className='mt-1' checked={listed} onChange={(e) => setListed(e.target.checked)} />
+            <span>
+              Mostrar en «Explorar eventos»
+              <span className='block text-xs text-gray-500'>
+                Aparece en la lista pública del inicio. Si lo desmarcás, solo entra quien tenga el código. Lo podés cambiar después en la configuración.
+              </span>
+              {isLocalhost && (
+                <span className='block text-xs text-amber-400 mt-0.5'>Estás en localhost: viene desmarcado para que un evento de prueba no se publique.</span>
+              )}
+            </span>
+          </label>
           <div className='grid grid-cols-2 gap-3'>
             <div>
               <label className='block text-sm font-medium mb-1'>Desde</label>

@@ -16,6 +16,12 @@ export interface PublicEvent {
 /** Events are listed unless the organizer turned it off. */
 export const isListed = (e: Pick<MeepleEvent, 'settings'>): boolean => e.settings?.listed !== false;
 
+/** The app running on the developer's own machine (it still talks to the real database). */
+export const isLocalhostName = (hostname: string): boolean => ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname);
+
+/** What a new event does about the public list when the organizer has not chosen: listed, except when created from localhost (a test). */
+export const listedByDefault = (onLocalhost: boolean): boolean => !onLocalhost;
+
 /**
  * The oldest day (`YYYY-MM-DD`) still worth sending: yesterday. The server's clock is not the organizer's, so whether an event is
  * already over is decided on the device (with the hours); the server only drops what is clearly past.

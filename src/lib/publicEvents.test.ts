@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { oldestDateToList, toPublicEvent } from './publicEvents';
+import { isLocalhostName, listedByDefault, oldestDateToList, toPublicEvent } from './publicEvents';
 import type { MeepleEvent } from './types';
 
 const event = (over: Partial<MeepleEvent> = {}, settings: Partial<MeepleEvent['settings']> = {}): MeepleEvent => ({
@@ -11,6 +11,19 @@ const event = (over: Partial<MeepleEvent> = {}, settings: Partial<MeepleEvent['s
   ...over,
 });
 const now = new Date('2026-11-13T12:00:00Z');
+
+describe('a new event and the public list', () => {
+  it('is listed by default, except when it is created from localhost (a test)', () => {
+    expect(listedByDefault(false)).toBe(true);
+    expect(listedByDefault(true)).toBe(false);
+  });
+  it('knows the developer machine from the real site', () => {
+    expect(isLocalhostName('localhost')).toBe(true);
+    expect(isLocalhostName('127.0.0.1')).toBe(true);
+    expect(isLocalhostName('meeple-match.vercel.app')).toBe(false);
+    expect(isLocalhostName('172.19.128.1')).toBe(false);
+  });
+});
 
 describe('toPublicEvent', () => {
   it('keeps only what the list shows: no payment data, nothing about people', () => {
