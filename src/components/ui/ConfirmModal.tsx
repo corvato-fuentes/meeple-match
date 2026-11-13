@@ -1,11 +1,13 @@
 'use client';
+import type { ReactNode } from 'react';
 
 export default function ConfirmModal({
   open, title, message, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', danger, onConfirm, onCancel,
 }: {
   open: boolean;
   title: string;
-  message: string;
+  /** Plain text, or a few paragraphs. */
+  message: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -18,7 +20,7 @@ export default function ConfirmModal({
       <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
         onClick={(e) => e.stopPropagation()}>
         <h3 className="font-semibold text-gray-100">{title}</h3>
-        <p className="text-xs text-gray-400">{message}</p>
+        <div className="text-xs text-gray-400 space-y-2">{typeof message === 'string' ? <p>{message}</p> : message}</div>
         <div className="flex gap-2">
           <button onClick={onCancel}
             className="flex-1 border border-gray-700 rounded-lg py-2 text-xs font-medium text-gray-400 hover:bg-gray-800">
