@@ -64,6 +64,45 @@ export function savePlayerEvent(entry: Omit<SavedPlayerEvent, 'savedAt'>): void 
   localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(events.slice(0, MAX_SAVED)));
 }
 
+/**
+ * Tickets this device holds that never made it into the saved list: the event pages keep the ticket code under
+ * `mm_ticket_<code>`, and tickets from before the list existed are only there. Codes the person hid from the home page are left out.
+ */
+export function getBareTickets(): { code: string; ticketCode: string }[] {
+  if (typeof window === 'undefined') return [];
+  const hidden = getHiddenFromHome();
+  const found: { code: string; ticketCode: string }[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith('mm_ticket_')) continue;
+      const code = key.slice('mm_ticket_'.length);
+      const ticketCode = localStorage.getItem(key);
+      if (code && ticketCode && !hidden.includes(code)) found.push({ code, ticketCode });
+    }
+  } catch { /* storage unavailable */ }
+  return found;
+}
+
+const HIDDEN_KEY = 'mm_home_hidden';
+
+function getHiddenFromHome(): string[] {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** "Quitar" on the home page: stop listing this event's bare ticket there (the ticket itself stays, so the event page still opens it). */
+export function hideFromHome(code: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...new Set([...getHiddenFromHome(), code])]));
+  } catch { /* storage unavailable */ }
+}
+
 export function removeMyPlayerEvent(code: string): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(getMyPlayerEvents().filter((e) => e.code !== code)));

@@ -12,14 +12,24 @@ export interface HomeEventCard {
   ticket?: { ticketCode: string; playerName: string };
 }
 
-/** One card per event: the organizer entries and the tickets this device saved, joined by event code. */
-export function mergeSavedEvents(admin: SavedEvent[], player: SavedPlayerEvent[]): HomeEventCard[] {
+/**
+ * One card per event: the organizer entries and the tickets this device saved, joined by event code.
+ * `bare` are tickets known only by their code (no name or date saved): they join an existing card, or make one the live event fills in.
+ */
+export function mergeSavedEvents(
+  admin: SavedEvent[], player: SavedPlayerEvent[], bare: { code: string; ticketCode: string }[] = [],
+): HomeEventCard[] {
   const byCode = new Map<string, HomeEventCard>();
   for (const a of admin) byCode.set(a.code, { code: a.code, name: a.name, date: a.date, admin: { adminToken: a.adminToken } });
   for (const p of player) {
     const card = byCode.get(p.code) ?? { code: p.code, name: p.name, date: p.date };
     card.ticket = { ticketCode: p.ticketCode, playerName: p.playerName };
     byCode.set(p.code, card);
+  }
+  for (const b of bare) {
+    const card = byCode.get(b.code) ?? { code: b.code, name: '', date: '' };
+    if (!card.ticket) card.ticket = { ticketCode: b.ticketCode, playerName: '' };
+    byCode.set(b.code, card);
   }
   return [...byCode.values()];
 }
@@ -45,7 +55,8 @@ export function whenOf(card: Pick<HomeEventCard, 'date' | 'startTime' | 'endTime
 
 /** What is happening or coming first goes first; events already over go last, the most recent one first. */
 export function sortCards<T extends Pick<HomeEventCard, 'date' | 'startTime' | 'endTime'>>(cards: T[], now: Date): T[] {
-  const at = (c: T) => new Date(`${c.date}T${c.startTime ?? '00:00'}:00`).getTime();
+  // A card whose date is not known yet goes after the dated ones
+  const at = (c: T) => new Date(`${c.date}T${c.startTime ?? '00:00'}:00`).getTime() || 8.64e15;
   const rank = (c: T) => (whenOf(c, now).tone === 'past' ? 1 : 0);
   return [...cards].sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? at(a) - at(b) : at(b) - at(a)));
 }

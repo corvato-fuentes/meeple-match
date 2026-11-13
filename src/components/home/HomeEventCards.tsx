@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getEvent } from '@/lib/firestore';
-import { getMyEvents, getMyPlayerEvents, removeMyEvent, removeMyPlayerEvent } from '@/lib/myEvents';
+import { getBareTickets, getMyEvents, getMyPlayerEvents, hideFromHome, removeMyEvent, removeMyPlayerEvent } from '@/lib/myEvents';
 import { mergeSavedEvents, sortCards, whenOf, type HomeEventCard, type WhenTone } from '@/lib/homeEvents';
 import { dayLabel } from '@/lib/shareTable';
 import type { MeepleEvent } from '@/lib/types';
@@ -29,7 +29,7 @@ export default function HomeEventCards() {
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      const saved = mergeSavedEvents(getMyEvents(), getMyPlayerEvents());
+      const saved = mergeSavedEvents(getMyEvents(), getMyPlayerEvents(), getBareTickets());
       setCards(saved);
       setNow(new Date());
       saved.forEach((c) => {
@@ -42,6 +42,7 @@ export default function HomeEventCards() {
   function forget(code: string) {
     removeMyEvent(code);
     removeMyPlayerEvent(code);
+    hideFromHome(code);
     setCards((cs) => cs.filter((c) => c.code !== code));
   }
 
@@ -68,7 +69,7 @@ export default function HomeEventCards() {
                 <p className='text-xs text-gray-500 mt-1'>Este evento ya no está disponible.</p>
               ) : (
                 <div className='mt-1 space-y-0.5 text-xs text-gray-400'>
-                  <p>📅 {dayLabel(c.date)}{c.startTime && c.endTime ? ` · ${c.startTime}–${c.endTime}` : ''}</p>
+                  {c.date && <p>📅 {dayLabel(c.date)}{c.startTime && c.endTime ? ` · ${c.startTime}–${c.endTime}` : ''}</p>}
                   {c.location && <p>📍 {c.location}</p>}
                 </div>
               )}

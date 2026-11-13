@@ -16,6 +16,17 @@ describe('mergeSavedEvents', () => {
     expect(cards.find((c) => c.code === 'AAA111')).toMatchObject({ admin: { adminToken: 'tok' }, ticket: { ticketCode: 'TT1' } });
     expect(cards.find((c) => c.code === 'BBB222')?.admin).toBeUndefined();
   });
+
+  it('a ticket known only by its code makes a card to be filled in from the live event, without replacing a saved one', () => {
+    const cards = mergeSavedEvents(
+      [],
+      [{ code: 'AAA111', ticketCode: 'SAVED', name: 'Jornada', date: '2026-11-15', playerName: 'Ana', savedAt: 1 }],
+      [{ code: 'AAA111', ticketCode: 'OTHER' }, { code: 'CCC333', ticketCode: 'TT3' }],
+    );
+    expect(cards).toHaveLength(2);
+    expect(cards.find((c) => c.code === 'AAA111')?.ticket?.ticketCode).toBe('SAVED');
+    expect(cards.find((c) => c.code === 'CCC333')).toMatchObject({ name: '', date: '', ticket: { ticketCode: 'TT3' } });
+  });
 });
 
 describe('whenOf', () => {
@@ -44,5 +55,9 @@ describe('sortCards', () => {
       { code: 'older', date: '2026-09-01' },
     ];
     expect(sortCards(cards, at('2026-11-13T12:00:00')).map((c) => c.code)).toEqual(['soon', 'later', 'old', 'older']);
+  });
+  it('a card whose date is not known yet goes after the dated ones that are coming', () => {
+    const cards = [{ code: 'unknown', date: '' }, { code: 'later', date: '2026-12-20' }, { code: 'soon', date: '2026-11-15' }];
+    expect(sortCards(cards, at('2026-11-13T12:00:00')).map((c) => c.code)).toEqual(['soon', 'later', 'unknown']);
   });
 });
