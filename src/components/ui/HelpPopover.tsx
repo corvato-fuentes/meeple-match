@@ -1,10 +1,15 @@
 'use client';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Generic "?" info button + modal, for attaching a short explanation directly onto a button or
  * link without it triggering the parent's own click/navigation. Reusable version of the one-off
  * TablesHelp/VotingHelp/WhyVoteHelp components.
+ *
+ * The modal is drawn on the page body (a portal), not inside whatever the "?" sits in: it has a button of its own, and a
+ * button inside a button or a link is invalid HTML (it raised hydration errors). Its clicks still stop at the modal, so they
+ * never reach the parent's own click.
  */
 export default function HelpPopover({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -27,7 +32,7 @@ export default function HelpPopover({ title, children }: { title: string; childr
         className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-600 text-gray-400 text-xs hover:bg-gray-800 hover:text-gray-200 shrink-0">
         ?
       </span>
-      {open && (
+      {open && createPortal(
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={close}>
           <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm text-left"
             onClick={(e) => e.stopPropagation()}>
@@ -38,7 +43,8 @@ export default function HelpPopover({ title, children }: { title: string; childr
               Entendido
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

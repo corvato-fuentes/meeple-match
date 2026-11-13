@@ -79,8 +79,10 @@ export default function GameVoteCard({
       )}
       {(interest === 'yes' || knowledgeLevel !== 'never') && (
         <div className="flex items-center justify-between text-xs text-gray-400 mt-2">
-          <span>{KNOWLEDGE_LABEL[knowledgeLevel]}</span>
-          <button onClick={onEditKnowledge} className="text-indigo-400 hover:underline">✏️ Editar</button>
+          {/* "Nunca lo jugué" is what a game is until the person says otherwise (nothing is stored for it), so a voted game with
+              no answer asks the question instead of stating it */}
+          <span>{knowledgeLevel === 'never' ? '❔ ¿Qué tan bien lo conocés?' : KNOWLEDGE_LABEL[knowledgeLevel]}</span>
+          <button onClick={onEditKnowledge} className="text-indigo-400 hover:underline">{knowledgeLevel === 'never' ? '✏️ Elegir' : '✏️ Editar'}</button>
         </div>
       )}
     </div>
