@@ -37,11 +37,11 @@ export default function JoinPanel() {
   const router = useRouter();
   return (
     <div className='space-y-4'>
-      <Option icon='🔑' title='Tengo el código de un evento' hint='Te lo pasó el organizador: son 6 letras y números.'>
-        <CodeForm placeholder='CÓDIGO' button='Unirme →' onGo={(c) => router.push(`/event/${c}`)} />
-      </Option>
       <Option icon='🔎' title='Explorar eventos disponibles' hint='Los eventos abiertos a inscripción, para que veas cuál te queda bien.'>
         <EventExplorer />
+      </Option>
+      <Option icon='🔑' title='Tengo el código de un evento' hint='Te lo pasó el organizador: son 6 letras y números.'>
+        <CodeForm placeholder='CÓDIGO' button='Unirme →' onGo={(c) => router.push(`/event/${c}`)} />
       </Option>
       <Option icon='🔁' title='Unirme a un intercambio' hint='Un math trade: intercambio de juegos en cadena entre varios jugadores.'
         note={MATH_TRADE_ENABLED ? undefined : IN_DEVELOPMENT_NOTE}>
