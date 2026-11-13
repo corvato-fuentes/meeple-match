@@ -207,6 +207,27 @@ export default function BoardPage() {
     return m;
   }, [scheduledTables, tables, openIds, waitingOpen, viewer, gameMap]);
 
+  // The small icon of every table on the grid: what the viewer can do about its free place, or else its state
+  // (they are in it, it is over, underway, full, or has room)
+  const gridBadges = useMemo(() => {
+    const m = new Map<string, CellBadge>();
+    for (const t of [...scheduledTables, ...waitingOpen]) {
+      const status = (glyph: string, color: string, title: string): CellBadge => ({ glyph, color, title, label: `${title}: ${t.gameName}`, clickable: false });
+      const option = takeable.get(t.id);
+      if (option) { m.set(t.id, { ...seatLook(option, t), clickable: true }); continue; }
+      if (viewer && t.playerIds.includes(viewer.id)) { m.set(t.id, status('✓', 'bg-emerald-800', 'Estás en esta mesa')); continue; }
+      if (t.status === 'recommended') continue; // still waiting for players and nothing to do about it: no icon
+      const game = gameMap.get(t.gameId);
+      const over = t.status === 'completed' || eventIsPast || (eventIsToday && nowMinutes >= toMinutes(t.endTime));
+      if (over) m.set(t.id, status('🏁', 'bg-gray-700', 'Terminó'));
+      else if (t.status === 'in-progress' || tableStarted(t)) m.set(t.id, status('▶', 'bg-blue-700', 'En curso'));
+      else if (game && freeSeatsOf(t, game) === 0) m.set(t.id, status('🔒', 'bg-gray-600', 'Mesa completa'));
+      else if (openIds.has(t.id)) m.set(t.id, status('🪑', 'bg-emerald-900', 'Con lugar libre'));
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduledTables, waitingOpen, takeable, openIds, viewer, gameMap, eventIsPast, eventIsToday, nowMinutes]);
+
   const { active, soon, upcoming, finished } = useMemo(() => {
     const active: Table[] = [];
     const soon: Table[] = [];
@@ -448,14 +469,15 @@ export default function BoardPage() {
               🎯 Tarjetas
             </button>
             {viewer && (
-              <button onClick={() => setOnlyMine((v) => !v)}
+              // "Solo mis mesas" and "Con lugar libre" are opposite questions (the tables I'm in / the ones with room): one at a time
+              <button onClick={() => { setOnlyMine((v) => !v); setOnlyFree(false); }} aria-pressed={onlyMine}
                 className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
                 🎫 Solo mis mesas
               </button>
             )}
             {/* Shows up when some table — confirmed, or still waiting for players — has a place; never selected by itself */}
             {(freeCount > 0 || onlyFree) && (
-              <button onClick={() => setOnlyFree((v) => !v)} aria-pressed={onlyFree}
+              <button onClick={() => { setOnlyFree((v) => !v); setOnlyMine(false); }} aria-pressed={onlyFree}
                 className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
                 🪑 Con lugar libre ({freeCount})
               </button>
@@ -470,7 +492,7 @@ export default function BoardPage() {
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
               games={games}
               onlyPlayerId={onlyMine ? viewer?.id ?? null : null}
-              onlyIds={onlyFree ? openIds : null} waitingTables={onlyFree ? waitingOpen : undefined} takeable={takeable} onTake={openSeat}
+              onlyIds={onlyFree ? openIds : null} waitingTables={onlyFree ? waitingOpen : undefined} badges={gridBadges} onTake={openSeat}
             />
           ) : (
             <div className='space-y-10'>
@@ -807,9 +829,12 @@ interface GridEntry {
   waiting?: 'posted' | 'recommended';
   /** How many more it needs to be confirmed (waiting tables). */
   missing?: number;
-  /** What the viewer can do about this table's free place, when there is something (shows the small button in the corner). */
-  take?: SeatOption;
+  /** The small icon in the corner: what the table's state is, or what the viewer can do about its free place. */
+  badge?: CellBadge;
 }
+
+/** The small round icon on a table of the grid. A button when tapping it opens something (the free place), otherwise just a status. */
+interface CellBadge { glyph: string; color: string; title: string; label: string; clickable: boolean }
 
 /** How the small button of a free place looks: green/amber/indigo "+" when there is something to do, a grey "i" when there is not. */
 function seatLook(o: SeatOption, t: { gameName: string; startTime: string; endTime: string }): { glyph: string; color: string; title: string; label: string } {
@@ -866,7 +891,7 @@ function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: Sched
 
 function ScheduleGrid({
   tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, games, onlyPlayerId,
-  onlyIds, waitingTables, takeable, onTake,
+  onlyIds, waitingTables, badges, onTake,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -882,8 +907,8 @@ function ScheduleGrid({
   /** Tables still waiting for players, drawn dashed in extra "En espera" rows under the others (they are not on the schedule yet, so
    *  they never change its numbering). Only given with the "Con lugar libre" filter on. */
   waitingTables?: Table[];
-  /** What the viewer can do about the free place of a table: the small button in its corner. */
-  takeable?: Map<string, SeatOption>;
+  /** The small icon of each table: its state, or what the viewer can do about its free place. */
+  badges?: Map<string, CellBadge>;
   onTake?: (tableId: string) => void;
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
@@ -923,14 +948,15 @@ function ScheduleGrid({
           {!cell.entry.waiting && cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
             <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
           )}
-          {/* A small button in the corner (it takes no room from the text): the place can be taken, was offered, or says why it can't */}
-          {cell.entry.take && onTake && (() => {
-            const look = seatLook(cell.entry.take, cell.entry);
-            return (
-              <button onClick={() => onTake(cell.entry!.tableId)} aria-label={look.label} title={look.title}
-                className={'absolute -top-2 -right-2 w-6 h-6 rounded-full text-white text-sm font-bold leading-none shadow ring-2 ring-gray-900 ' + look.color}>
-                {look.glyph}
-              </button>
+          {/* A small icon in the corner (it takes no room from the text) on every table: its state — you are in it, it is full, underway,
+              over — or, on a free place, what you can do about it (a button) */}
+          {cell.entry.badge && (() => {
+            const b = cell.entry.badge;
+            const cls = 'absolute -top-2 -right-2 w-6 h-6 rounded-full text-white text-sm font-bold leading-none shadow ring-2 ring-gray-900 flex items-center justify-center ' + b.color;
+            return b.clickable && onTake ? (
+              <button onClick={() => onTake(cell.entry!.tableId)} aria-label={b.label} title={b.title} className={cls}>{b.glyph}</button>
+            ) : (
+              <span role='img' aria-label={b.label} title={b.title} className={cls}>{b.glyph}</span>
             );
           })()}
         </div>
@@ -971,7 +997,7 @@ function ScheduleGrid({
               if ((onlyPlayerId || onlyIds) && rowTables.length === 0) return null;
               const rowEntries: GridEntry[] = rowTables.map((t) => ({
                 tableId: t.id, startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
-                seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId), take: takeable?.get(t.id),
+                seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId), badge: badges?.get(t.id),
               }));
               const cells = buildRowCells(rowEntries, buckets, breaks);
               return (
@@ -989,7 +1015,7 @@ function ScheduleGrid({
                 const game = gameById.get(t.gameId);
                 return {
                   tableId: t.id, startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
-                  seatsFilled: t.playerIds.length, seatsMax: game?.maxPlayers, take: takeable?.get(t.id),
+                  seatsFilled: t.playerIds.length, seatsMax: game?.maxPlayers, badge: badges?.get(t.id),
                   waiting: t.postedByOwner ? 'posted' : 'recommended', missing: game ? missingToConfirm(t, game) : undefined,
                 };
               });
