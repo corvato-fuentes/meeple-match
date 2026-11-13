@@ -68,9 +68,8 @@ function todayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// 'open' is not a waiting table: it is a confirmed one that still has room (its place can be taken), kept one chip away
-type RecGroup = 'pending' | 'accepted' | 'other' | 'open';
-const REC_GROUP_LABEL: Record<RecGroup, string> = { pending: '🤔 Por aceptar', accepted: '✅ Ya acepté', other: 'Otras', open: '🪑 Confirmadas con lugar' };
+type RecGroup = 'pending' | 'accepted' | 'other';
+const REC_GROUP_LABEL: Record<RecGroup, string> = { pending: '🤔 Por aceptar', accepted: '✅ Ya acepté', other: '🪑 Otras con lugar' };
 
 export default function BoardPage() {
   const { code } = useParams<{ code: string }>();
@@ -156,7 +155,7 @@ export default function BoardPage() {
   // The recommended tables, split by where the viewer stands: the ones waiting on their answer come first; the ones
   // they accepted, and everything else (rejected, not in the table, or not voted), are one chip away.
   const recGroups = useMemo(() => {
-    const groups: Record<Exclude<RecGroup, 'open'>, Table[]> = { pending: [], accepted: [], other: [] };
+    const groups: Record<RecGroup, Table[]> = { pending: [], accepted: [], other: [] };
     for (const t of recommendedTables) {
       if (!viewer) groups.other.push(t);
       else if (t.playerIds.includes(viewer.id)) groups.accepted.push(t);
@@ -196,19 +195,18 @@ export default function BoardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tables, gameMap, eventIsPast, eventIsToday, nowMinutes]
   );
-  const freeCount = openIds.size + waitingOpen.length;
 
-  // The two lists of waiting tables also have a chip for the confirmed tables that still have room (the ones the algorithm built,
-  // and the ones somebody posted), so everything that can still be joined is findable from them too
-  const openRecommended = useMemo(() => scheduledTables.filter((t) => openIds.has(t.id) && !t.postedByOwner), [scheduledTables, openIds]);
-  const openPosted = useMemo(() => scheduledTables.filter((t) => openIds.has(t.id) && !!t.postedByOwner), [scheduledTables, openIds]);
-  const recGroupsView: Record<RecGroup, Table[]> = { ...recGroups, open: openRecommended };
-  const activeRecGroup: RecGroup = recFilter && recGroupsView[recFilter].length > 0 ? recFilter
-    : recGroups.pending.length > 0 ? 'pending' : recGroups.accepted.length > 0 ? 'accepted' : recGroups.other.length > 0 || openRecommended.length === 0 ? 'other' : 'open';
-  const visibleRecommended = viewer ? recGroupsView[activeRecGroup] : recommendedTables;
-  const activePostGroup: 'waiting' | 'open' = postFilter === 'open' && openPosted.length > 0 ? 'open'
-    : postulatedTables.length === 0 && openPosted.length > 0 ? 'open' : 'waiting';
-  const visiblePostulated = activePostGroup === 'open' ? openPosted : postulatedTables;
+  // What there is to EXPLORE: the tables that can still be joined — confirmed with room, or still waiting for players — except the
+  // ones the viewer is already in. Those are theirs (they have their own chips and icons), not options. One set for the grid, the
+  // cards and the lists.
+  const myId = viewer?.id ?? null;
+  const exploreConfirmed = useMemo(
+    () => scheduledTables.filter((t) => openIds.has(t.id) && (myId === null || !t.playerIds.includes(myId))),
+    [scheduledTables, openIds, myId]
+  );
+  const exploreConfirmedIds = useMemo(() => new Set(exploreConfirmed.map((t) => t.id)), [exploreConfirmed]);
+  const exploreWaiting = useMemo(() => waitingOpen.filter((t) => myId === null || !t.playerIds.includes(myId)), [waitingOpen, myId]);
+  const freeCount = exploreConfirmed.length + exploreWaiting.length;
   const takeable = useMemo(() => {
     const m = new Map<string, SeatOption>();
     for (const t of [...scheduledTables.filter((x) => openIds.has(x.id)), ...waitingOpen]) {
@@ -217,6 +215,25 @@ export default function BoardPage() {
     }
     return m;
   }, [scheduledTables, tables, openIds, waitingOpen, viewer, gameMap]);
+
+  // The lists of waiting tables also hold the confirmed ones that still have room, in the chips where they belong: one the system
+  // offered to the viewer is "Por aceptar"; the rest of the explore set, confirmed or not, is "Otras con lugar". The tables the viewer
+  // is already in are not repeated (a confirmed one is on the grid; one waiting is in "Ya acepté").
+  const byStart = (a: Table, b: Table) => toMinutes(a.startTime) - toMinutes(b.startTime);
+  const confirmedRec = exploreConfirmed.filter((t) => !t.postedByOwner);
+  const offeredConfirmedRec = confirmedRec.filter((t) => takeable.get(t.id)?.kind === 'offered');
+  const recGroupsView: Record<RecGroup, Table[]> = {
+    pending: [...recGroups.pending, ...offeredConfirmedRec].sort(byStart),
+    accepted: recGroups.accepted,
+    other: [...recGroups.other, ...confirmedRec.filter((t) => !offeredConfirmedRec.includes(t))].sort(byStart),
+  };
+  const activeRecGroup: RecGroup = recFilter && recGroupsView[recFilter].length > 0 ? recFilter
+    : recGroupsView.pending.length > 0 ? 'pending' : recGroupsView.accepted.length > 0 ? 'accepted' : 'other';
+  const visibleRecommended = viewer ? recGroupsView[activeRecGroup] : recommendedTables;
+  const openPosted = exploreConfirmed.filter((t) => !!t.postedByOwner);
+  const activePostGroup: 'waiting' | 'open' = postFilter === 'open' && openPosted.length > 0 ? 'open'
+    : postulatedTables.length === 0 && openPosted.length > 0 ? 'open' : 'waiting';
+  const visiblePostulated = activePostGroup === 'open' ? openPosted : postulatedTables;
 
   // The small icon of every table on the grid: what the viewer can do about its free place, or else its state
   // (they are in it, it is over, underway, full, or has room)
@@ -454,7 +471,7 @@ export default function BoardPage() {
 
   const seatTable = seatTableId ? tables.find((t) => t.id === seatTableId) ?? null : null;
   // With the filter on, only the tables with a free place are listed (grid and cards)
-  const freeOnly = (ts: Table[]) => (onlyFree ? ts.filter((t) => openIds.has(t.id)) : ts);
+  const freeOnly = (ts: Table[]) => (onlyFree ? ts.filter((t) => exploreConfirmedIds.has(t.id)) : ts);
 
   return (
     <main className='min-h-screen bg-gray-900 text-white p-6'>
@@ -532,7 +549,7 @@ export default function BoardPage() {
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
               games={games}
               onlyPlayerId={onlyMine ? viewer?.id ?? null : null}
-              onlyIds={onlyFree ? openIds : null} waitingTables={onlyFree ? waitingOpen : undefined} badges={gridBadges} onTake={openSeat}
+              onlyIds={onlyFree ? exploreConfirmedIds : null} waitingTables={onlyFree ? exploreWaiting : undefined} badges={gridBadges} onTake={openSeat}
             />
           ) : (
             <div className='space-y-10'>
@@ -540,7 +557,7 @@ export default function BoardPage() {
               {onlyMine && cardTables.length === 0 && (
                 <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
               )}
-              {onlyFree && freeOnly(cardTables).length === 0 && waitingOpen.length === 0 && (
+              {onlyFree && freeOnly(cardTables).length === 0 && exploreWaiting.length === 0 && (
                 <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>No quedan mesas con lugar libre.</p>
               )}
               <TableSection
@@ -561,14 +578,14 @@ export default function BoardPage() {
               />
               {/* With "Con lugar libre" on, the tables still waiting for players are part of the same set (as on the grid): they come
                   after the confirmed ones, each marked as "Postulada" or "Recomendada" */}
-              {onlyFree && waitingOpen.length > 0 && (
+              {onlyFree && exploreWaiting.length > 0 && (
                 <section>
                   <h2 className='text-xl font-semibold mb-3 text-gray-200'>
-                    ⏳ En espera — con lugar <span className='text-gray-500 text-base font-normal'>({waitingOpen.length})</span>
+                    ⏳ En espera — con lugar <span className='text-gray-500 text-base font-normal'>({exploreWaiting.length})</span>
                   </h2>
                   <p className='text-sm text-gray-500 mb-3'>Todavía no están confirmadas: se confirman cuando se juntan los jugadores que faltan.</p>
                   <div className='grid gap-3 md:grid-cols-2 lg:grid-cols-3'>
-                    {[...waitingOpen].sort((a, b) => a.startTime.localeCompare(b.startTime)).map(waitingCard)}
+                    {[...exploreWaiting].sort(byStart).map(waitingCard)}
                   </div>
                 </section>
               )}
@@ -577,7 +594,7 @@ export default function BoardPage() {
 
           {/* In the cards view with "Con lugar libre" on, the waiting tables are already in the section above */}
           <div className={'grid grid-cols-1 md:grid-cols-2 gap-6 items-start' + (onlyFree && view === 'cards' ? ' hidden' : '')}>
-          {(recommendedTables.length > 0 || (!!viewer && openRecommended.length > 0)) && (
+          {(recommendedTables.length > 0 || (!!viewer && confirmedRec.length > 0)) && (
             <section>
               <h2 className='text-xl font-semibold mb-3 text-gray-200'>🟡 Mesas recomendadas — esperando confirmación</h2>
               <p className='text-sm text-gray-500 mb-3'>
