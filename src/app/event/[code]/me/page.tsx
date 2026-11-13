@@ -997,6 +997,15 @@ export default function MyTicketPage() {
               <HelpPopover title="📣 Mesas postuladas">
                 <p>Acá vas a ver las mesas que vos mismo postulaste, y las que postularon otros jugadores para sumarte con un toque.</p>
                 <p>Cuando una mesa junta el mínimo de jugadores necesario, se confirma sola.</p>
+                <p>
+                  Cómo se lleva con las recomendadas: una mesa postulada tiene prioridad. Toma el lugar de las recomendadas del mismo juego
+                  que se pisen con ella, y mientras esté publicada la copia del juego queda ocupada a esa hora (si hay una sola, el algoritmo
+                  no arma otra mesa de ese juego encima).
+                </p>
+                <p>
+                  A quienes votaron el juego y les queda bien el horario se la ofrece como a cualquier recomendación (aceptan o rechazan);
+                  el resto puede sumarse directo con un toque.
+                </p>
                 <p>El número indica cuántas mesas abiertas son de juegos que votaste 👍, todavía tienen lugar y te quedan libres en ese horario.</p>
               </HelpPopover>
             </Link>
