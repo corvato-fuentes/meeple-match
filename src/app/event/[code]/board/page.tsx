@@ -4,9 +4,11 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, subscribeTables, getPlayers, getGames, getPlayerByTicketCode, updatePlayerWishlist, joinPostedTable,
-  respondToRecommendation, joinConfirmedTable,
+  respondToRecommendation, joinConfirmedTable, undoTableRejection,
 } from '@/lib/firestore';
-import { freeSeatsOf, hasOpenSeat, seatChanceFor, type SeatChance } from '@/lib/freeSeats';
+import {
+  blockedMessage, freeSeatsOf, hasOpenSeat, hasWaitingSeat, missingToConfirm, seatOptionFor, type SeatOption,
+} from '@/lib/freeSeats';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots, slotMapFor } from '@/lib/physicalSlots';
@@ -181,23 +183,29 @@ export default function BoardPage() {
   const eventIsFuture = event ? event.date > today : false;
   const eventStarted = eventIsToday && nowMinutes >= toMinutes(event!.startTime || '00:00');
 
-  // Free places: the confirmed tables that have not started and still have one, and — for whoever has their ticket on — what
-  // they can do about each (answer the offer they already have, or take it themselves).
+  // Free places: the confirmed tables that have not started and still have one, plus the ones still waiting for players (they
+  // have room too) — and, for whoever has their ticket on, what they can do about each (answer the offer they already have, take
+  // it themselves, vote so it gets offered, or why it is not for them).
   const tableStarted = (t: Table) => eventIsPast || (eventIsToday && nowMinutes >= toMinutes(t.startTime));
   const openIds = useMemo(
     () => new Set(scheduledTables.filter((t) => hasOpenSeat(t, gameMap.get(t.gameId), tableStarted(t))).map((t) => t.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scheduledTables, gameMap, eventIsPast, eventIsToday, nowMinutes]
   );
+  const waitingOpen = useMemo(
+    () => tables.filter((t) => hasWaitingSeat(t, gameMap.get(t.gameId), tableStarted(t))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tables, gameMap, eventIsPast, eventIsToday, nowMinutes]
+  );
+  const freeCount = openIds.size + waitingOpen.length;
   const takeable = useMemo(() => {
-    const m = new Map<string, Exclude<SeatChance, null>>();
-    for (const t of scheduledTables) {
-      if (!openIds.has(t.id)) continue;
-      const chance = seatChanceFor({ viewer, table: t, game: gameMap.get(t.gameId), tables, started: false });
-      if (chance) m.set(t.id, chance);
+    const m = new Map<string, SeatOption>();
+    for (const t of [...scheduledTables.filter((x) => openIds.has(x.id)), ...waitingOpen]) {
+      const option = seatOptionFor({ viewer, table: t, game: gameMap.get(t.gameId), tables, started: false });
+      if (option) m.set(t.id, option);
     }
     return m;
-  }, [scheduledTables, tables, openIds, viewer, gameMap]);
+  }, [scheduledTables, tables, openIds, waitingOpen, viewer, gameMap]);
 
   const { active, soon, upcoming, finished } = useMemo(() => {
     const active: Table[] = [];
@@ -346,7 +354,10 @@ export default function BoardPage() {
     if (!(await resolveScheduleConflict(t))) return;
     setTakingSeat(true);
     try {
-      const got = await joinConfirmedTable(code, t.id, viewer.id, game.maxPlayers);
+      // A confirmed table is taken as it is; one its owner posted (still waiting for players) is joined like on Mesas postuladas
+      const got = t.status === 'confirmed'
+        ? await joinConfirmedTable(code, t.id, viewer.id, game.maxPlayers)
+        : await joinPostedTable(code, t.id, viewer.id, game.minPlayers, game.maxPlayers);
       if (!got) { setSeatNote('Ese lugar se ocupó justo antes. Mirá si queda otro.'); return; }
       const nextInterests = { ...viewer.interests, [t.gameId]: 'yes' as InterestLevel };
       setViewer({ ...viewer, interests: nextInterests });
@@ -365,6 +376,19 @@ export default function BoardPage() {
   async function answerSeatOffer(t: Table, accept: boolean) {
     await handleRespondToRecommendation(t, accept);
     closeSeat();
+  }
+
+  // A table the algorithm built that is still waiting: voting the game is how it gets offered
+  async function voteFromSeat(t: Table) {
+    await handleQuickVoteYes(t.gameId);
+    closeSeat();
+  }
+
+  // A table the viewer declined: takes it off their declined list, so it can be offered (and shown) again. The dialog stays open
+  // and updates to what they can do now.
+  async function reconsiderTable(t: Table) {
+    if (!viewer) return;
+    await undoTableRejection(code, t.id, viewer.id);
   }
 
   const seatTable = seatTableId ? tables.find((t) => t.id === seatTableId) ?? null : null;
@@ -429,11 +453,11 @@ export default function BoardPage() {
                 🎫 Solo mis mesas
               </button>
             )}
-            {/* Shows up when some confirmed table still has a place; never selected by itself */}
-            {(openIds.size > 0 || onlyFree) && (
+            {/* Shows up when some table — confirmed, or still waiting for players — has a place; never selected by itself */}
+            {(freeCount > 0 || onlyFree) && (
               <button onClick={() => setOnlyFree((v) => !v)} aria-pressed={onlyFree}
                 className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
-                🪑 Con lugar libre ({openIds.size})
+                🪑 Con lugar libre ({freeCount})
               </button>
             )}
           </div>
@@ -446,7 +470,7 @@ export default function BoardPage() {
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
               games={games}
               onlyPlayerId={onlyMine ? viewer?.id ?? null : null}
-              onlyIds={onlyFree ? openIds : null} takeable={takeable} onTake={openSeat}
+              onlyIds={onlyFree ? openIds : null} waitingTables={onlyFree ? waitingOpen : undefined} takeable={takeable} onTake={openSeat}
             />
           ) : (
             <div className='space-y-10'>
@@ -455,7 +479,11 @@ export default function BoardPage() {
                 <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
               )}
               {onlyFree && freeOnly(cardTables).length === 0 && (
-                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>No quedan mesas con lugar libre.</p>
+                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>
+                  {waitingOpen.length > 0
+                    ? 'Ninguna mesa confirmada tiene lugar libre. Las que esperan jugadores están más abajo.'
+                    : 'No quedan mesas con lugar libre.'}
+                </p>
               )}
               <TableSection
                 title='🟢 En curso ahora' tables={freeOnly(active)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
@@ -649,8 +677,10 @@ export default function BoardPage() {
       {seatTable && (() => {
         const t = seatTable;
         const game = gameMap.get(t.gameId);
-        const chance = takeable.get(t.id) ?? null;
+        const option = takeable.get(t.id) ?? null;
         const left = freeSeatsOf(t, game);
+        const waiting = t.status === 'recommended'; // still waiting for players, not on the schedule yet
+        const missing = game ? missingToConfirm(t, game) : 0;
         return (
           <div className='fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50' onClick={closeSeat}>
             <div className='max-w-sm w-full max-h-[80vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm'
@@ -659,31 +689,42 @@ export default function BoardPage() {
                 <GameCover imageUrl={game?.imageUrl} size='md' />
                 <div className='min-w-0'>
                   <h3 className='font-semibold text-gray-100'>{t.gameName}</h3>
-                  <p className='text-xs text-gray-500'>Mesa #{physicalSlotByTableId.get(t.id) ?? '?'} · {t.startTime}–{t.endTime}</p>
-                  <p className='text-xs text-emerald-300'>🪑 {left > 0 ? `quedan ${left}` : 'sin lugares libres'}</p>
+                  <p className='text-xs text-gray-500'>
+                    {waiting ? `${t.postedByOwner ? '📣 Postulada' : '🟡 Recomendada'} · esperando jugadores` : `Mesa #${physicalSlotByTableId.get(t.id) ?? '?'}`} · {t.startTime}–{t.endTime}
+                  </p>
+                  <p className='text-xs text-emerald-300'>
+                    🪑 {left > 0 ? `quedan ${left}` : 'sin lugares libres'}
+                    {waiting && missing > 0 && <span className='text-gray-400'> · faltan {missing} para confirmar</span>}
+                  </p>
                 </div>
               </div>
               <div className='text-xs text-gray-400 space-y-0.5'>
-                {t.explainerId && <p>🎓 Explica: <span className='text-gray-200'>{nameOfPlayer(t.explainerId)}</span></p>}
-                <p>👥 Jugando: <span className='text-gray-200'>{t.playerIds.map(nameOfPlayer).join(', ')}</span></p>
+                {t.explainerId && !t.awaitingExplainer && <p>🎓 Explica: <span className='text-gray-200'>{nameOfPlayer(t.explainerId)}</span></p>}
+                {t.awaitingExplainer && <p>🎓 Todavía espera que alguien confirme que la explica.</p>}
+                {t.playerIds.length > 0 && <p>👥 {waiting ? 'Anotados' : 'Jugando'}: <span className='text-gray-200'>{t.playerIds.map(nameOfPlayer).join(', ')}</span></p>}
               </div>
-              {chance === 'offered' && (
+              {option?.kind === 'offered' && (
                 <>
-                  <p className='text-xs text-amber-300'>🙋 El algoritmo te ofreció este lugar. La mesa ya está confirmada: los demás cuentan con vos si aceptás.</p>
+                  <p className='text-xs text-amber-300'>
+                    🙋 El algoritmo te ofreció este lugar.
+                    {!waiting && ' La mesa ya está confirmada: los demás cuentan con vos si aceptás.'}
+                  </p>
                   <div className='grid grid-cols-2 gap-2'>
                     <button onClick={() => answerSeatOffer(t, false)} disabled={respondingTableId === t.id}
-                      className='border border-gray-700 rounded-lg py-2 text-gray-300 hover:bg-gray-800 disabled:opacity-50'>❌ Rechazar</button>
+                      className='border border-gray-700 rounded-lg py-2 text-gray-300 hover:bg-gray-800 disabled:opacity-50'>
+                      {t.awaitingExplainer ? '❌ No puedo explicarlo' : '❌ Rechazar'}
+                    </button>
                     <button onClick={() => answerSeatOffer(t, true)} disabled={respondingTableId === t.id}
                       className='bg-amber-600 text-white rounded-lg py-2 font-semibold hover:bg-amber-700 disabled:opacity-50'>
-                      {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
+                      {respondingTableId === t.id ? 'Guardando...' : t.awaitingExplainer ? '✅ Explico y juego' : '✅ Aceptar'}
                     </button>
                   </div>
                 </>
               )}
-              {chance === 'join' && (
+              {option?.kind === 'join' && (
                 <>
                   <p className='text-xs text-gray-400'>
-                    La mesa ya está confirmada: los demás cuentan con vos si te sumás.
+                    {waiting ? 'La mesa todavía espera jugadores: al sumarte ayudás a que se confirme.' : 'La mesa ya está confirmada: los demás cuentan con vos si te sumás.'}
                     {viewer?.interests[t.gameId] === 'yes' ? ' Ya votaste este juego.' : ' Queda tu voto 👍 en este juego.'}
                   </p>
                   <button onClick={() => handleTakeSeat(t)} disabled={takingSeat}
@@ -692,9 +733,31 @@ export default function BoardPage() {
                   </button>
                 </>
               )}
-              {chance === null && (
+              {option?.kind === 'vote' && (
+                <>
+                  <p className='text-xs text-gray-400'>
+                    Esta mesa todavía espera jugadores y la armó el algoritmo con los votos. Si votás que sí a este juego, te la ofrece cuando le quede bien a todos.
+                  </p>
+                  <button onClick={() => voteFromSeat(t)}
+                    className='w-full bg-indigo-600 text-white rounded-lg py-2 font-semibold hover:bg-indigo-700'>
+                    👍 Quiero jugarlo
+                  </button>
+                </>
+              )}
+              {option?.kind === 'blocked' && (
+                <>
+                  <p className='text-xs text-gray-300'>ℹ️ {blockedMessage(option.reason, t)}</p>
+                  {option.reason.kind === 'rejected' && (
+                    <button onClick={() => reconsiderTable(t)}
+                      className='w-full border border-indigo-700 text-indigo-300 rounded-lg py-2 hover:bg-indigo-950/40'>
+                      🔄 Volver a considerarla
+                    </button>
+                  )}
+                </>
+              )}
+              {option === null && (
                 <p className='text-xs text-gray-500'>
-                  {!viewer ? 'Para sumarte, entrá desde tu ticket.' : left > 0 ? 'Este lugar no es para vos (ya estás en la mesa, no te queda el horario, o ya tenés una mesa de este juego).' : 'Esta mesa ya no tiene lugar.'}
+                  {!viewer ? 'Para sumarte, entrá desde tu ticket.' : 'Esta mesa ya no tiene lugar.'}
                 </p>
               )}
               {seatNote && <p className='text-xs text-red-400'>{seatNote}</p>}
@@ -740,8 +803,34 @@ interface GridEntry {
   gameName: string;
   seatsFilled?: number;
   seatsMax?: number;
-  /** What the viewer can do about this table's free place, when there is something (shows the "+" button). */
-  take?: Exclude<SeatChance, null>;
+  /** Set for a table still waiting for players (drawn dashed, in the "En espera" rows): who proposed it. */
+  waiting?: 'posted' | 'recommended';
+  /** How many more it needs to be confirmed (waiting tables). */
+  missing?: number;
+  /** What the viewer can do about this table's free place, when there is something (shows the small button in the corner). */
+  take?: SeatOption;
+}
+
+/** How the small button of a free place looks: green/amber/indigo "+" when there is something to do, a grey "i" when there is not. */
+function seatLook(o: SeatOption, t: { gameName: string; startTime: string; endTime: string }): { glyph: string; color: string; title: string; label: string } {
+  switch (o.kind) {
+    case 'offered': return { glyph: '+', color: 'bg-amber-500 hover:bg-amber-400', title: 'Te ofrecieron este lugar', label: `Te ofrecieron un lugar en ${t.gameName}` };
+    case 'join': return { glyph: '+', color: 'bg-emerald-600 hover:bg-emerald-500', title: 'Sumarme a esta mesa', label: `Sumarme a ${t.gameName}` };
+    case 'vote': return { glyph: '+', color: 'bg-indigo-600 hover:bg-indigo-500', title: 'Votar para que te la ofrezcan', label: `Votar ${t.gameName}` };
+    case 'blocked': return { glyph: 'i', color: 'bg-gray-600 hover:bg-gray-500', title: blockedMessage(o.reason, t), label: `Por qué no puedo sumarme a ${t.gameName}` };
+  }
+}
+
+const NO_TABLES: Table[] = [];
+
+/** Tables that wait for players, laid out in as few rows as they fit in without overlapping. */
+function assignLanes(tables: Table[]): Table[][] {
+  const lanes: Table[][] = [];
+  for (const t of [...tables].sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))) {
+    const lane = lanes.find((l) => toMinutes(l[l.length - 1].endTime) <= toMinutes(t.startTime));
+    if (lane) lane.push(t); else lanes.push([t]);
+  }
+  return lanes;
 }
 
 interface GridCell {
@@ -773,7 +862,7 @@ function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: Sched
 
 function ScheduleGrid({
   tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, games, onlyPlayerId,
-  onlyIds, takeable, onTake,
+  onlyIds, waitingTables, takeable, onTake,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -786,24 +875,68 @@ function ScheduleGrid({
   onlyPlayerId?: string | null;
   /** When set, only these tables are drawn (the "Con lugar libre" filter); the numbering and timeline stay those of the full schedule. */
   onlyIds?: Set<string> | null;
-  /** Tables whose free place the viewer can do something about: they get the "+" button. */
-  takeable?: Map<string, Exclude<SeatChance, null>>;
+  /** Tables still waiting for players, drawn dashed in extra "En espera" rows under the others (they are not on the schedule yet, so
+   *  they never change its numbering). Only given with the "Con lugar libre" filter on. */
+  waitingTables?: Table[];
+  /** What the viewer can do about the free place of a table: the small button in its corner. */
+  takeable?: Map<string, SeatOption>;
   onTake?: (tableId: string) => void;
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
+  const waiting = waitingTables ?? NO_TABLES;
   // Slot assignment and time columns always come from the FULL schedule, so "Mesa #N" and the
   // header times stay identical to the unfiltered grid — filtering only hides other people's
   // entries, it never renumbers tables or reshapes the timeline.
   const { assignments, slotCount } = useMemo(() => assignPhysicalSlots(activeTables, bufferMinutes), [activeTables, bufferMinutes]);
-  const buckets = useMemo(() => buildBuckets(activeTables, eventStartTime, eventEndTime), [activeTables, eventStartTime, eventEndTime]);
+  // The waiting tables only widen the time columns (a table can run past the closing time)
+  const buckets = useMemo(() => buildBuckets([...activeTables, ...waiting], eventStartTime, eventEndTime), [activeTables, waiting, eventStartTime, eventEndTime]);
   const rowCount = Math.max(slotCount, physicalTables ?? 0, 1);
   const maxPlayersByGameId = useMemo(() => new Map(games.map((g) => [g.id, g.maxPlayers])), [games]);
+  const gameById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
+  const lanes = useMemo(() => assignLanes(waiting), [waiting]);
 
   if (buckets.length === 0) return null;
 
   const hasOwnTables = !onlyPlayerId || activeTables.some((t) => t.playerIds.includes(onlyPlayerId));
   const noneToShow = !hasOwnTables ? 'Todavía no tenés mesas agendadas.'
-    : onlyIds && !activeTables.some((t) => onlyIds.has(t.id)) ? 'No quedan mesas con lugar libre.' : null;
+    : onlyIds && waiting.length === 0 && !activeTables.some((t) => onlyIds.has(t.id)) ? 'No quedan mesas con lugar libre.' : null;
+
+  const renderCell = (cell: GridCell, ci: number) => (
+    <td key={ci} colSpan={cell.span} className={'p-1.5 text-center align-middle border-l border-gray-800'}>
+      {cell.entry ? (
+        <div className={'relative rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName) + (cell.entry.waiting ? ' border-dashed opacity-90' : '')}>
+          <div className='font-medium text-xs'>{cell.entry.gameName}</div>
+          <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
+          {cell.entry.waiting && (
+            <div className='text-[11px] opacity-90'>
+              {cell.entry.waiting === 'posted' ? '📣 Postulada' : '🟡 Recomendada'}
+              {cell.entry.seatsFilled != null && cell.entry.seatsMax != null && ` · ${cell.entry.seatsFilled}/${cell.entry.seatsMax}`}
+            </div>
+          )}
+          {cell.entry.waiting && cell.entry.missing != null && cell.entry.missing > 0 && (
+            <div className='text-[11px] opacity-90'>faltan {cell.entry.missing} para confirmar</div>
+          )}
+          {!cell.entry.waiting && cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
+            <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
+          )}
+          {/* A small button in the corner (it takes no room from the text): the place can be taken, was offered, or says why it can't */}
+          {cell.entry.take && onTake && (() => {
+            const look = seatLook(cell.entry.take, cell.entry);
+            return (
+              <button onClick={() => onTake(cell.entry!.tableId)} aria-label={look.label} title={look.title}
+                className={'absolute -top-2 -right-2 w-6 h-6 rounded-full text-white text-sm font-bold leading-none shadow ring-2 ring-gray-900 ' + look.color}>
+                {look.glyph}
+              </button>
+            );
+          })()}
+        </div>
+      ) : cell.breakLabel && (
+        <div className='rounded-lg border border-dashed border-gray-600 bg-gray-800/60 text-gray-400 px-2 py-1.5'>
+          <div className='text-xs'>🍽️ {cell.breakLabel}</div>
+        </div>
+      )}
+    </td>
+  );
 
   return (
     <section>
@@ -842,33 +975,24 @@ function ScheduleGrid({
                   <td className='p-2 font-semibold text-yellow-400 whitespace-nowrap sticky left-0 bg-gray-900'>
                     Mesa #{slotIdx + 1}
                   </td>
-                  {cells.map((cell, ci) => (
-                    <td key={ci} colSpan={cell.span}
-                      className={'p-1.5 text-center align-middle border-l border-gray-800'}>
-                      {cell.entry ? (
-                        <div className={'relative rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName)}>
-                          <div className='font-medium text-xs'>{cell.entry.gameName}</div>
-                          <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
-                          {cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
-                            <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
-                          )}
-                          {/* A small button in the corner (it takes no room from the text): the place can be taken, or was offered to the viewer */}
-                          {cell.entry.take && onTake && (
-                            <button onClick={() => onTake(cell.entry!.tableId)}
-                              aria-label={`Sumarme a ${cell.entry.gameName}`} title={cell.entry.take === 'offered' ? 'Te ofrecieron este lugar' : 'Sumarme a esta mesa'}
-                              className={'absolute -top-2 -right-2 w-6 h-6 rounded-full text-white text-sm font-bold leading-none shadow ring-2 ring-gray-900 ' +
-                                (cell.entry.take === 'offered' ? 'bg-amber-500 hover:bg-amber-400' : 'bg-emerald-600 hover:bg-emerald-500')}>
-                              +
-                            </button>
-                          )}
-                        </div>
-                      ) : cell.breakLabel && (
-                        <div className='rounded-lg border border-dashed border-gray-600 bg-gray-800/60 text-gray-400 px-2 py-1.5'>
-                          <div className='text-xs'>🍽️ {cell.breakLabel}</div>
-                        </div>
-                      )}
-                    </td>
-                  ))}
+                  {cells.map(renderCell)}
+                </tr>
+              );
+            })}
+            {/* Tables still waiting for players (only with the "Con lugar libre" filter): dashed, in rows of their own */}
+            {lanes.map((lane, li) => {
+              const entries: GridEntry[] = lane.map((t) => {
+                const game = gameById.get(t.gameId);
+                return {
+                  tableId: t.id, startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
+                  seatsFilled: t.playerIds.length, seatsMax: game?.maxPlayers, take: takeable?.get(t.id),
+                  waiting: t.postedByOwner ? 'posted' : 'recommended', missing: game ? missingToConfirm(t, game) : undefined,
+                };
+              });
+              return (
+                <tr key={`w${li}`} className='border-t border-gray-800'>
+                  <td className='p-2 text-xs font-medium text-gray-400 whitespace-nowrap sticky left-0 bg-gray-900'>⏳ En espera</td>
+                  {buildRowCells(entries, buckets, []).map(renderCell)}
                 </tr>
               );
             })}
@@ -905,8 +1029,8 @@ function TableSection({
   dim?: boolean;
   /** Confirmed tables that still have a place: they say how many are left. */
   openIds?: Set<string>;
-  /** The ones whose place the viewer can take, or was offered: they get a "Sumarme" button. */
-  takeable?: Map<string, Exclude<SeatChance, null>>;
+  /** What the viewer can do about the free place of each (take it, answer the offer, vote, or why not): its button. */
+  takeable?: Map<string, SeatOption>;
   onTake?: (tableId: string) => void;
 }) {
   if (tables.length === 0) return null;
@@ -950,12 +1074,16 @@ function TableSection({
             {openIds?.has(t.id) && (
               <div className='mt-3 flex items-center justify-between gap-2'>
                 <span className='text-xs text-emerald-300'>🪑 quedan {freeSeatsOf(t, gameMap.get(t.gameId))}</span>
-                {takeable?.get(t.id) && onTake && (
-                  <button onClick={() => onTake(t.id)}
-                    className={'rounded-lg px-3 py-1 text-xs font-semibold text-white ' + (takeable.get(t.id) === 'offered' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700')}>
-                    {takeable.get(t.id) === 'offered' ? '🙋 Te ofrecieron este lugar' : '🙋 Sumarme'}
-                  </button>
-                )}
+                {takeable?.get(t.id) && onTake && (() => {
+                  const o = takeable.get(t.id)!;
+                  const style = o.kind === 'offered' ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                    : o.kind === 'join' ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : o.kind === 'vote' ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    : 'border border-gray-600 text-gray-300 hover:bg-gray-700';
+                  const text = o.kind === 'offered' ? '🙋 Te ofrecieron este lugar' : o.kind === 'join' ? '🙋 Sumarme'
+                    : o.kind === 'vote' ? '👍 Votar para que te la ofrezcan' : 'ℹ️ Por qué no puedo sumarme';
+                  return <button onClick={() => onTake(t.id)} className={'rounded-lg px-3 py-1 text-xs font-semibold ' + style}>{text}</button>;
+                })()}
               </div>
             )}
           </div>

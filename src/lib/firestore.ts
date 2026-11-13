@@ -931,8 +931,9 @@ export async function joinPostedTable(
   playerId: string,
   minPlayers: number,
   maxPlayers: number
-): Promise<void> {
+): Promise<boolean> {
   const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  let joined = false;
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) return;
@@ -946,8 +947,10 @@ export async function joinPostedTable(
       playerIds, candidateIds: full ? [] : candidateIds, ...(full && { queuedIds: [] }),
       ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }),
     });
+    joined = true;
   });
   requestPushSync(eventCode); // the table may have just reached its minimum
+  return joined; // false when the place was gone by then
 }
 
 /**
