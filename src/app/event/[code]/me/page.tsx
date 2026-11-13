@@ -283,7 +283,7 @@ export default function MyTicketPage() {
 
   async function handleRemoveGame(gameId: string) {
     if (!player || removingGameId) return;
-    if (!confirm('¿Eliminar este juego de tu lista? Se borrarán los votos que otros jugadores hicieron sobre él.')) return;
+    if (!confirm('¿Eliminar este juego de tu lista? Los votos que otros jugadores hicieron sobre él se conservan por si lo volvés a subir.')) return;
     setRemovingGameId(gameId);
     try {
       await removePlayerGame(code, player.id, gameId);
