@@ -950,6 +950,32 @@ export async function joinPostedTable(
   requestPushSync(eventCode); // the table may have just reached its minimum
 }
 
+/**
+ * Takes a free place of a CONFIRMED table — the player's own explicit act (so there is no offer to accept, like joining a table
+ * somebody posted). A transaction, so two people tapping the last place at once can't both get it: the second one is told it
+ * is gone. Returns whether the player got the place. The table stays confirmed; once it is full nobody else is offered it.
+ */
+export async function joinConfirmedTable(eventCode: string, tableId: string, playerId: string, maxPlayers: number): Promise<boolean> {
+  const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  let joined = false;
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
+    const table = snap.data() as Table;
+    if (table.status !== 'confirmed' || table.playerIds.includes(playerId) || table.playerIds.length >= maxPlayers) return;
+    const playerIds = [...table.playerIds, playerId];
+    const full = playerIds.length >= maxPlayers; // nobody else can be offered it now
+    tx.update(ref, {
+      playerIds,
+      candidateIds: full ? [] : (table.candidateIds ?? []).filter((id) => id !== playerId),
+      ...(full && { queuedIds: [] }),
+    });
+    joined = true;
+  });
+  if (joined) requestPushSync(eventCode);
+  return joined;
+}
+
 /** Takes the player off a table's "declined" list: it can be offered to them, and shown to them, again. */
 export async function undoTableRejection(eventCode: string, tableId: string, playerId: string): Promise<void> {
   const ref = doc(db, 'events', eventCode, 'tables', tableId);

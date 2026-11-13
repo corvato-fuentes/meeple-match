@@ -4,8 +4,9 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, subscribeTables, getPlayers, getGames, getPlayerByTicketCode, updatePlayerWishlist, joinPostedTable,
-  respondToRecommendation,
+  respondToRecommendation, joinConfirmedTable,
 } from '@/lib/firestore';
+import { freeSeatsOf, hasOpenSeat, seatChanceFor, type SeatChance } from '@/lib/freeSeats';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots, slotMapFor } from '@/lib/physicalSlots';
@@ -91,6 +92,12 @@ export default function BoardPage() {
   // The table whose Aceptar opened the overlap popup (so its "Rechazar" knows which table to decline)
   const [acceptingTable, setAcceptingTable] = useState<Table | null>(null);
   const [onlyMine, setOnlyMine] = useState(false);
+  // "Con lugar libre": shows only the confirmed tables that still have a place. Never on by itself.
+  const [onlyFree, setOnlyFree] = useState(false);
+  // The confirmed table whose free place is being looked at (from the grid's + button or its card), and the answer to taking it
+  const [seatTableId, setSeatTableId] = useState<string | null>(null);
+  const [takingSeat, setTakingSeat] = useState(false);
+  const [seatNote, setSeatNote] = useState<string | null>(null);
   // Which table's people are being listed: just those who confirmed, or just those who are interested (not yet confirmed)
   const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
   const [recFilter, setRecFilter] = useState<RecGroup | null>(null); // null = show the first group that has tables
@@ -173,6 +180,24 @@ export default function BoardPage() {
   const eventIsPast = event ? event.date < today : false;
   const eventIsFuture = event ? event.date > today : false;
   const eventStarted = eventIsToday && nowMinutes >= toMinutes(event!.startTime || '00:00');
+
+  // Free places: the confirmed tables that have not started and still have one, and — for whoever has their ticket on — what
+  // they can do about each (answer the offer they already have, or take it themselves).
+  const tableStarted = (t: Table) => eventIsPast || (eventIsToday && nowMinutes >= toMinutes(t.startTime));
+  const openIds = useMemo(
+    () => new Set(scheduledTables.filter((t) => hasOpenSeat(t, gameMap.get(t.gameId), tableStarted(t))).map((t) => t.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scheduledTables, gameMap, eventIsPast, eventIsToday, nowMinutes]
+  );
+  const takeable = useMemo(() => {
+    const m = new Map<string, Exclude<SeatChance, null>>();
+    for (const t of scheduledTables) {
+      if (!openIds.has(t.id)) continue;
+      const chance = seatChanceFor({ viewer, table: t, game: gameMap.get(t.gameId), tables, started: false });
+      if (chance) m.set(t.id, chance);
+    }
+    return m;
+  }, [scheduledTables, tables, openIds, viewer, gameMap]);
 
   const { active, soon, upcoming, finished } = useMemo(() => {
     const active: Table[] = [];
@@ -301,6 +326,51 @@ export default function BoardPage() {
     }
   }
 
+  // The "+" of a confirmed table with a free place (grid) or its "Sumarme" (card): opens the table with what the viewer can do
+  function openSeat(tableId: string) {
+    setSeatNote(null);
+    setSeatTableId(tableId);
+  }
+  function closeSeat() {
+    setSeatTableId(null);
+    setSeatNote(null);
+  }
+
+  // Taking the place is the person's own explicit act: it seats them (after settling a clash with another table of theirs, as
+  // everywhere else) and records their 👍 on the game. A transaction decides who gets the last place if two tap at once.
+  async function handleTakeSeat(t: Table) {
+    if (!viewer || takingSeat) return;
+    const game = games.find((g) => g.id === t.gameId);
+    if (!game) return;
+    setSeatNote(null);
+    if (!(await resolveScheduleConflict(t))) return;
+    setTakingSeat(true);
+    try {
+      const got = await joinConfirmedTable(code, t.id, viewer.id, game.maxPlayers);
+      if (!got) { setSeatNote('Ese lugar se ocupó justo antes. Mirá si queda otro.'); return; }
+      const nextInterests = { ...viewer.interests, [t.gameId]: 'yes' as InterestLevel };
+      setViewer({ ...viewer, interests: nextInterests });
+      await updatePlayerWishlist(code, viewer.id, {
+        interests: nextInterests, canExplain: viewer.canExplain, playedGameIds: viewer.playedGameIds ?? [],
+        repeatGameIds: viewer.repeatGameIds ?? [],
+      });
+      closeSeat();
+      setKnowledgePromptGameId(t.gameId);
+    } finally {
+      setTakingSeat(false);
+    }
+  }
+
+  // The place was already offered to the viewer: Aceptar / Rechazar, the same answer as on Mesas recomendadas
+  async function answerSeatOffer(t: Table, accept: boolean) {
+    await handleRespondToRecommendation(t, accept);
+    closeSeat();
+  }
+
+  const seatTable = seatTableId ? tables.find((t) => t.id === seatTableId) ?? null : null;
+  // With the filter on, only the tables with a free place are listed (grid and cards)
+  const freeOnly = (ts: Table[]) => (onlyFree ? ts.filter((t) => openIds.has(t.id)) : ts);
+
   return (
     <main className='min-h-screen bg-gray-900 text-white p-6'>
       <div className='mb-8 flex items-start justify-between flex-wrap gap-4'>
@@ -359,6 +429,13 @@ export default function BoardPage() {
                 🎫 Solo mis mesas
               </button>
             )}
+            {/* Shows up when some confirmed table still has a place; never selected by itself */}
+            {(openIds.size > 0 || onlyFree) && (
+              <button onClick={() => setOnlyFree((v) => !v)} aria-pressed={onlyFree}
+                className={'px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+                🪑 Con lugar libre ({openIds.size})
+              </button>
+            )}
           </div>
 
           {view === 'grid' ? (
@@ -369,6 +446,7 @@ export default function BoardPage() {
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
               games={games}
               onlyPlayerId={onlyMine ? viewer?.id ?? null : null}
+              onlyIds={onlyFree ? openIds : null} takeable={takeable} onTake={openSeat}
             />
           ) : (
             <div className='space-y-10'>
@@ -376,20 +454,23 @@ export default function BoardPage() {
               {onlyMine && cardTables.length === 0 && (
                 <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
               )}
+              {onlyFree && freeOnly(cardTables).length === 0 && (
+                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>No quedan mesas con lugar libre.</p>
+              )}
               <TableSection
-                title='🟢 En curso ahora' tables={active} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
-                cardClass='border-green-600 bg-gray-800'
+                title='🟢 En curso ahora' tables={freeOnly(active)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
+                cardClass='border-green-600 bg-gray-800' openIds={openIds} takeable={takeable} onTake={openSeat}
               />
               <TableSection
-                title='🟡 Arrancan pronto' tables={soon} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
-                cardClass='border-yellow-600 bg-gray-800'
+                title='🟡 Arrancan pronto' tables={freeOnly(soon)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
+                cardClass='border-yellow-600 bg-gray-800' openIds={openIds} takeable={takeable} onTake={openSeat}
               />
               <TableSection
-                title='⚪ Más tarde' tables={upcoming} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
-                cardClass='border-gray-700 bg-gray-800'
+                title='⚪ Más tarde' tables={freeOnly(upcoming)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
+                cardClass='border-gray-700 bg-gray-800' openIds={openIds} takeable={takeable} onTake={openSeat}
               />
               <TableSection
-                title='✅ Finalizadas' tables={finished} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
+                title='✅ Finalizadas' tables={freeOnly(finished)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
                 cardClass='border-gray-800 bg-gray-900' dim
               />
             </div>
@@ -565,6 +646,66 @@ export default function BoardPage() {
         );
       })()}
 
+      {seatTable && (() => {
+        const t = seatTable;
+        const game = gameMap.get(t.gameId);
+        const chance = takeable.get(t.id) ?? null;
+        const left = freeSeatsOf(t, game);
+        return (
+          <div className='fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50' onClick={closeSeat}>
+            <div className='max-w-sm w-full max-h-[80vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm'
+              onClick={(e) => e.stopPropagation()}>
+              <div className='flex items-center gap-3'>
+                <GameCover imageUrl={game?.imageUrl} size='md' />
+                <div className='min-w-0'>
+                  <h3 className='font-semibold text-gray-100'>{t.gameName}</h3>
+                  <p className='text-xs text-gray-500'>Mesa #{physicalSlotByTableId.get(t.id) ?? '?'} · {t.startTime}–{t.endTime}</p>
+                  <p className='text-xs text-emerald-300'>🪑 {left > 0 ? `quedan ${left}` : 'sin lugares libres'}</p>
+                </div>
+              </div>
+              <div className='text-xs text-gray-400 space-y-0.5'>
+                {t.explainerId && <p>🎓 Explica: <span className='text-gray-200'>{nameOfPlayer(t.explainerId)}</span></p>}
+                <p>👥 Jugando: <span className='text-gray-200'>{t.playerIds.map(nameOfPlayer).join(', ')}</span></p>
+              </div>
+              {chance === 'offered' && (
+                <>
+                  <p className='text-xs text-amber-300'>🙋 El algoritmo te ofreció este lugar. La mesa ya está confirmada: los demás cuentan con vos si aceptás.</p>
+                  <div className='grid grid-cols-2 gap-2'>
+                    <button onClick={() => answerSeatOffer(t, false)} disabled={respondingTableId === t.id}
+                      className='border border-gray-700 rounded-lg py-2 text-gray-300 hover:bg-gray-800 disabled:opacity-50'>❌ Rechazar</button>
+                    <button onClick={() => answerSeatOffer(t, true)} disabled={respondingTableId === t.id}
+                      className='bg-amber-600 text-white rounded-lg py-2 font-semibold hover:bg-amber-700 disabled:opacity-50'>
+                      {respondingTableId === t.id ? 'Guardando...' : '✅ Aceptar'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {chance === 'join' && (
+                <>
+                  <p className='text-xs text-gray-400'>
+                    La mesa ya está confirmada: los demás cuentan con vos si te sumás.
+                    {viewer?.interests[t.gameId] === 'yes' ? ' Ya votaste este juego.' : ' Queda tu voto 👍 en este juego.'}
+                  </p>
+                  <button onClick={() => handleTakeSeat(t)} disabled={takingSeat}
+                    className='w-full bg-emerald-600 text-white rounded-lg py-2 font-semibold hover:bg-emerald-700 disabled:opacity-50'>
+                    {takingSeat ? 'Sumándote...' : '🙋 Sumarme a esta mesa'}
+                  </button>
+                </>
+              )}
+              {chance === null && (
+                <p className='text-xs text-gray-500'>
+                  {!viewer ? 'Para sumarte, entrá desde tu ticket.' : left > 0 ? 'Este lugar no es para vos (ya estás en la mesa, no te queda el horario, o ya tenés una mesa de este juego).' : 'Esta mesa ya no tiene lugar.'}
+                </p>
+              )}
+              {seatNote && <p className='text-xs text-red-400'>{seatNote}</p>}
+              <button onClick={closeSeat} className='w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800'>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} onReject={rejectFromConflictPopup} />
     </main>
   );
@@ -593,11 +734,14 @@ function buildBuckets(tables: Table[], eventStartTime: string | null, eventEndTi
 }
 
 interface GridEntry {
+  tableId: string;
   startTime: string;
   endTime: string;
   gameName: string;
   seatsFilled?: number;
   seatsMax?: number;
+  /** What the viewer can do about this table's free place, when there is something (shows the "+" button). */
+  take?: Exclude<SeatChance, null>;
 }
 
 interface GridCell {
@@ -629,6 +773,7 @@ function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: Sched
 
 function ScheduleGrid({
   tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, games, onlyPlayerId,
+  onlyIds, takeable, onTake,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -639,6 +784,11 @@ function ScheduleGrid({
   bufferMinutes: number;
   games: Game[];
   onlyPlayerId?: string | null;
+  /** When set, only these tables are drawn (the "Con lugar libre" filter); the numbering and timeline stay those of the full schedule. */
+  onlyIds?: Set<string> | null;
+  /** Tables whose free place the viewer can do something about: they get the "+" button. */
+  takeable?: Map<string, Exclude<SeatChance, null>>;
+  onTake?: (tableId: string) => void;
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
   // Slot assignment and time columns always come from the FULL schedule, so "Mesa #N" and the
@@ -652,12 +802,14 @@ function ScheduleGrid({
   if (buckets.length === 0) return null;
 
   const hasOwnTables = !onlyPlayerId || activeTables.some((t) => t.playerIds.includes(onlyPlayerId));
+  const noneToShow = !hasOwnTables ? 'Todavía no tenés mesas agendadas.'
+    : onlyIds && !activeTables.some((t) => onlyIds.has(t.id)) ? 'No quedan mesas con lugar libre.' : null;
 
   return (
     <section>
       <h2 className='text-xl font-semibold mb-3 text-gray-200'>🗓️ Grilla de mesas</h2>
-      {!hasOwnTables ? (
-        <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
+      {noneToShow ? (
+        <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>{noneToShow}</p>
       ) : (
       <div className='overflow-x-auto border border-gray-700 rounded-2xl'>
         <table className='w-full text-sm border-collapse min-w-max'>
@@ -677,12 +829,12 @@ function ScheduleGrid({
           <tbody>
             {Array.from({ length: rowCount }, (_, slotIdx) => {
               const rowTables = assignments
-                .filter((a) => a.slot === slotIdx && (!onlyPlayerId || a.table.playerIds.includes(onlyPlayerId)))
+                .filter((a) => a.slot === slotIdx && (!onlyPlayerId || a.table.playerIds.includes(onlyPlayerId)) && (!onlyIds || onlyIds.has(a.table.id)))
                 .map((a) => a.table);
-              if (onlyPlayerId && rowTables.length === 0) return null;
+              if ((onlyPlayerId || onlyIds) && rowTables.length === 0) return null;
               const rowEntries: GridEntry[] = rowTables.map((t) => ({
-                startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
-                seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId),
+                tableId: t.id, startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
+                seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId), take: takeable?.get(t.id),
               }));
               const cells = buildRowCells(rowEntries, buckets, breaks);
               return (
@@ -694,11 +846,20 @@ function ScheduleGrid({
                     <td key={ci} colSpan={cell.span}
                       className={'p-1.5 text-center align-middle border-l border-gray-800'}>
                       {cell.entry ? (
-                        <div className={'rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName)}>
+                        <div className={'relative rounded-lg border px-2 py-1.5 ' + colorForGame(cell.entry.gameName)}>
                           <div className='font-medium text-xs'>{cell.entry.gameName}</div>
                           <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
                           {cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
                             <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
+                          )}
+                          {/* A small button in the corner (it takes no room from the text): the place can be taken, or was offered to the viewer */}
+                          {cell.entry.take && onTake && (
+                            <button onClick={() => onTake(cell.entry!.tableId)}
+                              aria-label={`Sumarme a ${cell.entry.gameName}`} title={cell.entry.take === 'offered' ? 'Te ofrecieron este lugar' : 'Sumarme a esta mesa'}
+                              className={'absolute -top-2 -right-2 w-6 h-6 rounded-full text-white text-sm font-bold leading-none shadow ring-2 ring-gray-900 ' +
+                                (cell.entry.take === 'offered' ? 'bg-amber-500 hover:bg-amber-400' : 'bg-emerald-600 hover:bg-emerald-500')}>
+                              +
+                            </button>
                           )}
                         </div>
                       ) : cell.breakLabel && (
@@ -733,7 +894,7 @@ function BreaksBanner({ breaks }: { breaks: ScheduledBreak[] }) {
 }
 
 function TableSection({
-  title, tables, playerMap, gameMap, slotMap, cardClass, dim,
+  title, tables, playerMap, gameMap, slotMap, cardClass, dim, openIds, takeable, onTake,
 }: {
   title: string;
   tables: Table[];
@@ -742,6 +903,11 @@ function TableSection({
   slotMap: Map<string, number>;
   cardClass: string;
   dim?: boolean;
+  /** Confirmed tables that still have a place: they say how many are left. */
+  openIds?: Set<string>;
+  /** The ones whose place the viewer can take, or was offered: they get a "Sumarme" button. */
+  takeable?: Map<string, Exclude<SeatChance, null>>;
+  onTake?: (tableId: string) => void;
 }) {
   if (tables.length === 0) return null;
   return (
@@ -781,6 +947,17 @@ function TableSection({
                 );
               })}
             </div>
+            {openIds?.has(t.id) && (
+              <div className='mt-3 flex items-center justify-between gap-2'>
+                <span className='text-xs text-emerald-300'>🪑 quedan {freeSeatsOf(t, gameMap.get(t.gameId))}</span>
+                {takeable?.get(t.id) && onTake && (
+                  <button onClick={() => onTake(t.id)}
+                    className={'rounded-lg px-3 py-1 text-xs font-semibold text-white ' + (takeable.get(t.id) === 'offered' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700')}>
+                    {takeable.get(t.id) === 'offered' ? '🙋 Te ofrecieron este lugar' : '🙋 Sumarme'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
