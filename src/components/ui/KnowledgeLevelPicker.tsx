@@ -8,6 +8,13 @@ const OPTIONS: { level: KnowledgeLevel; icon: string; label: string }[] = [
   { level: 'never', icon: '🆕', label: 'Nunca lo jugué' },
 ];
 
+/**
+ * What to show as chosen when asking "¿Qué tan bien lo conocés?" about a game the person may not have answered for yet.
+ * "Nunca lo jugué" is what a game is until they say otherwise — stored as nothing at all — so it stays the value behind the
+ * scenes but is not shown as picked: the person has to choose. Pass the result as the picker's `value`.
+ */
+export const chosenLevel = (level: KnowledgeLevel): KnowledgeLevel | null => (level === 'never' ? null : level);
+
 /** 3-way, mutually exclusive: how well the player already knows this specific game. */
 export default function KnowledgeLevelPicker({
   value, onChange,

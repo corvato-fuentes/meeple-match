@@ -21,7 +21,7 @@ import { useBggSearch } from '@/hooks/useBggSearch';
 import PlayerCountFields from '@/components/ui/PlayerCountFields';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import VotingHelp from '@/components/ui/VotingHelp';
-import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
+import KnowledgeLevelPicker, { chosenLevel, type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import GameVoteCard from '@/components/ui/GameVoteCard';
 import type { MeepleEvent, Game, GameComplexity, InterestLevel, DraftGame } from '@/lib/types';
 
@@ -783,7 +783,7 @@ export default function EventPage() {
               <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
                 onClick={(e) => e.stopPropagation()}>
                 <h3 className="font-semibold text-gray-100">¿Qué tan bien conocés {game.name}?</h3>
-                <KnowledgeLevelPicker value={knowledgeLevelForOther(game.id)}
+                <KnowledgeLevelPicker value={chosenLevel(knowledgeLevelForOther(game.id))}
                   onChange={(level) => { setKnowledgeLevelForOther(game.id, level); close(); }} />
                 <button onClick={close} className="w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800">
                   Ahora no

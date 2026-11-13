@@ -17,7 +17,7 @@ import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import GameCover from '@/components/ui/GameCover';
-import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
+import KnowledgeLevelPicker, { chosenLevel, type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import type { MeepleEvent, Table, Player, ScheduledBreak, Game, InterestLevel } from '@/lib/types';
 
 const STATUS_LABEL: Record<Table['status'], string> = {
@@ -622,7 +622,7 @@ export default function BoardPage() {
             <div className='max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm'
               onClick={(e) => e.stopPropagation()}>
               <h3 className='font-semibold text-gray-100'>¿Qué tan bien conocés {game.name}?</h3>
-              <KnowledgeLevelPicker value={knowledgeLevelFor(game.id)}
+              <KnowledgeLevelPicker value={chosenLevel(knowledgeLevelFor(game.id))}
                 onChange={(level) => handleKnowledgeLevelChosen(game.id, level)} />
               <button onClick={closeKnowledgePrompt} className='w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800'>
                 Ahora no
@@ -746,7 +746,7 @@ export default function BoardPage() {
               )}
               {option?.kind === 'blocked' && (
                 <>
-                  <p className='text-xs text-gray-300'>ℹ️ {blockedMessage(option.reason, t)}</p>
+                  <p className='text-xs text-gray-300'>{option.reason.kind === 'in-table' ? '✅' : 'ℹ️'} {blockedMessage(option.reason, t)}</p>
                   {option.reason.kind === 'rejected' && (
                     <button onClick={() => reconsiderTable(t)}
                       className='w-full border border-indigo-700 text-indigo-300 rounded-lg py-2 hover:bg-indigo-950/40'>
@@ -817,7 +817,11 @@ function seatLook(o: SeatOption, t: { gameName: string; startTime: string; endTi
     case 'offered': return { glyph: '+', color: 'bg-amber-500 hover:bg-amber-400', title: 'Te ofrecieron este lugar', label: `Te ofrecieron un lugar en ${t.gameName}` };
     case 'join': return { glyph: '+', color: 'bg-emerald-600 hover:bg-emerald-500', title: 'Sumarme a esta mesa', label: `Sumarme a ${t.gameName}` };
     case 'vote': return { glyph: '+', color: 'bg-indigo-600 hover:bg-indigo-500', title: 'Votar para que te la ofrezcan', label: `Votar ${t.gameName}` };
-    case 'blocked': return { glyph: 'i', color: 'bg-gray-600 hover:bg-gray-500', title: blockedMessage(o.reason, t), label: `Por qué no puedo sumarme a ${t.gameName}` };
+    // A table the viewer is already in gets a tick (they are in, nothing to explain); any other reason, a grey "i"
+    case 'blocked':
+      return o.reason.kind === 'in-table'
+        ? { glyph: '✓', color: 'bg-emerald-800 hover:bg-emerald-700', title: 'Ya estás en esta mesa', label: `Ya estás en ${t.gameName}` }
+        : { glyph: 'i', color: 'bg-gray-600 hover:bg-gray-500', title: blockedMessage(o.reason, t), label: `Por qué no puedo sumarme a ${t.gameName}` };
   }
 }
 
@@ -1076,12 +1080,14 @@ function TableSection({
                 <span className='text-xs text-emerald-300'>🪑 quedan {freeSeatsOf(t, gameMap.get(t.gameId))}</span>
                 {takeable?.get(t.id) && onTake && (() => {
                   const o = takeable.get(t.id)!;
+                  const inTable = o.kind === 'blocked' && o.reason.kind === 'in-table';
                   const style = o.kind === 'offered' ? 'bg-amber-600 hover:bg-amber-700 text-white'
                     : o.kind === 'join' ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     : o.kind === 'vote' ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    : inTable ? 'border border-emerald-800 text-emerald-300 hover:bg-emerald-950/40'
                     : 'border border-gray-600 text-gray-300 hover:bg-gray-700';
                   const text = o.kind === 'offered' ? '🙋 Te ofrecieron este lugar' : o.kind === 'join' ? '🙋 Sumarme'
-                    : o.kind === 'vote' ? '👍 Votar para que te la ofrezcan' : 'ℹ️ Por qué no puedo sumarme';
+                    : o.kind === 'vote' ? '👍 Votar para que te la ofrezcan' : inTable ? '✅ Estás en esta mesa' : 'ℹ️ Por qué no puedo sumarme';
                   return <button onClick={() => onTake(t.id)} className={'rounded-lg px-3 py-1 text-xs font-semibold ' + style}>{text}</button>;
                 })()}
               </div>

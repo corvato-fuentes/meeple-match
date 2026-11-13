@@ -21,7 +21,7 @@ import ShareTableButton from '@/components/ui/ShareTableButton';
 import { isShareableTable } from '@/lib/shareTable';
 import VotingHelp from '@/components/ui/VotingHelp';
 import WhyVoteHelp from '@/components/ui/WhyVoteHelp';
-import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
+import KnowledgeLevelPicker, { chosenLevel, type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor, otherOffersForGame } from '@/lib/offers';
 import OtherOffersPrompt from '@/components/ui/OtherOffersPrompt';
@@ -401,7 +401,7 @@ export default function RecommendedTablesPage() {
             <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
               onClick={(e) => e.stopPropagation()}>
               <h3 className="font-semibold text-gray-100">¿Qué tan bien conocés {game.name}?</h3>
-              <KnowledgeLevelPicker value={knowledgeLevelFor(game.id)}
+              <KnowledgeLevelPicker value={chosenLevel(knowledgeLevelFor(game.id))}
                 onChange={(level) => { setKnowledgeLevel(game.id, level); close(); }} />
               <button onClick={close} className="w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800">
                 Ahora no
