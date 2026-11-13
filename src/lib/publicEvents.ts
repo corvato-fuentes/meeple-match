@@ -1,3 +1,4 @@
+import type { LatLng } from './geo';
 import type { MeepleEvent } from './types';
 
 /** What "Explorar eventos" shows of an event: the event itself and how many are in — never anyone's name or contact. */
@@ -11,6 +12,8 @@ export interface PublicEvent {
   mapUrl: string | null;
   bannerUrl: string | null;
   players: number;
+  /** Where its pin goes on the map; null when it could not be located. */
+  geo: LatLng | null;
 }
 
 /** Events are listed unless the organizer turned it off. */
@@ -33,10 +36,10 @@ export function oldestDateToList(now: Date): string {
 }
 
 /** The public view of an event doc; null when it must not be listed (turned off, or without a name or a day). */
-export function toPublicEvent(code: string, e: MeepleEvent, players: number, now: Date): PublicEvent | null {
+export function toPublicEvent(code: string, e: MeepleEvent, players: number, now: Date, geo: LatLng | null = null): PublicEvent | null {
   if (!isListed(e) || !e.name || !e.date || e.date < oldestDateToList(now)) return null;
   return {
     code, name: e.name, date: e.date, startTime: e.startTime, endTime: e.endTime, location: e.location ?? '',
-    mapUrl: e.mapUrl ?? null, bannerUrl: e.settings?.registrationBannerUrl ?? null, players,
+    mapUrl: e.mapUrl ?? null, bannerUrl: e.settings?.registrationBannerUrl ?? null, players, geo,
   };
 }

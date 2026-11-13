@@ -480,7 +480,7 @@ export default function AdminPage() {
             onChange={(e) => handleDraftChange('listed', e.target.checked)} />
           <span>
             Mostrar en «Explorar eventos»
-            <span className='block text-xs text-gray-500'>Aparece en la lista del inicio con su nombre, día, horario, lugar y cuántos se inscribieron. Si lo desmarcás, solo entra quien tenga el código.</span>
+            <span className='block text-xs text-gray-500'>Aparece en la lista y en el mapa del inicio, con su nombre, día, horario, lugar y cuántos se inscribieron. Si lo desmarcás, solo entra quien tenga el código.</span>
           </span>
         </label>
         <div className='grid grid-cols-2 gap-3'>
