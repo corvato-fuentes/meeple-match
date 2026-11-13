@@ -432,6 +432,26 @@ export default function BoardPage() {
     return <ActionButton tone='muted' onClick={() => openSeat(t.id)}>ℹ️ Por qué no puedo sumarme</ActionButton>;
   }
 
+  // A table still waiting for players, as a card (the "Con lugar libre" view of the cards): marked as posted or recommended, and its
+  // button is what the viewer can do about the free place
+  function waitingCard(t: Table): ReactNode {
+    const game = games.find((g) => g.id === t.gameId);
+    const posted = !!t.postedByOwner;
+    const option = takeable.get(t.id);
+    const interested = [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])].filter((id) => !t.playerIds.includes(id)).length;
+    return (
+      <div key={t.id} className={'border rounded-xl p-3 ' + (posted ? 'border-indigo-700 bg-indigo-950/20' : 'border-amber-700 bg-amber-950/20')}>
+        <WaitingTableInfo t={t} game={game} accent={posted ? 'indigo' : 'amber'} interested={posted ? null : interested} seatWord={posted ? 'anotados' : 'confirmados'}
+          badge={<span className={'text-[11px] rounded-full px-2 py-0.5 ' + (posted ? 'bg-purple-900 text-purple-300' : 'bg-yellow-900 text-yellow-300')}>{posted ? '📣 Postulada' : '🟡 Recomendada'}</span>}
+          who={posted
+            ? <PostedWho t={t} nameOf={nameOfPlayer} explainerNames={t.playerIds.filter((id) => playerMap.get(id)?.canExplain.includes(t.gameId)).map(nameOfPlayer)} />
+            : <RecommendedWho t={t} game={game} nameOf={nameOfPlayer} />}
+          onView={(kind) => setViewing({ tableId: t.id, kind })} />
+        {viewer && option && <div className='mt-3'>{seatButton(t, option)}</div>}
+      </div>
+    );
+  }
+
   const seatTable = seatTableId ? tables.find((t) => t.id === seatTableId) ?? null : null;
   // With the filter on, only the tables with a free place are listed (grid and cards)
   const freeOnly = (ts: Table[]) => (onlyFree ? ts.filter((t) => openIds.has(t.id)) : ts);
@@ -520,12 +540,8 @@ export default function BoardPage() {
               {onlyMine && cardTables.length === 0 && (
                 <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
               )}
-              {onlyFree && freeOnly(cardTables).length === 0 && (
-                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>
-                  {waitingOpen.length > 0
-                    ? 'Ninguna mesa confirmada tiene lugar libre. Las que esperan jugadores están más abajo.'
-                    : 'No quedan mesas con lugar libre.'}
-                </p>
+              {onlyFree && freeOnly(cardTables).length === 0 && waitingOpen.length === 0 && (
+                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>No quedan mesas con lugar libre.</p>
               )}
               <TableSection
                 title='🟢 En curso ahora' tables={freeOnly(active)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
@@ -543,10 +559,24 @@ export default function BoardPage() {
                 title='✅ Finalizadas' tables={freeOnly(finished)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
                 cardClass='border-gray-800 bg-gray-900' dim
               />
+              {/* With "Con lugar libre" on, the tables still waiting for players are part of the same set (as on the grid): they come
+                  after the confirmed ones, each marked as "Postulada" or "Recomendada" */}
+              {onlyFree && waitingOpen.length > 0 && (
+                <section>
+                  <h2 className='text-xl font-semibold mb-3 text-gray-200'>
+                    ⏳ En espera — con lugar <span className='text-gray-500 text-base font-normal'>({waitingOpen.length})</span>
+                  </h2>
+                  <p className='text-sm text-gray-500 mb-3'>Todavía no están confirmadas: se confirman cuando se juntan los jugadores que faltan.</p>
+                  <div className='grid gap-3 md:grid-cols-2 lg:grid-cols-3'>
+                    {[...waitingOpen].sort((a, b) => a.startTime.localeCompare(b.startTime)).map(waitingCard)}
+                  </div>
+                </section>
+              )}
             </div>
           )}
 
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-6 items-start'>
+          {/* In the cards view with "Con lugar libre" on, the waiting tables are already in the section above */}
+          <div className={'grid grid-cols-1 md:grid-cols-2 gap-6 items-start' + (onlyFree && view === 'cards' ? ' hidden' : '')}>
           {(recommendedTables.length > 0 || (!!viewer && openRecommended.length > 0)) && (
             <section>
               <h2 className='text-xl font-semibold mb-3 text-gray-200'>🟡 Mesas recomendadas — esperando confirmación</h2>
