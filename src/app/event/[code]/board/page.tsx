@@ -414,25 +414,25 @@ export default function BoardPage() {
         <div className='text-center text-gray-500 mt-24 text-xl'>Esperando mesas...</div>
       ) : (
         <div className='space-y-6'>
-          <div className='flex gap-2'>
+          <div className='flex flex-wrap gap-2'>
             <button onClick={() => setView('grid')}
-              className={'px-4 py-1.5 rounded-full text-sm font-medium border ' + (view === 'grid' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+              className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (view === 'grid' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
               🗓️ Grilla
             </button>
             <button onClick={() => setView('cards')}
-              className={'px-4 py-1.5 rounded-full text-sm font-medium border ' + (view === 'cards' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+              className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (view === 'cards' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
               🎯 Tarjetas
             </button>
             {viewer && (
               <button onClick={() => setOnlyMine((v) => !v)}
-                className={'px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+                className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
                 🎫 Solo mis mesas
               </button>
             )}
             {/* Shows up when some confirmed table still has a place; never selected by itself */}
             {(openIds.size > 0 || onlyFree) && (
               <button onClick={() => setOnlyFree((v) => !v)} aria-pressed={onlyFree}
-                className={'px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+                className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
                 🪑 Con lugar libre ({openIds.size})
               </button>
             )}
