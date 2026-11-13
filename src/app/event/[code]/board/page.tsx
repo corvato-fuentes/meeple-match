@@ -68,8 +68,9 @@ function todayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-type RecGroup = 'pending' | 'accepted' | 'other';
-const REC_GROUP_LABEL: Record<RecGroup, string> = { pending: '🤔 Por aceptar', accepted: '✅ Ya acepté', other: 'Otras' };
+// 'open' is not a waiting table: it is a confirmed one that still has room (its place can be taken), kept one chip away
+type RecGroup = 'pending' | 'accepted' | 'other' | 'open';
+const REC_GROUP_LABEL: Record<RecGroup, string> = { pending: '🤔 Por aceptar', accepted: '✅ Ya acepté', other: 'Otras', open: '🪑 Confirmadas con lugar' };
 
 export default function BoardPage() {
   const { code } = useParams<{ code: string }>();
@@ -103,6 +104,7 @@ export default function BoardPage() {
   // Which table's people are being listed: just those who confirmed, or just those who are interested (not yet confirmed)
   const [viewing, setViewing] = useState<{ tableId: string; kind: 'confirmed' | 'interested' } | null>(null);
   const [recFilter, setRecFilter] = useState<RecGroup | null>(null); // null = show the first group that has tables
+  const [postFilter, setPostFilter] = useState<'waiting' | 'open'>('waiting'); // postulated tables: waiting for players / confirmed with room
 
   useEffect(() => {
     getEvent(code).then(setEvent);
@@ -154,7 +156,7 @@ export default function BoardPage() {
   // The recommended tables, split by where the viewer stands: the ones waiting on their answer come first; the ones
   // they accepted, and everything else (rejected, not in the table, or not voted), are one chip away.
   const recGroups = useMemo(() => {
-    const groups: Record<RecGroup, Table[]> = { pending: [], accepted: [], other: [] };
+    const groups: Record<Exclude<RecGroup, 'open'>, Table[]> = { pending: [], accepted: [], other: [] };
     for (const t of recommendedTables) {
       if (!viewer) groups.other.push(t);
       else if (t.playerIds.includes(viewer.id)) groups.accepted.push(t);
@@ -164,9 +166,6 @@ export default function BoardPage() {
     }
     return groups;
   }, [recommendedTables, viewer]);
-  const activeRecGroup: RecGroup = recFilter && recGroups[recFilter].length > 0 ? recFilter
-    : recGroups.pending.length > 0 ? 'pending' : recGroups.accepted.length > 0 ? 'accepted' : 'other';
-  const visibleRecommended = viewer ? recGroups[activeRecGroup] : recommendedTables;
 
   // Drives the "Solo mis mesas" toggle for the cards view — the grid view filters separately
   // (via ScheduleGrid's onlyPlayerId) so its table numbering/timeline stay anchored to the full schedule.
@@ -198,6 +197,18 @@ export default function BoardPage() {
     [tables, gameMap, eventIsPast, eventIsToday, nowMinutes]
   );
   const freeCount = openIds.size + waitingOpen.length;
+
+  // The two lists of waiting tables also have a chip for the confirmed tables that still have room (the ones the algorithm built,
+  // and the ones somebody posted), so everything that can still be joined is findable from them too
+  const openRecommended = useMemo(() => scheduledTables.filter((t) => openIds.has(t.id) && !t.postedByOwner), [scheduledTables, openIds]);
+  const openPosted = useMemo(() => scheduledTables.filter((t) => openIds.has(t.id) && !!t.postedByOwner), [scheduledTables, openIds]);
+  const recGroupsView: Record<RecGroup, Table[]> = { ...recGroups, open: openRecommended };
+  const activeRecGroup: RecGroup = recFilter && recGroupsView[recFilter].length > 0 ? recFilter
+    : recGroups.pending.length > 0 ? 'pending' : recGroups.accepted.length > 0 ? 'accepted' : recGroups.other.length > 0 || openRecommended.length === 0 ? 'other' : 'open';
+  const visibleRecommended = viewer ? recGroupsView[activeRecGroup] : recommendedTables;
+  const activePostGroup: 'waiting' | 'open' = postFilter === 'open' && openPosted.length > 0 ? 'open'
+    : postulatedTables.length === 0 && openPosted.length > 0 ? 'open' : 'waiting';
+  const visiblePostulated = activePostGroup === 'open' ? openPosted : postulatedTables;
   const takeable = useMemo(() => {
     const m = new Map<string, SeatOption>();
     for (const t of [...scheduledTables.filter((x) => openIds.has(x.id)), ...waitingOpen]) {
@@ -206,6 +217,27 @@ export default function BoardPage() {
     }
     return m;
   }, [scheduledTables, tables, openIds, waitingOpen, viewer, gameMap]);
+
+  // The small icon of every table on the grid: what the viewer can do about its free place, or else its state
+  // (they are in it, it is over, underway, full, or has room)
+  const gridBadges = useMemo(() => {
+    const m = new Map<string, CellBadge>();
+    for (const t of [...scheduledTables, ...waitingOpen]) {
+      const status = (glyph: string, color: string, title: string): CellBadge => ({ glyph, color, title, label: `${title}: ${t.gameName}`, clickable: false });
+      const option = takeable.get(t.id);
+      if (option) { m.set(t.id, { ...seatLook(option, t), clickable: true }); continue; }
+      if (viewer && t.playerIds.includes(viewer.id)) { m.set(t.id, status('✓', 'bg-emerald-800', 'Estás en esta mesa')); continue; }
+      if (t.status === 'recommended') continue; // still waiting for players and nothing to do about it: no icon
+      const game = gameMap.get(t.gameId);
+      const over = t.status === 'completed' || eventIsPast || (eventIsToday && nowMinutes >= toMinutes(t.endTime));
+      if (over) m.set(t.id, status('🏁', 'bg-gray-700', 'Terminó'));
+      else if (t.status === 'in-progress' || tableStarted(t)) m.set(t.id, status('▶', 'bg-blue-700', 'En curso'));
+      else if (game && freeSeatsOf(t, game) === 0) m.set(t.id, status('🔒', 'bg-gray-600', 'Mesa completa'));
+      else if (openIds.has(t.id)) m.set(t.id, status('🪑', 'bg-emerald-900', 'Con lugar libre'));
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduledTables, waitingOpen, takeable, openIds, viewer, gameMap, eventIsPast, eventIsToday, nowMinutes]);
 
   const { active, soon, upcoming, finished } = useMemo(() => {
     const active: Table[] = [];
@@ -391,6 +423,35 @@ export default function BoardPage() {
     await undoTableRejection(code, t.id, viewer.id);
   }
 
+  // The foot of a card of a confirmed table with room: what the viewer can do about the free place (each one opens the table)
+  function seatButton(t: Table, o: SeatOption): ReactNode {
+    if (o.kind === 'offered') return <ActionButton tone='amber' onClick={() => openSeat(t.id)}>🙋 Te ofrecieron este lugar</ActionButton>;
+    if (o.kind === 'join') return <ActionButton tone='indigo' onClick={() => openSeat(t.id)}>🙋 Sumarme</ActionButton>;
+    if (o.kind === 'vote') return <ActionButton tone='indigo' onClick={() => openSeat(t.id)}>👍 Votar para que te la ofrezcan</ActionButton>;
+    if (o.reason.kind === 'in-table') return <ActionButton tone='done'>✅ Estás en esta mesa</ActionButton>;
+    return <ActionButton tone='muted' onClick={() => openSeat(t.id)}>ℹ️ Por qué no puedo sumarme</ActionButton>;
+  }
+
+  // A table still waiting for players, as a card (the "Con lugar libre" view of the cards): marked as posted or recommended, and its
+  // button is what the viewer can do about the free place
+  function waitingCard(t: Table): ReactNode {
+    const game = games.find((g) => g.id === t.gameId);
+    const posted = !!t.postedByOwner;
+    const option = takeable.get(t.id);
+    const interested = [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])].filter((id) => !t.playerIds.includes(id)).length;
+    return (
+      <div key={t.id} className={'border rounded-xl p-3 ' + (posted ? 'border-indigo-700 bg-indigo-950/20' : 'border-amber-700 bg-amber-950/20')}>
+        <WaitingTableInfo t={t} game={game} accent={posted ? 'indigo' : 'amber'} interested={posted ? null : interested} seatWord={posted ? 'anotados' : 'confirmados'}
+          badge={<span className={'text-[11px] rounded-full px-2 py-0.5 ' + (posted ? 'bg-purple-900 text-purple-300' : 'bg-yellow-900 text-yellow-300')}>{posted ? '📣 Postulada' : '🟡 Recomendada'}</span>}
+          who={posted
+            ? <PostedWho t={t} nameOf={nameOfPlayer} explainerNames={t.playerIds.filter((id) => playerMap.get(id)?.canExplain.includes(t.gameId)).map(nameOfPlayer)} />
+            : <RecommendedWho t={t} game={game} nameOf={nameOfPlayer} />}
+          onView={(kind) => setViewing({ tableId: t.id, kind })} />
+        {viewer && option && <div className='mt-3'>{seatButton(t, option)}</div>}
+      </div>
+    );
+  }
+
   const seatTable = seatTableId ? tables.find((t) => t.id === seatTableId) ?? null : null;
   // With the filter on, only the tables with a free place are listed (grid and cards)
   const freeOnly = (ts: Table[]) => (onlyFree ? ts.filter((t) => openIds.has(t.id)) : ts);
@@ -448,14 +509,15 @@ export default function BoardPage() {
               🎯 Tarjetas
             </button>
             {viewer && (
-              <button onClick={() => setOnlyMine((v) => !v)}
+              // "Solo mis mesas" and "Con lugar libre" are opposite questions (the tables I'm in / the ones with room): one at a time
+              <button onClick={() => { setOnlyMine((v) => !v); setOnlyFree(false); }} aria-pressed={onlyMine}
                 className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
                 🎫 Solo mis mesas
               </button>
             )}
             {/* Shows up when some table — confirmed, or still waiting for players — has a place; never selected by itself */}
             {(freeCount > 0 || onlyFree) && (
-              <button onClick={() => setOnlyFree((v) => !v)} aria-pressed={onlyFree}
+              <button onClick={() => { setOnlyFree((v) => !v); setOnlyMine(false); }} aria-pressed={onlyFree}
                 className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
                 🪑 Con lugar libre ({freeCount})
               </button>
@@ -470,7 +532,7 @@ export default function BoardPage() {
               breaks={event?.settings.breaks ?? []} bufferMinutes={event?.settings.bufferMinutes ?? 0}
               games={games}
               onlyPlayerId={onlyMine ? viewer?.id ?? null : null}
-              onlyIds={onlyFree ? openIds : null} waitingTables={onlyFree ? waitingOpen : undefined} takeable={takeable} onTake={openSeat}
+              onlyIds={onlyFree ? openIds : null} waitingTables={onlyFree ? waitingOpen : undefined} badges={gridBadges} onTake={openSeat}
             />
           ) : (
             <div className='space-y-10'>
@@ -478,12 +540,8 @@ export default function BoardPage() {
               {onlyMine && cardTables.length === 0 && (
                 <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>Todavía no tenés mesas agendadas.</p>
               )}
-              {onlyFree && freeOnly(cardTables).length === 0 && (
-                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>
-                  {waitingOpen.length > 0
-                    ? 'Ninguna mesa confirmada tiene lugar libre. Las que esperan jugadores están más abajo.'
-                    : 'No quedan mesas con lugar libre.'}
-                </p>
+              {onlyFree && freeOnly(cardTables).length === 0 && waitingOpen.length === 0 && (
+                <p className='text-gray-500 text-sm py-6 text-center border border-gray-800 rounded-2xl'>No quedan mesas con lugar libre.</p>
               )}
               <TableSection
                 title='🟢 En curso ahora' tables={freeOnly(active)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
@@ -501,11 +559,25 @@ export default function BoardPage() {
                 title='✅ Finalizadas' tables={freeOnly(finished)} playerMap={playerMap} gameMap={gameMap} slotMap={physicalSlotByTableId}
                 cardClass='border-gray-800 bg-gray-900' dim
               />
+              {/* With "Con lugar libre" on, the tables still waiting for players are part of the same set (as on the grid): they come
+                  after the confirmed ones, each marked as "Postulada" or "Recomendada" */}
+              {onlyFree && waitingOpen.length > 0 && (
+                <section>
+                  <h2 className='text-xl font-semibold mb-3 text-gray-200'>
+                    ⏳ En espera — con lugar <span className='text-gray-500 text-base font-normal'>({waitingOpen.length})</span>
+                  </h2>
+                  <p className='text-sm text-gray-500 mb-3'>Todavía no están confirmadas: se confirman cuando se juntan los jugadores que faltan.</p>
+                  <div className='grid gap-3 md:grid-cols-2 lg:grid-cols-3'>
+                    {[...waitingOpen].sort((a, b) => a.startTime.localeCompare(b.startTime)).map(waitingCard)}
+                  </div>
+                </section>
+              )}
             </div>
           )}
 
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-6 items-start'>
-          {recommendedTables.length > 0 && (
+          {/* In the cards view with "Con lugar libre" on, the waiting tables are already in the section above */}
+          <div className={'grid grid-cols-1 md:grid-cols-2 gap-6 items-start' + (onlyFree && view === 'cards' ? ' hidden' : '')}>
+          {(recommendedTables.length > 0 || (!!viewer && openRecommended.length > 0)) && (
             <section>
               <h2 className='text-xl font-semibold mb-3 text-gray-200'>🟡 Mesas recomendadas — esperando confirmación</h2>
               <p className='text-sm text-gray-500 mb-3'>
@@ -515,7 +587,7 @@ export default function BoardPage() {
                 <div className='flex flex-wrap gap-2 mb-3'>
                   {(Object.keys(REC_GROUP_LABEL) as RecGroup[]).map((g) => {
                     const on = g === activeRecGroup;
-                    const count = recGroups[g].length;
+                    const count = recGroupsView[g].length;
                     return (
                       <button key={g} onClick={() => setRecFilter(g)} aria-pressed={on} disabled={count === 0}
                         className={`rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${on ? 'bg-amber-600 border-amber-600 text-black' : 'border-gray-700 text-gray-400 hover:bg-gray-800'}`}>
@@ -530,6 +602,19 @@ export default function BoardPage() {
                   const game = games.find((g) => g.id === t.gameId);
                   // Offered it, plus the people waiting in the queue until the explainer accepts
                   const interested = [...(t.candidateIds ?? []), ...(t.queuedIds ?? [])].filter((id) => !t.playerIds.includes(id)).length;
+                  // A confirmed table that still has room (the "Confirmadas con lugar" chip): same card, and the button is what the
+                  // viewer can do about its free place (it opens the table)
+                  if (t.status === 'confirmed') {
+                    const option = takeable.get(t.id);
+                    return (
+                      <div key={t.id} className='border border-green-800 rounded-xl p-3 bg-green-950/10'>
+                        <WaitingTableInfo t={t} game={game} accent='green' interested={interested} seatWord='confirmados'
+                          who={<RecommendedWho t={t} game={game} nameOf={nameOfPlayer} />}
+                          onView={(kind) => setViewing({ tableId: t.id, kind })} />
+                        {viewer && option && <div className='mt-3'>{seatButton(t, option)}</div>}
+                      </div>
+                    );
+                  }
                   // What this means for the viewer is where they stand on THIS table — having voted yes on the game only
                   // makes them a candidate; they still have to accept the table. The note sits with the info lines and
                   // every card ends in one big button: the action you can take, or the state you are in.
@@ -575,16 +660,42 @@ export default function BoardPage() {
             </section>
           )}
 
-          {postulatedTables.length > 0 && (
+          {(postulatedTables.length > 0 || openPosted.length > 0) && (
             <section>
               <h2 className='text-xl font-semibold mb-3 text-gray-200'>📣 Mesas postuladas — esperando jugadores</h2>
               <p className='text-sm text-gray-500 mb-3'>
                 Alguien ya propuso este horario para jugarlo — falta que se sumen jugadores hasta el mínimo para que se agende sola.
               </p>
+              {openPosted.length > 0 && (
+                <div className='flex flex-wrap gap-2 mb-3'>
+                  {([['waiting', `⏳ Esperando jugadores (${postulatedTables.length})`], ['open', `🪑 Confirmadas con lugar (${openPosted.length})`]] as const).map(([g, label]) => {
+                    const on = g === activePostGroup;
+                    return (
+                      <button key={g} onClick={() => setPostFilter(g)} aria-pressed={on} disabled={g === 'waiting' && postulatedTables.length === 0}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800'}`}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className='space-y-2'>
-                {postulatedTables.map((t) => {
+                {visiblePostulated.map((t) => {
                   const game = games.find((g) => g.id === t.gameId);
                   const seatsLeft = game ? game.maxPlayers - t.playerIds.length : null;
+                  // A posted table that is already confirmed and still has room: the button is what the viewer can do about the free place
+                  if (t.status === 'confirmed') {
+                    const option = takeable.get(t.id);
+                    return (
+                      <div key={t.id} className='border border-green-800 rounded-xl p-3 bg-green-950/10'>
+                        <WaitingTableInfo t={t} game={game} accent='green' interested={null} seatWord='anotados'
+                          who={<PostedWho t={t} nameOf={nameOfPlayer}
+                            explainerNames={t.playerIds.filter((id) => playerMap.get(id)?.canExplain.includes(t.gameId)).map(nameOfPlayer)} />}
+                          onView={(kind) => setViewing({ tableId: t.id, kind })} />
+                        {viewer && option && <div className='mt-3'>{seatButton(t, option)}</div>}
+                      </div>
+                    );
+                  }
                   return (
                     <div key={t.id} className='border border-indigo-700 rounded-xl p-3 bg-indigo-950/20'>
                       <WaitingTableInfo t={t} game={game} accent='indigo' interested={null} seatWord='anotados'
@@ -807,9 +918,12 @@ interface GridEntry {
   waiting?: 'posted' | 'recommended';
   /** How many more it needs to be confirmed (waiting tables). */
   missing?: number;
-  /** What the viewer can do about this table's free place, when there is something (shows the small button in the corner). */
-  take?: SeatOption;
+  /** The small icon in the corner: what the table's state is, or what the viewer can do about its free place. */
+  badge?: CellBadge;
 }
+
+/** The small round icon on a table of the grid. A button when tapping it opens something (the free place), otherwise just a status. */
+interface CellBadge { glyph: string; color: string; title: string; label: string; clickable: boolean }
 
 /** How the small button of a free place looks: green/amber/indigo "+" when there is something to do, a grey "i" when there is not. */
 function seatLook(o: SeatOption, t: { gameName: string; startTime: string; endTime: string }): { glyph: string; color: string; title: string; label: string } {
@@ -866,7 +980,7 @@ function buildRowCells(rowEntries: GridEntry[], buckets: number[], breaks: Sched
 
 function ScheduleGrid({
   tables, nowMinutes, physicalTables, eventStartTime, eventEndTime, breaks, bufferMinutes, games, onlyPlayerId,
-  onlyIds, waitingTables, takeable, onTake,
+  onlyIds, waitingTables, badges, onTake,
 }: {
   tables: Table[];
   nowMinutes: number | null;
@@ -882,8 +996,8 @@ function ScheduleGrid({
   /** Tables still waiting for players, drawn dashed in extra "En espera" rows under the others (they are not on the schedule yet, so
    *  they never change its numbering). Only given with the "Con lugar libre" filter on. */
   waitingTables?: Table[];
-  /** What the viewer can do about the free place of a table: the small button in its corner. */
-  takeable?: Map<string, SeatOption>;
+  /** The small icon of each table: its state, or what the viewer can do about its free place. */
+  badges?: Map<string, CellBadge>;
   onTake?: (tableId: string) => void;
 }) {
   const activeTables = tables.filter((t) => t.status !== 'cancelled');
@@ -923,14 +1037,15 @@ function ScheduleGrid({
           {!cell.entry.waiting && cell.entry.seatsMax != null && cell.entry.seatsFilled != null && cell.entry.seatsFilled < cell.entry.seatsMax && (
             <div className='text-[11px] opacity-90'>🪑 quedan {cell.entry.seatsMax - cell.entry.seatsFilled}</div>
           )}
-          {/* A small button in the corner (it takes no room from the text): the place can be taken, was offered, or says why it can't */}
-          {cell.entry.take && onTake && (() => {
-            const look = seatLook(cell.entry.take, cell.entry);
-            return (
-              <button onClick={() => onTake(cell.entry!.tableId)} aria-label={look.label} title={look.title}
-                className={'absolute -top-2 -right-2 w-6 h-6 rounded-full text-white text-sm font-bold leading-none shadow ring-2 ring-gray-900 ' + look.color}>
-                {look.glyph}
-              </button>
+          {/* A small icon in the corner (it takes no room from the text) on every table: its state — you are in it, it is full, underway,
+              over — or, on a free place, what you can do about it (a button) */}
+          {cell.entry.badge && (() => {
+            const b = cell.entry.badge;
+            const cls = 'absolute -top-2 -right-2 w-6 h-6 rounded-full text-white text-sm font-bold leading-none shadow ring-2 ring-gray-900 flex items-center justify-center ' + b.color;
+            return b.clickable && onTake ? (
+              <button onClick={() => onTake(cell.entry!.tableId)} aria-label={b.label} title={b.title} className={cls}>{b.glyph}</button>
+            ) : (
+              <span role='img' aria-label={b.label} title={b.title} className={cls}>{b.glyph}</span>
             );
           })()}
         </div>
@@ -971,7 +1086,7 @@ function ScheduleGrid({
               if ((onlyPlayerId || onlyIds) && rowTables.length === 0) return null;
               const rowEntries: GridEntry[] = rowTables.map((t) => ({
                 tableId: t.id, startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
-                seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId), take: takeable?.get(t.id),
+                seatsFilled: t.playerIds.length, seatsMax: maxPlayersByGameId.get(t.gameId), badge: badges?.get(t.id),
               }));
               const cells = buildRowCells(rowEntries, buckets, breaks);
               return (
@@ -989,7 +1104,7 @@ function ScheduleGrid({
                 const game = gameById.get(t.gameId);
                 return {
                   tableId: t.id, startTime: t.startTime, endTime: t.endTime, gameName: t.gameName,
-                  seatsFilled: t.playerIds.length, seatsMax: game?.maxPlayers, take: takeable?.get(t.id),
+                  seatsFilled: t.playerIds.length, seatsMax: game?.maxPlayers, badge: badges?.get(t.id),
                   waiting: t.postedByOwner ? 'posted' : 'recommended', missing: game ? missingToConfirm(t, game) : undefined,
                 };
               });
