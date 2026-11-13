@@ -152,7 +152,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
       </Card>
 
       <Card icon='🔁' title='Crear un intercambio (Math Trade)' hint='Un intercambio de juegos en cadena entre varios jugadores.'
-        note={isLocalhost ? undefined : 'Por ahora solo disponible corriendo la app en localhost.'}
+        note={isLocalhost ? undefined : '🚧 Funcionalidad en desarrollo: todavía no está disponible.'}
         open={open === 'trade'} onOpen={() => setOpen('trade')} onClose={() => setOpen(null)} button='Crear intercambio →' disabled={!isLocalhost}>
         <form onSubmit={handleCreateTrade} className='space-y-3'>
           <div>

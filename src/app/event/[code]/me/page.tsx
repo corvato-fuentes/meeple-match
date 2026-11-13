@@ -17,6 +17,7 @@ import { toMinutes, toTimeString, roundUp5 } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import { slotMapFor } from '@/lib/physicalSlots';
 import { savePlayerEvent, findMyAdminEvent, type SavedEvent } from '@/lib/myEvents';
+import { dayLabel } from '@/lib/shareTable';
 import { getBggGameDetails, isBggUrl, type BggSearchResult } from '@/lib/bgg';
 import { useBggSearch } from '@/hooks/useBggSearch';
 import GameCover from '@/components/ui/GameCover';
@@ -730,7 +731,22 @@ export default function MyTicketPage() {
 
       {/* Same layout as before, just framed as a card like the other sections */}
       <section className={'max-w-sm mx-auto border bg-gray-800 rounded-2xl p-5 text-center ' + (owesReceipt(receipt) ? 'border-amber-700' : 'border-gray-700')}>
-        <p className="text-sm text-gray-500 mb-1">{event.name}</p>
+        {/* The event's flyer (the image shown when registering) as a thumbnail before the event's name, like the game cards; tap it to see it full size */}
+        {event.settings?.registrationBannerUrl ? (
+          <div className="flex items-center gap-3 text-left mb-4">
+            <a href={event.settings.registrationBannerUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={event.settings.registrationBannerUrl} alt={`Panfleto de ${event.name}`}
+                className="w-16 h-20 rounded object-cover border border-gray-700 bg-gray-900" />
+            </a>
+            <div className="min-w-0">
+              <p className="font-semibold leading-snug text-gray-100">{event.name}</p>
+              <p className="text-xs text-gray-400 mt-0.5">📅 {dayLabel(event.date)}{event.startTime && event.endTime ? ` · ${event.startTime}–${event.endTime}` : ''}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 mb-1">{event.name}</p>
+        )}
         <p className="text-4xl font-mono font-bold tracking-widest text-indigo-400">
           {player.ticketCode}
         </p>

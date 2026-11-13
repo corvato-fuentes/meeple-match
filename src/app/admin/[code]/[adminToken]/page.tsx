@@ -459,8 +459,8 @@ export default function AdminPage() {
             value={mapUrlDraft} onChange={(e) => setMapUrlDraft(e.target.value)} />
         </div>
         <div>
-          <label className='text-xs text-gray-400 block mb-1'>Banner de registro (opcional)</label>
-          <p className='text-xs text-gray-500 mb-1.5'>Imagen que ven los jugadores al entrar a inscribirse.</p>
+          <label className='text-xs text-gray-400 block mb-1'>Panfleto / banner de registro (opcional)</label>
+          <p className='text-xs text-gray-500 mb-1.5'>Imagen que ven los jugadores al inscribirse y en su ticket.</p>
           <input type='file' accept='image/*' onChange={handleBannerUpload} disabled={uploadingBanner}
             className='w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700 disabled:opacity-50' />
           {uploadingBanner && <p className='text-xs text-gray-500 mt-1'>Subiendo...</p>}
