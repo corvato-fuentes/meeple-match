@@ -30,10 +30,14 @@ describe('toPublicEvent', () => {
     const p = toPublicEvent('ABC123', event(), 7, now);
     expect(p).toEqual({
       code: 'ABC123', name: 'Jornada', date: '2026-11-15', startTime: '10:00', endTime: '18:00', location: 'Club',
-      mapUrl: null, bannerUrl: 'https://img/x.jpg', players: 7,
+      mapUrl: null, bannerUrl: 'https://img/x.jpg', players: 7, geo: null,
     });
     expect(JSON.stringify(p)).not.toContain('alias');
     expect(JSON.stringify(p)).not.toContain('bancarios');
+  });
+  it('carries the pin when it is known, and only its coordinates', () => {
+    const p = toPublicEvent('ABC123', event(), 7, now, { lat: -31.4, lng: -64.2 });
+    expect(p?.geo).toEqual({ lat: -31.4, lng: -64.2 });
   });
   it('lists every event unless the organizer turned it off', () => {
     expect(toPublicEvent('A', event({}, { listed: undefined }), 0, now)).not.toBeNull();

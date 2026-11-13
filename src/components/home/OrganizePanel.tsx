@@ -150,7 +150,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
             <span>
               Mostrar en «Explorar eventos»
               <span className='block text-xs text-gray-500'>
-                Aparece en la lista pública del inicio. Si lo desmarcás, solo entra quien tenga el código. Lo podés cambiar después en la configuración.
+                Aparece en la lista y en el mapa públicos del inicio. Si lo desmarcás, solo entra quien tenga el código. Lo podés cambiar después en la configuración.
               </span>
               {isLocalhost && (
                 <span className='block text-xs text-amber-400 mt-0.5'>Estás en localhost: viene desmarcado para que un evento de prueba no se publique.</span>

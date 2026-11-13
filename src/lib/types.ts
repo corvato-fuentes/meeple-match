@@ -32,6 +32,13 @@ export interface EventSettings {
   listed?: boolean;
 }
 
+/**
+ * Where the event's pin goes on the map of "Explorar eventos". Worked out by the server from the Google Maps link or, failing that,
+ * from the place text, and kept here. `key` says what it was worked out from (see geoKeyOf): if the link or the place changes, it
+ * is worked out again. `failed` means it was tried and nothing was found.
+ */
+export type EventGeo = { key: string } & ({ lat: number; lng: number } | { failed: true });
+
 export interface MeepleEvent {
   name: string;
   date: string;
@@ -40,6 +47,7 @@ export interface MeepleEvent {
   location: string;
   mapUrl: string | null;
   settings: EventSettings;
+  geo?: EventGeo;
 }
 
 // Stored separately at /events/{code}/private/config — never joined into public event reads
