@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockedMessage, freeSeatsOf, hasOpenSeat, hasWaitingSeat, missingToConfirm, seatOptionFor } from './freeSeats';
+import { blockedMessage, freeSeatsOf, hasOpenSeat, hasWaitingSeat, isFirmTable, missingToConfirm, seatOptionFor } from './freeSeats';
 import type { Game, Player, Table } from './types';
 
 const game = { id: 'g1', name: 'Brass', minPlayers: 3, maxPlayers: 4 } as Game;
@@ -12,6 +12,16 @@ const viewer = (over: Partial<Player> = {}): Player => ({
 } as Player);
 const base = { game, started: false };
 const opt = (v: Player | null, t: Table, tables: Table[] = [t], started = false) => seatOptionFor({ ...base, started, viewer: v, table: t, tables });
+
+describe('isFirmTable', () => {
+  it('only confirmed, underway or played tables are set; one still waiting for players is not', () => {
+    expect(isFirmTable({ status: 'confirmed' })).toBe(true);
+    expect(isFirmTable({ status: 'in-progress' })).toBe(true);
+    expect(isFirmTable({ status: 'completed' })).toBe(true);
+    expect(isFirmTable({ status: 'recommended' })).toBe(false);
+    expect(isFirmTable({ status: 'cancelled' })).toBe(false);
+  });
+});
 
 describe('free places', () => {
   it('counts the places left, never below zero', () => {

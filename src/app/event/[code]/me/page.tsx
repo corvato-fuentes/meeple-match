@@ -9,6 +9,7 @@ import {
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isOfferFor } from '@/lib/offers';
+import { isFirmTable } from '@/lib/freeSeats';
 import { countGames } from '@/lib/gameCounts';
 import { useOpenGameRequests } from '@/hooks/useOpenGameRequests';
 import { postedSlotConflict, replaceableByPostedTable, tablesOutsideAvailability, estimateAtCurrentSeats, suggestPostedStarts, interestAtSlot } from '@/lib/tableAlgorithm';
@@ -388,13 +389,14 @@ export default function MyTicketPage() {
 
   // A player is free for a window if it fits their own arrival/departure and doesn't overlap
   // (with buffer) any table they're already seated at or explaining.
-  function isPlayerFreeFor(start: string, end: string): boolean {
+  // `onlyFirm`: tables still waiting for players don't count (joining a table asks whether to leave one like that).
+  function isPlayerFreeFor(start: string, end: string, onlyFirm = false): boolean {
     if (!player || !event) return false;
     const buf = event.settings.bufferMinutes;
     const sMin = toMinutes(start);
     const eMin = toMinutes(end);
     if (sMin < toMinutes(player.arrivalTime) + buf || eMin > toMinutes(player.departureTime)) return false;
-    return myTables.every((t) => toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime));
+    return (onlyFirm ? myTables.filter(isFirmTable) : myTables).every((t) => toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime));
   }
 
   function openProposeForm(gameId: string) {
@@ -504,7 +506,7 @@ export default function MyTicketPage() {
     if (interests[t.gameId] !== 'yes' || (t.rejectedIds ?? []).includes(player.id)) return false;
     const game = games.find((g) => g.id === t.gameId);
     if (!game || t.playerIds.length >= game.maxPlayers) return false;
-    return isPlayerFreeFor(t.startTime, t.endTime);
+    return isPlayerFreeFor(t.startTime, t.endTime, true);
   }).length;
   // Games nobody has asked this player about yet: votes are what the tables are built from, so they are worth a nudge.
   // A merged game is voted once (on its primary entry).

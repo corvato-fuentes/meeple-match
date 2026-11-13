@@ -4,6 +4,14 @@ import { isOfferFor } from './offers';
 import { minSeats } from './seats';
 import { toMinutes } from './timeUtils';
 
+/**
+ * A table that is set: confirmed, underway or played. One that is still waiting for players (recommended, or posted and not
+ * full of people yet) is only a promise — somebody who accepted it can still take another table at that hour, and is asked
+ * whether to leave it, so it must not make another table look "not free".
+ */
+export const isFirmTable = (t: Pick<Table, 'status'>): boolean =>
+  t.status === 'confirmed' || t.status === 'in-progress' || t.status === 'completed';
+
 /** Free places at a table: the game's maximum minus who is seated (0 when the game is not known). */
 export function freeSeatsOf(t: Pick<Table, 'playerIds'>, game?: Pick<Game, 'maxPlayers'>): number {
   return game ? Math.max(0, game.maxPlayers - t.playerIds.length) : 0;

@@ -17,6 +17,7 @@ import ShareTableButton from '@/components/ui/ShareTableButton';
 import MoveTableSuggestion from '@/components/ui/MoveTableSuggestion';
 import { isShareableTable } from '@/lib/shareTable';
 import { otherOffersForGame } from '@/lib/offers';
+import { isFirmTable } from '@/lib/freeSeats';
 import { interestedInTable } from '@/lib/tableAlgorithm';
 import { confirmedPlayers, isTentative } from '@/lib/registration';
 import { runTableGeneration } from '@/lib/tableGeneration';
@@ -124,7 +125,9 @@ export default function PostulatedTablesPage() {
     if (sMin < arrival) return `Empieza antes de que llegues (llegás a las ${player!.arrivalTime})`;
     if (sMin < arrival + buf) return `Arranca muy pegada a tu llegada (llegás a las ${player!.arrivalTime})`;
     if (eMin > toMinutes(player!.departureTime)) return `Termina después de que te vayas (te vas a las ${player!.departureTime})`;
-    const clash = myTables.find((t) => !(toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime)));
+    // Only tables that are set count: one the player accepted that is still waiting for players doesn't make this one "not free"
+    // — joining it asks whether to leave the other (see useScheduleConflict)
+    const clash = myTables.filter(isFirmTable).find((t) => !(toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime)));
     if (clash) {
       // Overlapping outright vs. just not leaving the buffer minutes between two tables
       const overlaps = !(toMinutes(clash.endTime) <= sMin || eMin <= toMinutes(clash.startTime));
