@@ -985,6 +985,7 @@ export default function MyTicketPage() {
               {countBadge(pendingRecommendedCount, 'bg-amber-500 text-black', pendingRecommendedCount === 1 ? 'mesa esperando tu respuesta' : 'mesas esperando tu respuesta')}
               <HelpPopover title="🟡 Mesas recomendadas">
                 <p>El algoritmo arma mesas según tus votos y te ofrece un lugar en ellas.</p>
+                <p>Los juegos que llevás también se recomiendan automáticamente a quienes los votan.</p>
                 <p>Ahí las podés aceptar o rechazar, y también es donde votás qué juegos te interesan.</p>
                 <p>El número indica cuántas mesas están esperando tu respuesta.</p>
               </HelpPopover>
