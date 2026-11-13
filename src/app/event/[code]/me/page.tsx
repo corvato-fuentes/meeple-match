@@ -1051,7 +1051,7 @@ export default function MyTicketPage() {
                       className="relative flex-1 py-1.5 rounded-lg border border-amber-800 text-amber-400 hover:bg-amber-950/30 flex flex-col items-center gap-0.5 leading-tight">
                       <span className="absolute top-0.5 right-0.5">
                         <HelpPopover title="📣 Proponer mesa">
-                          <p>Si no proponés, el algoritmo igual te recomienda el juego solo: arma las mesas según los votos, en el horario que encuentra.</p>
+                          <p>Si no proponés, el algoritmo igual recomienda tu juego a otros jugadores: arma las mesas según los votos, en el horario que encuentra.</p>
                           <p className="mt-2">
                             Si proponés, elegís vos el horario y la mesa queda reservada: toma el lugar de las recomendadas del mismo juego que se
                             pisen con ella, y mientras esté publicada tu copia queda ocupada a esa hora (si hay una sola, no se arma otra mesa del
