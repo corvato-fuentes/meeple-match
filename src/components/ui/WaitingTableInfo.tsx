@@ -117,6 +117,14 @@ export function RecommendedWho({ t, game, nameOf }: { t: Table; game: Game | und
       </>
     );
   }
+  if (!t.explainerId) {
+    return (
+      <>
+        {owner && <Line>🎒 Lo trae: <Name>{owner}</Name></Line>}
+        <p className='text-sm text-amber-300'>🎓 Sin explicador asignado</p>
+      </>
+    );
+  }
   const explainer = nameOf(t.explainerId);
   if (game && owner === explainer) return <Line>🎒🎓 Lo trae, lo explica y juega: <Name>{explainer}</Name></Line>;
   return (

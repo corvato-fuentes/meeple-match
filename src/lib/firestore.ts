@@ -11,6 +11,7 @@ import { generateTicketCodeCandidate } from './ticketCode';
 import { toMinutes, toTimeString } from './timeUtils';
 import { requestPushSync } from './pushClient';
 import { findDeletedTwin } from './gameMatch';
+import { nextExplainer } from './explainer';
 import { displayNameOf } from './playerName';
 import { MIN_TABLE_SEATS } from './seats';
 import type { WaitingTableReview } from './tableAlgorithm';
@@ -140,6 +141,16 @@ export async function updateGame(
   // The numbers that decide how long a table lasts changed: the tables already made for it follow them
   const TIMING_FIELDS = ['perPlayerMinutes', 'setupMinutes', 'explanationMinutes', 'durationMinutes', 'minPlayers', 'maxPlayers'] as const;
   if (TIMING_FIELDS.some((k) => k in fields)) await retimeGameTables(eventCode, gameId);
+}
+
+/** A table nobody left can explain is undone: cancelled, its people go back to the pool (marked as undone by the system while it was waiting). */
+function dissolvedFields(table: Pick<Table, 'status'>) {
+  return { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], ...dissolvedIfWaiting(table) };
+}
+
+/** Undoes a table, e.g. when the admin leaves it without anybody who can explain it. */
+export async function dissolveTable(eventCode: string, table: Table): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'tables', table.id), dissolvedFields(table));
 }
 
 /** What marks a table the system cancelled while it was still waiting for players (see `Table.dissolved`). */
@@ -571,7 +582,14 @@ export async function removePlayerFromTable(eventCode: string, table: Table, pla
   const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
   const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId'>> = { playerIds: remainingPlayerIds };
   if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
-  else if (table.explainerId === playerId) fields.explainerId = remainingPlayerIds[0];
+  else if (table.explainerId === playerId) {
+    // Only someone who said they can explain the game takes over; with nobody, the table is undone
+    const docs = await Promise.all(remainingPlayerIds.map((id) => getDoc(doc(db, 'events', eventCode, 'players', id))));
+    const byId = new Map(docs.filter((d) => d.exists()).map((d) => [d.id, d.data() as Player]));
+    const next = nextExplainer([table.gameId], remainingPlayerIds, (id) => byId.get(id));
+    if (!next) { await dissolveTable(eventCode, table); return; }
+    fields.explainerId = next;
+  }
   await updateDoc(doc(db, 'events', eventCode, 'tables', table.id), fields);
 }
 
@@ -637,6 +655,8 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
       .forEach((g) => batch.update(doc(db, 'events', eventCode, 'games', g.id), { groupId: newPrimary.id }));
   });
 
+  // Whoever takes over explaining a table has to be someone who said they can explain that game
+  const playerById = (id: string) => playersSnap.docs.find((d) => d.id === id)?.data() as Player | undefined;
   tablesSnap.docs.forEach((tableDoc) => {
     const table = tableDoc.data() as Table;
     const wasSeated = table.playerIds.includes(playerId);
@@ -648,7 +668,10 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
       if (wasSeated) fields.playerIds = remainingPlayerIds;
       if (wasExplainer) {
         if (remainingPlayerIds.length === 0) { fields.status = 'cancelled'; Object.assign(fields, dissolvedIfWaiting(table)); }
-        else fields.explainerId = remainingPlayerIds[0];
+        else {
+          const next = nextExplainer([table.gameId, promoted.id], remainingPlayerIds, playerById);
+          if (next) fields.explainerId = next; else Object.assign(fields, dissolvedFields(table));
+        }
       }
       batch.update(tableDoc.ref, fields);
       return;
@@ -659,9 +682,12 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
     }
     if (!wasSeated && !wasExplainer) return;
     const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
-    const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId'>> = { playerIds: remainingPlayerIds };
+    const fields: Record<string, unknown> = { playerIds: remainingPlayerIds };
     if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
-    else if (wasExplainer) fields.explainerId = remainingPlayerIds[0];
+    else if (wasExplainer) {
+      const next = nextExplainer([table.gameId], remainingPlayerIds, playerById);
+      if (next) fields.explainerId = next; else Object.assign(fields, dissolvedFields(table));
+    }
     batch.update(tableDoc.ref, fields);
   });
 
