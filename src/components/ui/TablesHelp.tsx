@@ -25,6 +25,9 @@ export default function TablesHelp() {
               donde podés aceptarla o rechazarla. Una vez que la aceptás, aparece acá como confirmada.
             </p>
             <p className="text-gray-300">
+              Los juegos que llevás se recomiendan automáticamente a quienes los votan.
+            </p>
+            <p className="text-gray-300">
               También podés revisar las mesas que postularon otros inscriptos en <strong className="text-purple-300">Mesas postuladas</strong> y
               anotarte. Cuando la mesa junta el mínimo de jugadores necesario, también aparece acá como confirmada.
             </p>

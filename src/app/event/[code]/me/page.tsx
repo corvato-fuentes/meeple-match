@@ -913,6 +913,9 @@ export default function MyTicketPage() {
                 rechazarla. Una vez que la aceptás, aparece acá como confirmada.
               </p>
               <p>
+                Los juegos que llevás se recomiendan automáticamente a quienes los votan.
+              </p>
+              <p>
                 También podés revisar las mesas que postularon otros inscriptos
                 en <strong className="text-purple-300">Mesas postuladas</strong> y anotarte. Cuando la mesa junta el
                 mínimo de jugadores necesario, también aparece acá como confirmada.
@@ -1036,7 +1039,13 @@ export default function MyTicketPage() {
                       className="relative flex-1 py-1.5 rounded-lg border border-amber-800 text-amber-400 hover:bg-amber-950/30 flex flex-col items-center gap-0.5 leading-tight">
                       <span className="absolute top-0.5 right-0.5">
                         <HelpPopover title="📣 Proponer mesa">
-                          <p>Elegís vos el horario para armar esta mesa — otros jugadores se pueden sumar hasta llegar al mínimo necesario.</p>
+                          <p>Si no proponés, el algoritmo igual te recomienda el juego solo: arma las mesas según los votos, en el horario que encuentra.</p>
+                          <p className="mt-2">
+                            Si proponés, elegís vos el horario y la mesa queda reservada: toma el lugar de las recomendadas del mismo juego que se
+                            pisen con ella, y mientras esté publicada tu copia queda ocupada a esa hora (si hay una sola, no se arma otra mesa del
+                            juego encima). Los que votaron el juego y pueden a esa hora reciben la oferta, y otros se pueden sumar hasta llegar al
+                            mínimo necesario.
+                          </p>
                         </HelpPopover>
                       </span>
                       <span className="text-sm">📣</span>
