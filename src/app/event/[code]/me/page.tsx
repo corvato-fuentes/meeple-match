@@ -120,6 +120,8 @@ export default function MyTicketPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [proposingGameId, setProposingGameId] = useState<string | null>(null);
+  // Posting a table has consequences (it blocks the recommendation of that game at that time), so a dialog says so before the time is chosen
+  const [proposeIntroGameId, setProposeIntroGameId] = useState<string | null>(null);
   const [proposeStart, setProposeStart] = useState('');
   const [proposingSubmitting, setProposingSubmitting] = useState(false);
   const [proposeError, setProposeError] = useState('');
@@ -398,6 +400,11 @@ export default function MyTicketPage() {
     const eMin = toMinutes(end);
     if (sMin < toMinutes(player.arrivalTime) + buf || eMin > toMinutes(player.departureTime)) return false;
     return (onlyFirm ? myTables.filter(isFirmTable) : myTables).every((t) => toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime));
+  }
+
+  function startProposing(gameId: string) {
+    if (proposingGameId === gameId) { openProposeForm(gameId); return; } // the form is open: the button closes it, as before
+    setProposeIntroGameId(gameId);
   }
 
   function openProposeForm(gameId: string) {
@@ -720,6 +727,24 @@ export default function MyTicketPage() {
         danger
         onConfirm={() => saveTimes(true)}
         onCancel={() => setPendingTimes(null)} />
+      <ConfirmModal
+        open={!!proposeIntroGameId}
+        title="📣 Antes de postular"
+        message={(
+          <>
+            <p>
+              {games.find((g) => g.id === proposeIntroGameId)?.name ?? 'Este juego'} ya se recomienda automáticamente a la gente que lo votó,
+              en el mejor horario que encuentra el algoritmo.
+            </p>
+            <p>
+              Si lo postulás, elegís vos el horario y tu mesa bloquea esa recomendación: toma el lugar de las recomendadas del mismo juego que
+              se pisen con ella, y la copia del juego queda ocupada a esa hora.
+            </p>
+          </>
+        )}
+        confirmLabel="Elegir horario →"
+        onConfirm={() => { const id = proposeIntroGameId; setProposeIntroGameId(null); if (id) openProposeForm(id); }}
+        onCancel={() => setProposeIntroGameId(null)} />
       <ConfirmModal
         open={!!pendingReplace}
         title="Ya hay una mesa recomendada a esa hora"
@@ -1051,7 +1076,7 @@ export default function MyTicketPage() {
                     </div>
                   </div>
                   <div className="flex gap-1.5">
-                    <button onClick={() => openProposeForm(g.id)}
+                    <button onClick={() => startProposing(g.id)}
                       className="relative flex-1 py-1.5 rounded-lg border border-amber-800 text-amber-400 hover:bg-amber-950/30 flex flex-col items-center gap-0.5 leading-tight">
                       <span className="absolute top-0.5 right-0.5">
                         <HelpPopover title="📣 Proponer mesa">
