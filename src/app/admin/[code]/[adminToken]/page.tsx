@@ -475,6 +475,14 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+        <label className='flex items-start gap-2 text-sm text-gray-300'>
+          <input type='checkbox' className='mt-1' checked={settingsDraft.listed !== false}
+            onChange={(e) => handleDraftChange('listed', e.target.checked)} />
+          <span>
+            Mostrar en «Explorar eventos»
+            <span className='block text-xs text-gray-500'>Aparece en la lista del inicio con su nombre, día, horario, lugar y cuántos se inscribieron. Si lo desmarcás, solo entra quien tenga el código.</span>
+          </span>
+        </label>
         <div className='grid grid-cols-2 gap-3'>
           <div>
             <label className='text-xs text-gray-400 block mb-1'>Capacidad máxima</label>

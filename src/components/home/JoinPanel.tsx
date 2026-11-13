@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import EventExplorer from './EventExplorer';
 
 /** One way of joining, as a card: what it is, and its field. */
 function Option({ icon, title, hint, children }: { icon: string; title: string; hint: string; children: React.ReactNode }) {
@@ -36,6 +37,9 @@ export default function JoinPanel() {
     <div className='space-y-4'>
       <Option icon='🔑' title='Tengo el código de un evento' hint='Te lo pasó el organizador: son 6 letras y números.'>
         <CodeForm placeholder='CÓDIGO' button='Unirme →' onGo={(c) => router.push(`/event/${c}`)} />
+      </Option>
+      <Option icon='🔎' title='Explorar eventos disponibles' hint='Los eventos abiertos a inscripción, para que veas cuál te queda bien.'>
+        <EventExplorer />
       </Option>
       <Option icon='🔁' title='Unirme a un intercambio' hint='Un math trade: intercambio de juegos en cadena entre varios jugadores.'>
         <CodeForm placeholder='CÓDIGO' button='Entrar →' onGo={(c) => router.push(`/mathtrade/${c}`)} />

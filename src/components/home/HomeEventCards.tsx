@@ -3,25 +3,23 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getEvent } from '@/lib/firestore';
 import { getBareTickets, getMyEvents, getMyPlayerEvents, hideFromHome, removeMyEvent, removeMyPlayerEvent } from '@/lib/myEvents';
-import { mergeSavedEvents, sortCards, whenOf, type HomeEventCard, type WhenTone } from '@/lib/homeEvents';
-import { dayLabel } from '@/lib/shareTable';
+import { mergeSavedEvents, sortCards, whenOf, type HomeEventCard } from '@/lib/homeEvents';
 import type { MeepleEvent } from '@/lib/types';
+import EventSummary from './EventSummary';
 
-const TONE: Record<WhenTone, string> = {
-  live: 'bg-green-900 text-green-300',
-  soon: 'bg-amber-900 text-amber-300',
-  later: 'bg-gray-700 text-gray-300',
-  past: 'bg-gray-800 text-gray-500',
-};
+/** What reading an event gave: the event, `null` when it no longer exists, or `'offline'` when it could not be read. */
+type Live = MeepleEvent | null | 'offline';
+type Shown = HomeEventCard & { bannerUrl: string | null };
 
 /**
  * The events this device already knows about — the ones the person organizes and the ones they have a ticket for — as cards:
- * name, day, hours, place, how far away it is, and the way back in (their ticket, their admin panel). Nothing is shown when
- * there are none. Data is read fresh from the event, with what the device saved as the fallback.
+ * flyer, name, day, hours, place, how far away it is, and the way back in (their ticket, their admin panel). Nothing is shown when
+ * there are none. Each card appears once its event has been read (so one that no longer exists never flashes), with the event as it
+ * is now; if it can't be read (no connection) it shows what the device saved.
  */
 export default function HomeEventCards() {
   const [cards, setCards] = useState<HomeEventCard[]>([]);
-  const [live, setLive] = useState<Record<string, MeepleEvent | null>>({});
+  const [live, setLive] = useState<Record<string, Live>>({});
   const [now, setNow] = useState<Date | null>(null);
 
   // What this browser remembers can't be known during the server render
@@ -33,7 +31,8 @@ export default function HomeEventCards() {
       setCards(saved);
       setNow(new Date());
       saved.forEach((c) => {
-        getEvent(c.code).then((ev) => { if (!cancelled) setLive((l) => ({ ...l, [c.code]: ev })); }).catch(() => {});
+        const set = (v: Live) => { if (!cancelled) setLive((l) => ({ ...l, [c.code]: v })); };
+        getEvent(c.code).then(set).catch(() => set('offline'));
       });
     });
     return () => { cancelled = true; };
@@ -47,14 +46,15 @@ export default function HomeEventCards() {
   }
 
   if (cards.length === 0 || !now) return null;
-  // The event as it is now (name, hours and place may have changed since it was saved).
-  // An event that no longer exists is not shown, and neither is one known only by its code until it has been read.
-  const view = cards
-    .filter((c) => live[c.code] !== null && (c.name || live[c.code]))
-    .map((c) => {
-      const ev = live[c.code];
-      return { ...c, ...(ev ? { name: ev.name, date: ev.date, startTime: ev.startTime, endTime: ev.endTime, location: ev.location } : {}) };
-    });
+  const view = cards.flatMap((c): Shown[] => {
+    const ev = live[c.code];
+    if (ev === undefined || ev === null) return []; // not read yet, or it no longer exists
+    if (ev === 'offline') return c.name ? [{ ...c, bannerUrl: null }] : []; // what the device saved, if it saved anything
+    return [{
+      ...c, name: ev.name, date: ev.date, startTime: ev.startTime, endTime: ev.endTime, location: ev.location,
+      bannerUrl: ev.settings?.registrationBannerUrl ?? null,
+    }];
+  });
   if (view.length === 0) return null;
 
   return (
@@ -65,14 +65,8 @@ export default function HomeEventCards() {
           const when = whenOf(c, now);
           return (
             <div key={c.code} className={'border border-gray-700 rounded-2xl p-4 bg-gray-800 ' + (when.tone === 'past' ? 'opacity-70' : '')}>
-              <div className='flex items-start justify-between gap-3'>
-                <p className='font-semibold leading-snug'>{c.name || c.code}</p>
-                {when.label && <span className={'shrink-0 text-xs rounded-full px-2 py-0.5 ' + TONE[when.tone]}>{when.label}</span>}
-              </div>
-              <div className='mt-1 space-y-0.5 text-xs text-gray-400'>
-                {c.date && <p>📅 {dayLabel(c.date)}{c.startTime && c.endTime ? ` · ${c.startTime}–${c.endTime}` : ''}</p>}
-                {c.location && <p>📍 {c.location}</p>}
-              </div>
+              <EventSummary name={c.name || c.code} bannerUrl={c.bannerUrl} date={c.date} startTime={c.startTime} endTime={c.endTime}
+                location={c.location} when={when} />
               <div className='flex flex-wrap items-center gap-2 mt-3'>
                 {c.ticket && (
                   <Link href={`/event/${c.code}/me?ticket=${c.ticket.ticketCode}`}

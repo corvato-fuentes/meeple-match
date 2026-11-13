@@ -28,6 +28,8 @@ export interface EventSettings {
   // tables and don't count towards maxPlayers until they send the receipt (or an organizer confirms them). Off when missing.
   flexibleRegistration?: boolean;
   registrationBannerUrl: string | null; // custom banner image shown to players on the registration screen
+  // Shown in "Explorar eventos" on the home page (name, day, hours, place, how many are in). On when missing; off = only with the code.
+  listed?: boolean;
 }
 
 export interface MeepleEvent {
