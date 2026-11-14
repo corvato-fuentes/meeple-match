@@ -43,7 +43,10 @@ export const RECURRING_PLACES: RecurringPlace[] = [
     name: 'Casa Hipa',
     address: 'Paso de los Andes 222',
     city: 'Córdoba',
-    geo: { lat: -31.41417, lng: -64.19992 },
+    // The exact spot, from the place's page on Google Maps
+    geo: { lat: -31.4141308, lng: -64.200024 },
+    mapUrl:
+      'https://www.google.com/maps/place/Casa+Hipa/@-31.4141308,-64.200024,17z/data=!3m1!4b1!4m6!3m5!1s0x9432999b8a8147db:0x1b6943a31ca74f6d!8m2!3d-31.4141308!4d-64.200024',
     schedules: [
       { days: 'Miércoles', time: '20:00 a 01:00 hs' },
       { days: 'Sábados', time: '20:00 a 01:00 hs' },
