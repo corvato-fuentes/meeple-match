@@ -4,7 +4,9 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import type { PublicEvent } from '@/lib/publicEvents';
 import { sortCards, whenOf } from '@/lib/homeEvents';
+import { RECURRING_PLACES } from '@/lib/recurringPlaces';
 import EventSummary from './EventSummary';
+import RecurringPlaceCard from './RecurringPlaceCard';
 import type { PinnedEvent } from './EventMap';
 
 // The map library is only downloaded, on the device, when someone opens the map
@@ -21,7 +23,8 @@ const chip = (on: boolean) =>
 
 /**
  * Every event that is open to join and not over yet, as cards: flyer, name, day, hours, place, how many are in, and a way into it.
- * It can be seen as a list or on a map with a pin for each event that could be located: one view at a time.
+ * After them, the places where people play every week (no registration in the app: a WhatsApp or Instagram to get in touch).
+ * It can be seen as a list or on a map with a pin for each event that could be located and for each place: one view at a time.
  * Organizers can leave their event out (in the event's settings). Whether an event is over is decided here, with the hours.
  */
 export default function EventExplorer() {
@@ -54,47 +57,57 @@ export default function EventExplorer() {
       </div>
     );
   }
-  if (state.events.length === 0) return <p className='text-sm text-gray-500'>Todavía no hay eventos disponibles.</p>;
+
+  const withoutPin = state.events.length - pinned.length;
 
   return (
     <div className='space-y-3'>
       <div className='flex flex-wrap items-center gap-2'>
-        <button onClick={() => setView('list')} aria-pressed={view === 'list'} className={chip(view === 'list')}>📋 Lista ({state.events.length})</button>
-        <button onClick={() => setView('map')} aria-pressed={view === 'map'} className={chip(view === 'map')}>🗺️ Mapa ({pinned.length})</button>
+        <button onClick={() => setView('list')} aria-pressed={view === 'list'} className={chip(view === 'list')}>📋 Lista ({state.events.length + RECURRING_PLACES.length})</button>
+        <button onClick={() => setView('map')} aria-pressed={view === 'map'} className={chip(view === 'map')}>🗺️ Mapa ({pinned.length + RECURRING_PLACES.length})</button>
       </div>
       {view === 'map' && (
-        pinned.length > 0 ? (
-          <>
-            <EventMap events={pinned} />
-            {pinned.length < state.events.length && (
-              <p className='text-xs text-gray-500'>
-                {state.events.length - pinned.length === 1 ? '1 evento no tiene' : `${state.events.length - pinned.length} eventos no tienen`} ubicación en el mapa: lo{state.events.length - pinned.length === 1 ? '' : 's'} ves en «Lista».
-              </p>
-            )}
-          </>
-        ) : (
-          <p className='text-sm text-gray-500 border border-gray-700 rounded-xl p-4 text-center'>Ningún evento tiene ubicación en el mapa todavía. Los ves en «Lista».</p>
-        )
+        <>
+          <EventMap events={pinned} places={RECURRING_PLACES} />
+          <p className='text-xs text-gray-500'>🎲 Eventos con inscripción · 🏠 Lugares donde se juega siempre</p>
+          {withoutPin > 0 && (
+            <p className='text-xs text-gray-500'>
+              {withoutPin === 1 ? '1 evento no tiene' : `${withoutPin} eventos no tienen`} ubicación en el mapa: lo{withoutPin === 1 ? '' : 's'} ves en «Lista».
+            </p>
+          )}
+        </>
       )}
       {/* The map and the list are two views of the same events: one at a time */}
-      {view === 'list' && state.events.map((e) => (
-        <div key={e.code} className='border border-gray-700 rounded-xl p-3 bg-gray-900'>
-          <EventSummary name={e.name} bannerUrl={e.bannerUrl} date={e.date} startTime={e.startTime} endTime={e.endTime}
-            location={e.location} when={whenOf(e, state.now)}>
-            <p>👥 {e.players === 1 ? '1 inscripto' : `${e.players} inscriptos`}</p>
-          </EventSummary>
-          <div className='flex flex-wrap items-center gap-3 mt-3'>
-            <Link href={`/event/${e.code}`} className='bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-indigo-700'>
-              Ver evento →
-            </Link>
-            {e.mapUrl && (
-              <a href={e.mapUrl} target='_blank' rel='noopener noreferrer' className='text-xs text-indigo-400 hover:underline'>
-                📍 Abrir en Google Maps
-              </a>
-            )}
+      {view === 'list' && (
+        <>
+          {state.events.length === 0 && <p className='text-sm text-gray-500'>Todavía no hay eventos disponibles.</p>}
+          {state.events.map((e) => (
+            <div key={e.code} className='border border-gray-700 rounded-xl p-3 bg-gray-900'>
+              <EventSummary name={e.name} bannerUrl={e.bannerUrl} date={e.date} startTime={e.startTime} endTime={e.endTime}
+                location={e.location} when={whenOf(e, state.now)}>
+                <p>👥 {e.players === 1 ? '1 inscripto' : `${e.players} inscriptos`}</p>
+              </EventSummary>
+              <div className='flex flex-wrap items-center gap-3 mt-3'>
+                <Link href={`/event/${e.code}`} className='bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-indigo-700'>
+                  Ver evento →
+                </Link>
+                {e.mapUrl && (
+                  <a href={e.mapUrl} target='_blank' rel='noopener noreferrer' className='text-xs text-indigo-400 hover:underline'>
+                    📍 Abrir en Google Maps
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+          <div className='pt-2 space-y-3'>
+            <div>
+              <h3 className='text-sm font-semibold text-gray-200'>🔁 Lugares donde se juega siempre</h3>
+              <p className='text-xs text-gray-500'>No hace falta inscribirse acá: escribile al lugar.</p>
+            </div>
+            {RECURRING_PLACES.map((p) => <RecurringPlaceCard key={p.id} place={p} />)}
           </div>
-        </div>
-      ))}
+        </>
+      )}
     </div>
   );
 }
