@@ -1,4 +1,4 @@
-import { instagramLink, placeAddressText, placeMapUrl, whatsappLink, type RecurringPlace } from '@/lib/recurringPlaces';
+import { instagramLink, placeAddressText, whatsappLink, type RecurringPlace } from '@/lib/recurringPlaces';
 
 const iconButton = 'inline-flex items-center justify-center w-9 h-9 rounded-full text-white hover:opacity-85';
 
@@ -43,9 +43,11 @@ export function PlaceContacts({ place }: { place: RecurringPlace }) {
   );
 }
 
-/** A place where people play every week: its days and hours as options, where it is, and how to get in touch (there is no registration). */
-export default function RecurringPlaceCard({ place }: { place: RecurringPlace }) {
-  const mapUrl = placeMapUrl(place);
+/**
+ * A place where people play every week: its days and hours as options, where it is, and how to get in touch (there is no registration).
+ * "Ver en el mapa" takes to the map of the app, with this place in the middle (only when it has an address: the pin is the city otherwise).
+ */
+export default function RecurringPlaceCard({ place, onShowOnMap }: { place: RecurringPlace; onShowOnMap: (place: RecurringPlace) => void }) {
   return (
     <div className='border border-gray-700 rounded-xl p-3 bg-gray-900 space-y-2'>
       <div className='flex items-start justify-between gap-2'>
@@ -67,10 +69,10 @@ export default function RecurringPlaceCard({ place }: { place: RecurringPlace })
       {place.note && <p className='text-xs text-gray-400'>{place.note}</p>}
       <div className='flex flex-wrap items-center gap-3'>
         <PlaceContacts place={place} />
-        {mapUrl && (
-          <a href={mapUrl} target='_blank' rel='noopener noreferrer' className='text-xs text-indigo-400 hover:underline'>
-            📍 Abrir en Google Maps
-          </a>
+        {place.address && (
+          <button type='button' onClick={() => onShowOnMap(place)} className='text-xs text-indigo-400 hover:underline'>
+            🗺️ Ver en el mapa
+          </button>
         )}
       </div>
       <p className='text-xs text-gray-500'>Sin inscripción en la app: coordiná directamente con el lugar.</p>

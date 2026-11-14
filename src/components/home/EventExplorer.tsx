@@ -7,7 +7,7 @@ import { sortCards, whenOf } from '@/lib/homeEvents';
 import { RECURRING_PLACES } from '@/lib/recurringPlaces';
 import EventSummary from './EventSummary';
 import RecurringPlaceCard from './RecurringPlaceCard';
-import type { PinnedEvent } from './EventMap';
+import { eventPinKey, placePinKey, type PinnedEvent } from './EventMap';
 
 // The map library is only downloaded, on the device, when someone opens the map
 const EventMap = dynamic(() => import('./EventMap'), {
@@ -30,6 +30,8 @@ const chip = (on: boolean) =>
 export default function EventExplorer() {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [view, setView] = useState<View>('list');
+  // The pin a card sent us to: the map opens with it in the middle (null: the usual first view)
+  const [focus, setFocus] = useState<string | null>(null);
   const events = state.kind === 'ready' ? state.events : null;
   const pinned = useMemo(() => (events ?? []).filter((e): e is PinnedEvent => e.geo !== null), [events]);
 
@@ -59,16 +61,22 @@ export default function EventExplorer() {
   }
 
   const withoutPin = state.events.length - pinned.length;
+  const showOnMap = (pinKey: string) => {
+    setFocus(pinKey);
+    setView('map');
+    // the map is above the cards: bring it into view once it is there
+    setTimeout(() => document.getElementById('explorer-map')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+  };
 
   return (
     <div className='space-y-3'>
       <div className='flex flex-wrap items-center gap-2'>
-        <button onClick={() => setView('list')} aria-pressed={view === 'list'} className={chip(view === 'list')}>📋 Lista ({state.events.length + RECURRING_PLACES.length})</button>
-        <button onClick={() => setView('map')} aria-pressed={view === 'map'} className={chip(view === 'map')}>🗺️ Mapa ({pinned.length + RECURRING_PLACES.length})</button>
+        <button onClick={() => { setFocus(null); setView('list'); }} aria-pressed={view === 'list'} className={chip(view === 'list')}>📋 Lista ({state.events.length + RECURRING_PLACES.length})</button>
+        <button onClick={() => { setFocus(null); setView('map'); }} aria-pressed={view === 'map'} className={chip(view === 'map')}>🗺️ Mapa ({pinned.length + RECURRING_PLACES.length})</button>
       </div>
       {view === 'map' && (
         <>
-          <EventMap events={pinned} places={RECURRING_PLACES} />
+          <div id='explorer-map'><EventMap events={pinned} places={RECURRING_PLACES} focus={focus} /></div>
           <p className='text-xs text-gray-500'>🎲 Eventos con inscripción · 🏠 Lugares donde se juega siempre</p>
           {withoutPin > 0 && (
             <p className='text-xs text-gray-500'>
@@ -91,7 +99,12 @@ export default function EventExplorer() {
                 <Link href={`/event/${e.code}`} className='bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-indigo-700'>
                   Ver evento →
                 </Link>
-                {e.mapUrl && (
+                {e.geo ? (
+                  <button type='button' onClick={() => showOnMap(eventPinKey(e.code))} className='text-xs text-indigo-400 hover:underline'>
+                    🗺️ Ver en el mapa
+                  </button>
+                ) : e.mapUrl && (
+                  // no pin could be worked out for it: the link of the organizer is all there is
                   <a href={e.mapUrl} target='_blank' rel='noopener noreferrer' className='text-xs text-indigo-400 hover:underline'>
                     📍 Abrir en Google Maps
                   </a>
@@ -104,7 +117,7 @@ export default function EventExplorer() {
               <h3 className='text-sm font-semibold text-gray-200'>🔁 Lugares donde se juega siempre</h3>
               <p className='text-xs text-gray-500'>No hace falta inscribirse acá: escribile al lugar.</p>
             </div>
-            {RECURRING_PLACES.map((p) => <RecurringPlaceCard key={p.id} place={p} />)}
+            {RECURRING_PLACES.map((p) => <RecurringPlaceCard key={p.id} place={p} onShowOnMap={(pl) => showOnMap(placePinKey(pl.id))} />)}
           </div>
         </>
       )}

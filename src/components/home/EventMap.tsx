@@ -2,12 +2,16 @@
 import { useEffect, useRef, useState } from 'react';
 import 'leaflet/dist/leaflet.css';
 import type { PublicEvent } from '@/lib/publicEvents';
-import type { LatLng } from '@/lib/geo';
+import { isAllowedMapUrl, type LatLng } from '@/lib/geo';
 import { dayLabel } from '@/lib/shareTable';
 import { startBounds } from '@/lib/mapView';
-import { instagramLink, placeAddressText, whatsappLink, type RecurringPlace } from '@/lib/recurringPlaces';
+import { instagramLink, placeAddressText, placeMapUrl, whatsappLink, type RecurringPlace } from '@/lib/recurringPlaces';
 
 export type PinnedEvent = PublicEvent & { geo: LatLng };
+
+/** What the cards say to put a pin in the spotlight: the map centers on it and opens it. */
+export const eventPinKey = (code: string) => `event:${code}`;
+export const placePinKey = (id: string) => `place:${id}`;
 
 // The pins: drawn in CSS, so there are no image files to load (the usual Leaflet marker images break under bundlers)
 const pinHtml = (color: string, emoji: string) =>
@@ -50,7 +54,12 @@ function popupFor(e: PinnedEvent): HTMLElement {
   lineIn(box, `📅 ${dayLabel(e.date)}${e.startTime && e.endTime ? ` · ${e.startTime}–${e.endTime}` : ''}`);
   if (e.location) lineIn(box, `📍 ${e.location}`);
   lineIn(box, e.players === 1 ? '👥 1 inscripto' : `👥 ${e.players} inscriptos`);
-  linkIn(box, `/event/${encodeURIComponent(e.code)}`, 'Ver evento →', 'display:inline-block;margin-top:6px;color:#4338ca;font-weight:600;text-decoration:none');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:6px';
+  const style = 'color:#4338ca;font-weight:600;text-decoration:none';
+  linkIn(row, `/event/${encodeURIComponent(e.code)}`, 'Ver evento →', style);
+  if (e.mapUrl && isAllowedMapUrl(e.mapUrl)) linkIn(row, e.mapUrl, 'Cómo llegar', style, true);
+  box.appendChild(row);
   return box;
 }
 
@@ -67,12 +76,14 @@ function popupForPlace(p: RecurringPlace): HTMLElement {
   if (p.note) lineIn(box, p.note, 'font-size:12px;color:#4b5563;margin-top:3px');
   const wa = whatsappLink(p.whatsapp);
   const ig = instagramLink(p.instagram);
-  if (wa || ig) {
+  const gmaps = placeMapUrl(p);
+  if (wa || ig || gmaps) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:12px;margin-top:6px';
+    row.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:6px';
     const style = 'color:#4338ca;font-weight:600;text-decoration:none';
     if (wa) linkIn(row, wa, '💬 WhatsApp', style, true);
     if (ig) linkIn(row, ig, '📷 Instagram', style, true);
+    if (gmaps) linkIn(row, gmaps, 'Cómo llegar', style, true);
     box.appendChild(row);
   }
   lineIn(box, 'Sin inscripción en la app', 'font-size:11px;color:#6b7280;margin-top:4px');
@@ -83,7 +94,7 @@ function popupForPlace(p: RecurringPlace): HTMLElement {
  * The events that have a pin, and the places where people play every week, on an OpenStreetMap map.
  * Leaflet is loaded here, on the device and only when the map is opened. Scrolling the page does not zoom the map (the wheel stays the page's).
  */
-export default function EventMap({ events, places = [] }: { events: PinnedEvent[]; places?: RecurringPlace[] }) {
+export default function EventMap({ events, places = [], focus = null }: { events: PinnedEvent[]; places?: RecurringPlace[]; focus?: string | null }) {
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import('leaflet').Map | null>(null);
   const locationDot = useRef<import('leaflet').CircleMarker | null>(null);
@@ -103,14 +114,25 @@ export default function EventMap({ events, places = [] }: { events: PinnedEvent[
       const iconOf = (html: string) => L.divIcon({ className: '', html, iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -18] });
       const eventIcon = iconOf(EVENT_PIN_HTML);
       const placeIcon = iconOf(PLACE_PIN_HTML);
-      const markers = [
-        ...places.map((p) => L.marker([p.geo.lat, p.geo.lng], { icon: placeIcon, title: p.name, riseOnHover: true }).bindPopup(popupForPlace(p)).addTo(map!)),
-        // events last: when a place and an event share the spot, the one with a date is on top
-        ...events.map((e) => L.marker([e.geo.lat, e.geo.lng], { icon: eventIcon, title: e.name, riseOnHover: true }).bindPopup(popupFor(e)).addTo(map!)),
-      ];
-      // It opens centered on the middle of Córdoba, wide enough for the pins around it: a far-away pin does not pull the view
-      const b = startBounds(markers.map((m) => ({ lat: m.getLatLng().lat, lng: m.getLatLng().lng })));
-      map.fitBounds([[b.south, b.west], [b.north, b.east]], { padding: [30, 30], maxZoom: 15 });
+      const byKey = new Map<string, import('leaflet').Marker>();
+      for (const p of places) {
+        byKey.set(placePinKey(p.id), L.marker([p.geo.lat, p.geo.lng], { icon: placeIcon, title: p.name, riseOnHover: true }).bindPopup(popupForPlace(p)).addTo(map));
+      }
+      // events last: when a place and an event share the spot, the one with a date is on top
+      for (const e of events) {
+        byKey.set(eventPinKey(e.code), L.marker([e.geo.lat, e.geo.lng], { icon: eventIcon, title: e.name, riseOnHover: true }).bindPopup(popupFor(e)).addTo(map));
+      }
+      const markers = [...byKey.values()];
+      const spotlight = focus ? byKey.get(focus) : undefined;
+      if (spotlight) {
+        // Sent here from a card: that pin in the middle, its popup open
+        map.setView(spotlight.getLatLng(), 16);
+        spotlight.openPopup();
+      } else {
+        // It opens centered on the middle of Córdoba, wide enough for the pins around it: a far-away pin does not pull the view
+        const b = startBounds(markers.map((m) => ({ lat: m.getLatLng().lat, lng: m.getLatLng().lng })));
+        map.fitBounds([[b.south, b.west], [b.north, b.east]], { padding: [30, 30], maxZoom: 15 });
+      }
       mapRef.current = map;
       locationDot.current = null;
     })();
@@ -120,7 +142,7 @@ export default function EventMap({ events, places = [] }: { events: PinnedEvent[
       locationDot.current = null;
       map?.remove();
     };
-  }, [events, places]);
+  }, [events, places, focus]);
 
   // The position is read on the device and only used to move the map: it is not sent anywhere
   const centerOnMe = () => {
