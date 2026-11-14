@@ -52,7 +52,7 @@ export const RECURRING_PLACES: RecurringPlace[] = [
       { days: 'Sábados', time: '20:00 a 01:00 hs' },
     ],
     whatsapp: '',
-    instagram: '',
+    instagram: 'casa.hipa',
   },
   {
     id: 'pesima-jugada',
@@ -65,7 +65,7 @@ export const RECURRING_PLACES: RecurringPlace[] = [
       { days: 'Miércoles', time: 'Horario variable', note: 'Juegos complejos: consultar el horario' },
     ],
     whatsapp: '',
-    instagram: '',
+    instagram: 'pesima.jugada',
   },
   {
     id: 'casa-del-ajedrez',
@@ -75,7 +75,7 @@ export const RECURRING_PLACES: RecurringPlace[] = [
     geo: { lat: -31.41166, lng: -64.19593 },
     schedules: [{ days: 'Lunes a viernes', time: '16:00 a 20:00 hs' }],
     whatsapp: '',
-    instagram: '',
+    instagram: 'casadeajedrez',
   },
   {
     id: '4-unico',
@@ -88,7 +88,7 @@ export const RECURRING_PLACES: RecurringPlace[] = [
       'https://www.google.com/maps/place/Galer%C3%ADa+Jard%C3%ADn+%5BOlmos%5D/@-31.4137604,-64.186107,16z/data=!4m6!3m5!1s0x9432a29ce204265d:0xb45f55b599459eb1!8m2!3d-31.4142661!4d-64.1813487',
     schedules: [{ days: 'Lunes a sábados', time: '11:00 a 20:00 hs', note: 'Se reserva contactando al lugar' }],
     whatsapp: '',
-    instagram: '',
+    instagram: '4unico_juegos',
   },
   {
     id: 'noche-de-los-juegos-vidon-bar',
@@ -98,7 +98,7 @@ export const RECURRING_PLACES: RecurringPlace[] = [
     geo: { lat: -31.42478, lng: -64.18997 },
     schedules: [{ days: 'Noches de juegos', time: 'Fecha variable', note: 'Se reserva por WhatsApp' }],
     whatsapp: '',
-    instagram: '',
+    instagram: 'lanochedelosjuegos',
   },
   {
     id: 'club-de-juegos-vcp',
@@ -108,7 +108,7 @@ export const RECURRING_PLACES: RecurringPlace[] = [
     geo: { lat: -31.41838, lng: -64.4937 },
     schedules: [{ days: 'Domingos', time: '17:00 hs' }],
     whatsapp: '',
-    instagram: '',
+    instagram: 'clubdejuegosvcp',
   },
 ];
 
