@@ -1,9 +1,10 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import 'leaflet/dist/leaflet.css';
 import type { PublicEvent } from '@/lib/publicEvents';
 import type { LatLng } from '@/lib/geo';
 import { dayLabel } from '@/lib/shareTable';
+import { startBounds } from '@/lib/mapView';
 import { instagramLink, placeAddressText, whatsappLink, type RecurringPlace } from '@/lib/recurringPlaces';
 
 export type PinnedEvent = PublicEvent & { geo: LatLng };
@@ -84,6 +85,9 @@ function popupForPlace(p: RecurringPlace): HTMLElement {
  */
 export default function EventMap({ events, places = [] }: { events: PinnedEvent[]; places?: RecurringPlace[] }) {
   const el = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<import('leaflet').Map | null>(null);
+  const locationDot = useRef<import('leaflet').CircleMarker | null>(null);
+  const [location, setLocation] = useState<'idle' | 'asking' | 'error'>('idle');
 
   useEffect(() => {
     let map: import('leaflet').Map | null = null;
@@ -104,15 +108,54 @@ export default function EventMap({ events, places = [] }: { events: PinnedEvent[
         // events last: when a place and an event share the spot, the one with a date is on top
         ...events.map((e) => L.marker([e.geo.lat, e.geo.lng], { icon: eventIcon, title: e.name, riseOnHover: true }).bindPopup(popupFor(e)).addTo(map!)),
       ];
-      if (markers.length === 1) map.setView(markers[0].getLatLng(), 15);
-      else map.fitBounds(L.featureGroup(markers).getBounds().pad(0.25));
+      // It opens centered on the middle of Córdoba, wide enough for the pins around it: a far-away pin does not pull the view
+      const b = startBounds(markers.map((m) => ({ lat: m.getLatLng().lat, lng: m.getLatLng().lng })));
+      map.fitBounds([[b.south, b.west], [b.north, b.east]], { padding: [30, 30], maxZoom: 15 });
+      mapRef.current = map;
+      locationDot.current = null;
     })();
     return () => {
       cancelled = true;
+      mapRef.current = null;
+      locationDot.current = null;
       map?.remove();
     };
   }, [events, places]);
 
+  // The position is read on the device and only used to move the map: it is not sent anywhere
+  const centerOnMe = () => {
+    if (!navigator.geolocation) return setLocation('error');
+    setLocation('asking');
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        const map = mapRef.current;
+        if (!map) return;
+        const L = (await import('leaflet')).default;
+        locationDot.current?.remove();
+        locationDot.current = L.circleMarker([coords.latitude, coords.longitude], {
+          radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1,
+        }).bindTooltip('Estás acá').addTo(map);
+        map.setView([coords.latitude, coords.longitude], 15);
+        setLocation('idle');
+      },
+      () => setLocation('error'),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+    );
+  };
+
   // `isolate`: Leaflet's panes have z-indexes of their own; kept inside the map they can't end up over the app's dialogs
-  return <div ref={el} className='isolate h-72 w-full rounded-xl overflow-hidden border border-gray-700 bg-gray-900' />;
+  return (
+    <div className='space-y-1'>
+      <div className='relative isolate h-72 w-full rounded-xl overflow-hidden border border-gray-700 bg-gray-900'>
+        <div ref={el} className='h-full w-full' />
+        <button type='button' onClick={centerOnMe} disabled={location === 'asking'}
+          className='absolute bottom-6 right-2 z-[1000] rounded-lg bg-white text-gray-900 text-xs font-semibold px-2.5 py-1.5 shadow-md border border-gray-300 hover:bg-gray-100 disabled:opacity-60'>
+          {location === 'asking' ? 'Buscando…' : '📍 Mi ubicación'}
+        </button>
+      </div>
+      {location === 'error' && (
+        <p className='text-xs text-amber-400'>No pudimos ubicarte. Revisá que el navegador tenga permiso de ubicación para este sitio.</p>
+      )}
+    </div>
+  );
 }
