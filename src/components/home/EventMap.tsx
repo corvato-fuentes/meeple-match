@@ -77,15 +77,14 @@ function popupForPlace(p: RecurringPlace): HTMLElement {
   const wa = whatsappLink(p.whatsapp);
   const ig = instagramLink(p.instagram);
   const gmaps = placeMapUrl(p);
-  if (wa || ig || gmaps) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:6px';
-    const style = 'color:#4338ca;font-weight:600;text-decoration:none';
-    if (wa) linkIn(row, wa, '💬 WhatsApp', style, true);
-    if (ig) linkIn(row, ig, '📷 Instagram', style, true);
-    if (gmaps) linkIn(row, gmaps, 'Cómo llegar', style, true);
-    box.appendChild(row);
-  }
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:6px';
+  const style = 'color:#4338ca;font-weight:600;text-decoration:none';
+  if (wa) linkIn(row, wa, '💬 WhatsApp', style, true);
+  else lineIn(row, '💬 WhatsApp', 'color:#9ca3af;font-weight:600;cursor:not-allowed'); // greyed out: no number yet
+  if (ig) linkIn(row, ig, '📷 Instagram', style, true);
+  if (gmaps) linkIn(row, gmaps, 'Cómo llegar', style, true);
+  box.appendChild(row);
   lineIn(box, 'Sin inscripción en la app', 'font-size:11px;color:#6b7280;margin-top:4px');
   return box;
 }

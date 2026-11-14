@@ -20,18 +20,25 @@ function InstagramIcon() {
   );
 }
 
-/** The icons that open the place's WhatsApp and Instagram: each shows only if the place has that contact. */
+/**
+ * The icons that open the place's WhatsApp and Instagram. WhatsApp is always there: greyed out (and not a link) until the place has one,
+ * so it is clear that is how to get in touch. Instagram shows only if the place has it.
+ */
 export function PlaceContacts({ place }: { place: RecurringPlace }) {
   const wa = whatsappLink(place.whatsapp);
   const ig = instagramLink(place.instagram);
-  if (!wa && !ig) return null;
   return (
     <div className='flex items-center gap-2'>
-      {wa && (
+      {wa ? (
         <a href={wa} target='_blank' rel='noopener noreferrer' aria-label={`WhatsApp de ${place.name}`} title='Escribir por WhatsApp'
           className={`${iconButton} bg-green-600`}>
           <WhatsAppIcon />
         </a>
+      ) : (
+        <span role='img' aria-label={`${place.name} todavía no tiene WhatsApp cargado`} title='WhatsApp: todavía no disponible'
+          className='inline-flex items-center justify-center w-9 h-9 rounded-full bg-gray-700 text-gray-500 cursor-not-allowed'>
+          <WhatsAppIcon />
+        </span>
       )}
       {ig && (
         <a href={ig} target='_blank' rel='noopener noreferrer' aria-label={`Instagram de ${place.name}`} title='Ver el Instagram'
