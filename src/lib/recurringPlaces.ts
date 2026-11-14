@@ -1,4 +1,4 @@
-import type { LatLng } from './geo';
+import { isAllowedMapUrl, type LatLng } from './geo';
 
 /**
  * Places where people play board games every week, with no registration in the app: you just get in touch with them.
@@ -21,6 +21,8 @@ export type RecurringPlace = {
   city: string;
   /** Where the pin goes. Looked up once on OpenStreetMap and kept here, so the map never depends on a geocoder. */
   geo: LatLng;
+  /** The place's own page on Google Maps, when there is one (better than a bare pin: it has photos and hours). Google links only. */
+  mapUrl?: string;
   /** One entry per day they play: the card shows them as the options. */
   schedules: PlaceSchedule[];
   note?: string;
@@ -77,7 +79,10 @@ export const RECURRING_PLACES: RecurringPlace[] = [
     name: '4.único',
     address: 'Av. Olmos 130, Galería Jardín',
     city: 'Córdoba',
-    geo: { lat: -31.41431, lng: -64.18132 },
+    // The exact spot, from the place's page on Google Maps
+    geo: { lat: -31.4142661, lng: -64.1813487 },
+    mapUrl:
+      'https://www.google.com/maps/place/Galer%C3%ADa+Jard%C3%ADn+%5BOlmos%5D/@-31.4137604,-64.186107,16z/data=!4m6!3m5!1s0x9432a29ce204265d:0xb45f55b599459eb1!8m2!3d-31.4142661!4d-64.1813487',
     schedules: [{ days: 'Lunes a sábados', time: '11:00 a 20:00 hs', note: 'Se reserva contactando al lugar' }],
     whatsapp: '',
     instagram: '',
@@ -137,6 +142,11 @@ export function instagramLink(value: string | undefined): string | null {
   return /^[A-Za-z0-9._]{1,30}$/.test(handle) ? `https://www.instagram.com/${handle}/` : null;
 }
 
-/** Google Maps link to the pin (only when there is an address: the one of the city is not worth opening). */
-export const placeMapUrl = (p: RecurringPlace): string | null =>
-  p.address ? `https://www.google.com/maps/search/?api=1&query=${p.geo.lat},${p.geo.lng}` : null;
+/**
+ * Google Maps link: the place's own page when it has one, else the pin. Nothing when there is no address
+ * (the pin is only the city then, not worth opening).
+ */
+export function placeMapUrl(p: RecurringPlace): string | null {
+  if (p.mapUrl && isAllowedMapUrl(p.mapUrl)) return p.mapUrl;
+  return p.address ? `https://www.google.com/maps/search/?api=1&query=${p.geo.lat},${p.geo.lng}` : null;
+}

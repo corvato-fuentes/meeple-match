@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { RECURRING_PLACES, instagramLink, placeAddressText, placeMapUrl, whatsappLink } from './recurringPlaces';
+import { isAllowedMapUrl } from './geo';
+import { RECURRING_PLACES,instagramLink, placeAddressText, placeMapUrl, whatsappLink } from './recurringPlaces';
 
 describe('whatsappLink', () => {
   it('turns a number into a chat link, ignoring spaces and signs', () => {
@@ -62,5 +63,14 @@ describe('the places listed', () => {
     const hipa = RECURRING_PLACES.find((p) => p.id === 'casa-hipa')!;
     expect(placeAddressText(hipa)).toBe('Paso de los Andes 222, Córdoba');
     expect(placeMapUrl(hipa)).toContain('google.com/maps');
+  });
+  it('uses the place\'s own Google Maps page when it has one, but only a Google link', () => {
+    const unico = RECURRING_PLACES.find((p) => p.id === '4-unico')!;
+    expect(placeMapUrl(unico)).toBe(unico.mapUrl);
+    expect(placeMapUrl(unico)).toContain('/maps/place/');
+    expect(placeMapUrl({ ...unico, mapUrl: 'https://evil.example/maps' })).toContain('maps/search');
+  });
+  it('every own map link is a Google one', () => {
+    for (const p of RECURRING_PLACES) if (p.mapUrl) expect(isAllowedMapUrl(p.mapUrl), p.id).toBe(true);
   });
 });
