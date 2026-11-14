@@ -116,6 +116,14 @@ export default function PostulatedTablesPage() {
   // arrival/departure and not overlap (with buffer) any table they're already seated at or explaining.
   // Saying the reason (instead of silently hiding the table) lets them fix it — e.g. leave the other
   // table or move their arrival time.
+  // The table of theirs that is set (confirmed or underway) and gets in the way of this window, if any
+  function firmClashFor(start: string, end: string): Table | undefined {
+    const buf = event!.settings.bufferMinutes;
+    const sMin = toMinutes(start);
+    const eMin = toMinutes(end);
+    return myTables.filter(isFirmTable).find((t) => !(toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime)));
+  }
+
   function unavailableReason(start: string, end: string): string | null {
     if (!event) return 'No se pudo comprobar tu horario';
     const buf = event.settings.bufferMinutes;
@@ -127,7 +135,7 @@ export default function PostulatedTablesPage() {
     if (eMin > toMinutes(player!.departureTime)) return `Termina después de que te vayas (te vas a las ${player!.departureTime})`;
     // Only tables that are set count: one the player accepted that is still waiting for players doesn't make this one "not free"
     // — joining it asks whether to leave the other (see useScheduleConflict)
-    const clash = myTables.filter(isFirmTable).find((t) => !(toMinutes(t.endTime) + buf <= sMin || eMin + buf <= toMinutes(t.startTime)));
+    const clash = firmClashFor(start, end);
     if (clash) {
       // Overlapping outright vs. just not leaving the buffer minutes between two tables
       const overlaps = !(toMinutes(clash.endTime) <= sMin || eMin <= toMinutes(clash.startTime));
@@ -221,6 +229,9 @@ export default function PostulatedTablesPage() {
     const why = unavailableReason(t.startTime, t.endTime);
     if (why) blockedReason.set(t.id, why);
   }
+  // Blocked only by one of their set tables (not by their own hours): they can still swap out of it, asked first, like in "Explorar mesas"
+  const swappableIds = new Set(openTablesWithSeats.filter((t) => blockedReason.has(t.id) && !!firmClashFor(t.startTime, t.endTime) &&
+    toMinutes(t.startTime) >= toMinutes(player.arrivalTime) + event.settings.bufferMinutes && toMinutes(t.endTime) <= toMinutes(player.departureTime)).map((t) => t.id));
   const joinableTables = openTablesWithSeats.filter((t) => !blockedReason.has(t.id));
   const blockedTables = openTablesWithSeats.filter((t) => blockedReason.has(t.id));
   // Of the ones that fit, the ones for a game the player voted 👍 are the ones meant "for them" (the same count the
@@ -303,7 +314,14 @@ export default function PostulatedTablesPage() {
           </span>} />
         <div className="mt-3">
           {kind === 'blocked' ? (
-            <ActionButton tone="warn">⛔ {blockedReason.get(t.id)}</ActionButton>
+            <div className="space-y-2">
+              <ActionButton tone="warn">⛔ {blockedReason.get(t.id)}</ActionButton>
+              {swappableIds.has(t.id) && (
+                <ActionButton tone="indigo" onClick={() => handleJoinOpenTable(t)} disabled={joiningTableId === t.id || tentative}>
+                  {joiningTableId === t.id ? 'Un momento...' : '🔁 Reconsiderar: sumarme y salir de la otra'}
+                </ActionButton>
+              )}
+            </div>
           ) : kind === 'open' && forYouIds.has(t.id) ? (
             // Offered to them because they voted the game and the slot fits: answer, like any other offer
             <div className="grid grid-cols-2 gap-2">

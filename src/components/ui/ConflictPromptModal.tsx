@@ -12,7 +12,8 @@ const label = (t: Table, withState: boolean) =>
 
 /**
  * Warns that the table being accepted overlaps one or SEVERAL the player already holds, and lets them settle it right here:
- *  - soft: the others are still waiting for players; the player can leave them and take the new one.
+ *  - soft: the others are still waiting for players (never confirmed). It is not a clash, just a heads-up that taking the new table
+ *    means stepping out of them: the player can leave them and take the new one.
  *  - confirmed: at least one is set; the player can still leave them all and take the new one, knowing others count on them.
  *  - locked: one is underway or already played, so it can't be left ("Entendido").
  * `onReject` is for screens where the table being accepted can also be declined (recommended tables):
@@ -32,11 +33,13 @@ export default function ConflictPromptModal({
   const first = conflicts[0];
   const list = conflicts.map((c) => label(c, many)).join(', ');
   const staying = many ? 'mis mesas' : first.gameName;
+  // Tables only waiting for players and none explained by the player: not a conflict, just "you would step out of them"
+  const headsUp = prompt.kind === 'soft' && !prompt.asExplainer;
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => onChoice(false)}>
       <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
         onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-semibold text-gray-100">⚠️ Horario superpuesto</h3>
+        <h3 className="font-semibold text-gray-100">{headsUp ? (many ? 'ℹ️ Vas a salir de mesas sin confirmar' : 'ℹ️ Vas a salir de una mesa sin confirmar') : '⚠️ Horario superpuesto'}</h3>
         {prompt.kind === 'locked' ? (
           <>
             <p className="text-xs text-gray-400">
@@ -64,25 +67,39 @@ export default function ConflictPromptModal({
           <>
             <p className="text-xs text-gray-400">
               {many ? (
-                <>
-                  Esta mesa se superpone con <strong className="text-gray-300">{conflicts.length} mesas tuyas</strong>: {list}.
-                  Si seguís con esta te bajás de todas ellas{prompt.kind === 'confirmed' ? ': en las confirmadas los demás cuentan con vos' : ''}.
-                </>
+                headsUp ? (
+                  <>
+                    Ya aceptaste <strong className="text-gray-300">{conflicts.length} mesas</strong> que todavía no se confirmaron: {list}.
+                    No es un conflicto: si seguís con esta mesa, salís de todas ellas.
+                  </>
+                ) : (
+                  <>
+                    Esta mesa se superpone con <strong className="text-gray-300">{conflicts.length} mesas tuyas</strong>: {list}.
+                    Si seguís con esta te bajás de todas ellas{prompt.kind === 'confirmed' ? ': en las confirmadas los demás cuentan con vos' : ''}.
+                  </>
+                )
               ) : prompt.kind === 'confirmed' ? (
                 <>
                   Ya tenés confirmada la mesa de <strong className="text-gray-300">{first.gameName}</strong> ({first.startTime}–{first.endTime}),
                   que se superpone con este horario. Si seguís con esta mesa te bajás de esa: los demás de esa mesa cuentan con vos.
                 </>
               ) : (
-                <>
-                  Ya estás anotado en la mesa de <strong className="text-gray-300">{first.gameName}</strong> ({first.startTime}–{first.endTime},
-                  todavía esperando jugadores), que se superpone con este horario. Si seguís con esta mesa vas a salir de esa.
-                </>
+                headsUp ? (
+                  <>
+                    Ya aceptaste la mesa de <strong className="text-gray-300">{first.gameName}</strong> ({first.startTime}–{first.endTime}),
+                    que todavía no se confirmó. No es un conflicto: si seguís con esta mesa, salís de esa.
+                  </>
+                ) : (
+                  <>
+                    Ya estás anotado en la mesa de <strong className="text-gray-300">{first.gameName}</strong> ({first.startTime}–{first.endTime},
+                    todavía esperando jugadores), que se superpone con este horario. Si seguís con esta mesa vas a salir de esa.
+                  </>
+                )
               )}
             </p>
             {prompt.asExplainer && (
               <p className="text-xs text-amber-300">
-                🎓 Vos explicás {many ? 'alguna de esas mesas' : 'esa mesa'}: si otro de los anotados puede explicarla, la toma; si no, se cancela.
+                🎓 Vos explicás {many ? 'alguna de esas mesas' : 'esa mesa'}: si otro de los anotados puede explicarla, la toma; si no, se le ofrece a otro explicador y la mesa queda esperando que alguien confirme; si nadie puede, se cancela.
               </p>
             )}
             {/* One above the other, each naming the table it affects: "Rechazar" alone read as the table being left */}

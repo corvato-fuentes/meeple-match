@@ -16,7 +16,8 @@ import { asPlayingExplainer, isExplainOnly } from './explainOnly';
 import { displayNameOf } from './playerName';
 import { MIN_TABLE_SEATS } from './seats';
 import type { WaitingTableReview } from './tableAlgorithm';
-import { expectedTableEnd } from './tableAlgorithm';
+import { expectedTableEnd, explainersToAskAfterLeave } from './tableAlgorithm';
+import { confirmedPlayers } from './registration';
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -1003,11 +1004,15 @@ export async function undoTableRejection(eventCode: string, tableId: string, pla
  * Steps down from an algorithm-recommended table the player had accepted — still waiting for people or already
  * confirmed (a confirmed one that drops under the minimum goes back to waiting for players). They are marked as having
  * rejected it, so that exact table is not offered to them again. If they were the explainer, another seated player who
- * can explain the game takes over; with nobody able to, the table is cancelled (its people go back to the pool).
+ * can explain the game takes over; with nobody seated able to, the game's other explainers who are free then are asked (the table
+ * goes back to waiting for an explainer, with the people who were seated queued); with nobody to ask, the table is cancelled (its
+ * people go back to the pool).
  * Tables already underway or finished are left alone.
  */
 export async function leaveAlgorithmTable(eventCode: string, tableId: string, playerId: string, minPlayers: number): Promise<void> {
   const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  // Only the explainer leaving needs this: who else could be asked to explain it (read first: a transaction can't query)
+  const asked = await explainersAskedAfterLeave(eventCode, tableId, playerId);
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) return;
@@ -1027,7 +1032,14 @@ export async function leaveAlgorithmTable(eventCode: string, tableId: string, pl
       // Reads first, then the write: the new explainer has to be someone seated who can actually teach this game
       const docs = await Promise.all(remaining.map((id) => tx.get(doc(db, 'events', eventCode, 'players', id))));
       const next = docs.find((d) => d.exists() && ((d.data() as Player).canExplain ?? []).includes(table.gameId));
-      if (!next) { tx.update(ref, cancel); return; }
+      if (!next) {
+        // Nobody seated can teach it: ask the game's other explainers, and let the table wait for one (unless there is none to ask)
+        if (asked.length === 0 || table.status !== 'recommended') { tx.update(ref, cancel); return; }
+        tx.update(ref, {
+          ...asPlayingExplainer(asked[0]), awaitingExplainer: true, playerIds: [], candidateIds: asked, queuedIds: remaining, rejectedIds,
+        });
+        return;
+      }
       explainerId = next.id;
     }
     tx.update(ref, {
@@ -1037,6 +1049,15 @@ export async function leaveAlgorithmTable(eventCode: string, tableId: string, pl
       ...(table.status === 'confirmed' && remaining.length < Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'recommended' as const }),
     });
   });
+}
+
+/** The people to ask to explain a table its explainer is leaving (empty when the one leaving does not explain it). */
+async function explainersAskedAfterLeave(eventCode: string, tableId: string, playerId: string): Promise<string[]> {
+  const tableSnap = await getDoc(doc(db, 'events', eventCode, 'tables', tableId));
+  const table = tableSnap.exists() ? ({ id: tableSnap.id, ...tableSnap.data() } as Table) : null;
+  if (!table || table.postedByOwner || table.explainerId !== playerId || table.awaitingExplainer) return [];
+  const [players, tables, event] = await Promise.all([getPlayers(eventCode), getTables(eventCode), getEvent(eventCode)]);
+  return explainersToAskAfterLeave(table, playerId, confirmedPlayers(players), tables, event?.settings.bufferMinutes ?? 0);
 }
 
 /** Leaves any table the player is seated at — a posted one or one the algorithm recommended. */
