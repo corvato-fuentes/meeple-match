@@ -11,6 +11,7 @@ import FilterChip from '@/components/ui/FilterChip';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import { tablesToExplore } from '@/lib/explore';
 import { isTentative } from '@/lib/registration';
+import { splitConflicts } from '@/lib/scheduleConflicts';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
@@ -143,14 +144,20 @@ export default function ExploreTablesPage() {
         </p>
       ) : (
         <div className="space-y-2">
-          {entries.map(({ table: t, clashes }) => (
+          {entries.map(({ table: t, clashes }) => {
+            // Only tables still waiting for players are not a conflict: taking this one just leaves them (and says so afterwards)
+            const { loud, quiet } = splitConflicts(clashes, player.id);
+            const describe = (cs: Table[]) => cs.map((c) => `${c.gameName} (${c.startTime}–${c.endTime}${c.status === 'confirmed' ? ', confirmada' : ''})`).join(' y ');
+            return (
             <div key={t.id} className="border border-indigo-800 bg-indigo-950/20 rounded-xl p-3">
               <WaitingTableInfo t={t} game={gameMap.get(t.gameId)} accent="indigo" interested={null} seatWord={t.status === 'confirmed' ? 'jugadores' : 'anotados'}
                 onView={() => {}}
                 who={t.postedByOwner
                   ? <PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} />
                   : <RecommendedWho t={t} game={gameMap.get(t.gameId)} nameOf={nameOf} />}
-                note={<>⚠️ Se pisa con {clashes.map((c) => `${c.gameName} (${c.startTime}–${c.endTime}${c.status === 'confirmed' ? ', confirmada' : ''})`).join(' y ')}</>} />
+                note={loud.length > 0
+                  ? <>⚠️ Se pisa con {describe(loud)}{quiet.length > 0 && <>; y aceptaste {describe(quiet)}, que todavía no se confirmó</>}</>
+                  : <>ℹ️ Aceptaste {describe(quiet)}, que todavía no se confirmó: si aceptás esta, salís de {quiet.length > 1 ? 'esas' : 'esa'}.</>} />
               {showRejected ? (
                 <div className="mt-3">
                   <ActionButton tone="neutral" onClick={() => reconsider(t)} disabled={joiningId === t.id}>
@@ -161,12 +168,13 @@ export default function ExploreTablesPage() {
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <ActionButton tone="neutral" onClick={() => reject(t)} disabled={joiningId === t.id}>❌ Rechazar</ActionButton>
                   <ActionButton tone="indigo" onClick={() => swapIn(t)} disabled={joiningId === t.id || tentative}>
-                    {joiningId === t.id ? 'Un momento...' : clashes.length > 1 ? `🔁 Cambiar las ${clashes.length}` : '🔁 Cambiar'}
+                    {joiningId === t.id ? 'Un momento...' : loud.length === 0 ? '✅ Aceptar' : clashes.length > 1 ? `🔁 Cambiar las ${clashes.length}` : '🔁 Cambiar'}
                   </ActionButton>
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <ConflictPromptModal prompt={conflictPrompt} onChoice={handleConflictChoice} />

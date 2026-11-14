@@ -32,6 +32,28 @@ export default function ConflictPromptModal({
   const first = conflicts[0];
   const list = conflicts.map((c) => label(c, many)).join(', ');
   const staying = many ? 'mis mesas' : first.gameName;
+  if (prompt.kind === 'left') {
+    // Nothing to decide: the tables only had the player waiting, so they were left to take the new one. This just says so.
+    return (
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => onChoice(false)}>
+        <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
+          onClick={(e) => e.stopPropagation()}>
+          <h3 className="font-semibold text-gray-100">✅ Listo, estás en {incoming.gameName}</h3>
+          <p className="text-xs text-gray-400">
+            {many ? (
+              <>Como se superponían, saliste de <strong className="text-gray-300">{conflicts.length} mesas</strong> que todavía no se habían confirmado: {list}.</>
+            ) : (
+              <>Como se superponía, saliste de la mesa de <strong className="text-gray-300">{first.gameName}</strong> ({first.startTime}–{first.endTime}),
+                que todavía no se había confirmado.</>
+            )}
+          </p>
+          <button onClick={() => onChoice(false)} className="w-full bg-indigo-600 rounded-lg py-2 text-xs font-medium hover:bg-indigo-700">
+            Entendido
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => onChoice(false)}>
       <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
