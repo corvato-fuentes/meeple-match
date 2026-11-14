@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { leaveTable } from '@/lib/firestore';
 import { findConflictingTables } from '@/lib/tableAlgorithm';
-import { splitConflicts } from '@/lib/scheduleConflicts';
 import type { Player, Table } from '@/lib/types';
 
 export interface ConflictPrompt {
@@ -13,23 +12,19 @@ export interface ConflictPrompt {
    * soft: the other tables are still waiting for players — dropping them is a small thing.
    * confirmed: at least one is set; the player can still leave them to take the new one, but others are counting on them.
    * locked: one is underway or already played — nothing to swap.
-   * left: nothing to decide — the tables were only waiting for players, so the player has already stepped out of them; this tells them.
    */
-  kind: 'soft' | 'confirmed' | 'locked' | 'left';
+  kind: 'soft' | 'confirmed' | 'locked';
   /** The player is the one explaining a table they would leave (it passes to someone else, or is cancelled). */
   asExplainer: boolean;
 }
 
 /**
  * Shared by the accept-recommended and join-postulated flows: checks whether adding the player to
- * table `t` would overlap tables they're already on — more than one when `t` is long.
- *
- * Tables that never got confirmed (they are only waiting for players) and that the player does not explain are not a conflict worth
- * stopping for: the player just takes the new table, steps out of those, and is told so afterwards (`kind: 'left'`).
- * Anything else can be settled right in the popup: the player leaves them and takes the new one (for a CONFIRMED table the prompt makes
- * clear that others are counting on that roster). Only a table already underway or played can't be left, so then it is just
- * informational. Render `conflictPrompt` with a confirm/cancel UI wired to `handleChoice`; `resolveScheduleConflict` resolves once the
- * player decides (or immediately if there's no conflict at all).
+ * table `t` would overlap tables they're already on — more than one when `t` is long. All of them can be settled right in the
+ * popup: the player leaves them and takes the new one (for a CONFIRMED table the prompt makes clear that others are counting
+ * on that roster). Only a table already underway or played can't be left, so then it is just informational. Render
+ * `conflictPrompt` with a confirm/cancel UI wired to `handleChoice`; `resolveScheduleConflict` resolves once the player decides
+ * (or immediately if there's no conflict at all).
  */
 export function useScheduleConflict(code: string, player: Player | null, allTables: Table[]) {
   const [conflictPrompt, setConflictPrompt] = useState<(ConflictPrompt & { resolve: (ok: boolean) => void }) | null>(null);
@@ -38,17 +33,10 @@ export function useScheduleConflict(code: string, player: Player | null, allTabl
    * `window` is the part of the table the player would hold when it is not the whole of it: someone who only explains is held just
    * for the explanation, so only what overlaps that matters.
    */
-  async function resolveScheduleConflict(t: Table, window?: { start: string; end: string }): Promise<boolean> {
-    if (!player) return false;
+  function resolveScheduleConflict(t: Table, window?: { start: string; end: string }): Promise<boolean> {
+    if (!player) return Promise.resolve(false);
     const conflicts = findConflictingTables(player.id, window?.start ?? t.startTime, window?.end ?? t.endTime, allTables, t.id);
-    if (conflicts.length === 0) return true;
-    const { loud, quiet } = splitConflicts(conflicts, player.id);
-    if (loud.length === 0) {
-      // Only tables that were still waiting for players: no question, the player steps out of them and is told right after
-      for (const c of quiet) await leaveTable(code, c, player.id);
-      setConflictPrompt({ conflicts: quiet, incoming: t, kind: 'left', asExplainer: false, resolve: () => {} });
-      return true;
-    }
+    if (conflicts.length === 0) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => {
       const kind = conflicts.some((c) => c.status !== 'recommended' && c.status !== 'confirmed') ? 'locked'
         : conflicts.some((c) => c.status === 'confirmed') ? 'confirmed' : 'soft';
@@ -60,7 +48,6 @@ export function useScheduleConflict(code: string, player: Player | null, allTabl
     if (!conflictPrompt || !player) return;
     const { conflicts, kind, resolve } = conflictPrompt;
     setConflictPrompt(null);
-    if (kind === 'left') return; // just an announcement: it was settled before it was shown
     if (kind !== 'locked' && wantsSwap) {
       // One after the other: each goes through the usual way of stepping down (hands over the explaining, drops a table
       // under its minimum back to waiting, or cancels one with nobody left)

@@ -676,6 +676,19 @@ export function generateTables(
   return { proposals, candidateUpdates };
 }
 
+/**
+ * Who can be asked to explain a table whose explainer just left, when nobody seated at it can take over: players who are not at
+ * the table, voted the game yes, can explain it, had not turned the table down, and are free at that time.
+ */
+export function explainersToAskAfterLeave(table: Table, leaverId: string, players: Player[], tables: Table[], bufferMinutes: number): string[] {
+  const others = tables.filter((o) => o.id !== table.id);
+  return players
+    .filter((p) => p.id !== leaverId && !table.playerIds.includes(p.id) && !(table.rejectedIds ?? []).includes(p.id) &&
+      p.interests[table.gameId] === 'yes' && p.canExplain.includes(table.gameId) &&
+      isAvailable(p, table.startTime, table.endTime, getBusyWindows(p.id, others), bufferMinutes))
+    .map((p) => p.id);
+}
+
 /** What to do with a table that is waiting on explainers who may no longer be able to explain it. */
 export type WaitingTableReview =
   | { tableId: string; action: 'cancel' }
