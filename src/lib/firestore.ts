@@ -106,7 +106,7 @@ export async function releaseGenerationLock(eventCode: string): Promise<void> {
 
 export async function getGames(eventCode: string): Promise<Game[]> {
   const snap = await getDocs(collection(db, 'events', eventCode, 'games'));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Game)).filter((g) => !g.deleted);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Game)).filter((g) => !g.deleted && !g.adHoc);
 }
 
 /**
@@ -427,7 +427,7 @@ export async function discardDeletedGame(eventCode: string, gameId: string): Pro
 
 export function subscribeGames(eventCode: string, cb: (games: Game[]) => void) {
   return onSnapshot(collection(db, 'events', eventCode, 'games'), (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Game)).filter((g) => !g.deleted))
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Game)).filter((g) => !g.deleted && !g.adHoc))
   );
 }
 
@@ -1358,4 +1358,37 @@ export async function seatPlayerAtTable(eventCode: string, tableId: string, play
     });
     return true;
   });
+}
+
+/**
+ * The organizers write down a table that started in the room without being planned ("mesa improvisada"): the game (one of the
+ * event's, or a new one made on the spot — hidden from the players and from the algorithm), the people of the app who sit, and how
+ * many more don't use it. It is underway from the start. Returns the new table's id.
+ */
+export async function createImprovisedTable(eventCode: string, input: {
+  game: { id: string; name: string } | { id: null; name: string; durationMinutes: number };
+  startTime: string; endTime: string; playerIds: string[]; guestCount: number;
+}): Promise<string> {
+  let gameId: string;
+  const seats = Math.max(2, input.playerIds.length + input.guestCount);
+  const g = input.game;
+  if (g.id !== null) {
+    gameId = g.id;
+  } else {
+    // Made on the spot: no owner (so the algorithm never schedules it), not shown to the players
+    const created: Omit<Game, 'id'> = {
+      name: g.name, bggUrl: null, minPlayers: 2, maxPlayers: seats, durationMinutes: g.durationMinutes, complexity: 'medium',
+      ownerPlayerId: '', ownerName: 'Mesa improvisada', lendable: false, adHoc: true,
+    };
+    gameId = (await addDoc(collection(db, 'events', eventCode, 'games'), created)).id;
+  }
+  const existing = await getTables(eventCode);
+  const table: Omit<Table, 'id'> = {
+    gameId, gameName: input.game.name, startTime: input.startTime, endTime: input.endTime,
+    explainerId: '', playerIds: input.playerIds, status: 'in-progress', isManuallyEdited: true, everConfirmed: true,
+    improvised: true, guestCount: input.guestCount,
+    batchNumber: existing.length ? Math.max(...existing.map((t) => t.batchNumber)) : 1,
+    tableNumber: existing.length ? Math.max(...existing.map((t) => t.tableNumber)) + 1 : 1,
+  };
+  return (await addDoc(collection(db, 'events', eventCode, 'tables'), table)).id;
 }

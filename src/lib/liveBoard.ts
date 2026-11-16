@@ -43,7 +43,8 @@ export function freeTables(tables: Table[], games: Game[], nowMin: number): Free
     const game = gameOf.get(table.gameId);
     if (!game) continue;
     if (toMinutes(table.endTime) <= nowMin) continue;
-    const taken = table.playerIds.length;
+    // People who don't use the app also sit (an improvised table counts them)
+    const taken = table.playerIds.length + (table.guestCount ?? 0);
     const free = game.maxPlayers - taken;
     if (free <= 0) continue;
     const start = toMinutes(table.startTime);
@@ -61,6 +62,11 @@ function heldWindows(player: Pick<Player, 'id'>, tables: Table[], ignoreTableId?
     if (w) out.push({ start: toMinutes(w.start), end: toMinutes(w.end) });
   }
   return out.sort((a, b) => a.start - b.start);
+}
+
+/** Is the player free for the whole of [start, end) (minutes): none of their live tables overlaps it. */
+export function isFreeBetween(player: Pick<Player, 'id'>, tables: Table[], start: number, end: number): boolean {
+  return heldWindows(player, tables).every((w) => end <= w.start || start >= w.end);
 }
 
 /** Can this player be put in this table: not already in it, and it doesn't clash with their other live tables. */

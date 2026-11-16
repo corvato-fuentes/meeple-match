@@ -3,8 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getEvent, verifyAdminToken, subscribeTables, subscribePlayers, subscribeGames, seatPlayerAtTable, removePlayerFromTable,
-  getTableById, updateTableStatus, updateTable, setTableEnd,
+  getEvent, verifyAdminToken, subscribeTables, subscribePlayers, subscribeAllGames, seatPlayerAtTable, removePlayerFromTable,
+  getTableById, updateTableStatus, updateTable, setTableEnd, createImprovisedTable,
 } from '@/lib/firestore';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import { everSet } from '@/lib/tableStatusFilter';
@@ -12,6 +12,8 @@ import { freeTables, peopleWithoutTable, impliesPresence, liveTables, timeChange
 import { toTimeString } from '@/lib/timeUtils';
 import { FreeTablesSection, PeopleSection, MovePanel } from '@/components/admin/LiveSections';
 import { TablesSection, type TableActions } from '@/components/admin/LiveTables';
+import NewTablePanel, { type NewTableInput } from '@/components/admin/LiveNewTable';
+import { sameGameOverlaps } from '@/lib/tableAlgorithm';
 import type { Game, MeepleEvent, Player, Table } from '@/lib/types';
 
 const CLOCK_MS = 30_000; // the clock the page works with
@@ -53,7 +55,8 @@ export default function LivePage() {
     const unsubs = [
       subscribeTables(code, (ts) => setTables(ts.filter((t) => t.status !== 'cancelled' || everSet(t)))),
       subscribePlayers(code, setPlayers),
-      subscribeGames(code, setGames),
+      // Including the games made on the spot for improvised tables (the players never see those)
+      subscribeAllGames(code, (gs) => setGames(gs.filter((g) => !g.deleted))),
     ];
     return () => unsubs.forEach((u) => u());
   }, [authorized, code]);
@@ -200,6 +203,22 @@ export default function LivePage() {
     return `${label(table)} quedó cancelada.`;
   });
 
+  /** A table that started in the room without being planned: written down as underway, with the people who sit marked as there. */
+  const createTable = (input: NewTableInput) => run(async () => {
+    if (input.game.id !== null) {
+      const gameId = input.game.id;
+      const busyCopies = sameGameOverlaps({
+        tables, table: { id: '__new__', gameId }, start: input.startTime, end: input.endTime,
+        bufferMinutes: event?.settings.bufferMinutes ?? 0, gameCopies: games.filter((g) => (g.groupId ?? g.id) === gameId).length || 1,
+      });
+      if (busyCopies.length > 0 && !window.confirm(`No hay otra copia libre de ${input.game.name} en ese horario (ya está en la mesa de las ${busyCopies[0].startTime}). ¿Anotarla igual?`)) return 'No se cambió nada.';
+    }
+    await createImprovisedTable(code, input);
+    await Promise.all(input.playerIds.map((id) => markPresent(id).catch(() => {})));
+    const n = input.playerIds.length + input.guestCount;
+    return `Mesa de ${input.game.name} anotada, en curso hasta las ${input.endTime} (${n} personas).`;
+  });
+
   const tableActions: TableActions = { onStart: startTable, onFinish: finishTable, onExtend: extendTable, onWait: waitTable, onConfirm: confirmTable, onCancel: cancelTable };
 
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
@@ -246,6 +265,7 @@ export default function LivePage() {
         </p>
       )}
 
+      <NewTablePanel games={games} players={players} tables={tables} present={present} nowMin={nowMin} busy={busy} onCreate={createTable} />
       <TablesSection items={live} nowMin={nowMin} players={players} games={games} label={label} actions={tableActions} busy={busy} />
       <MovePanel players={players} tables={tables} rows={rows} nowMin={nowMin} label={label} busy={busy} onMove={move} onRemove={remove} />
       <FreeTablesSection rows={rows} people={[...people.now, ...people.soon]} label={label} busy={busy} onSeat={seat} />

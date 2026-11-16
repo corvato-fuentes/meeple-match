@@ -79,7 +79,7 @@ function TableCard({ item, nowMin, name, label, minPlayers, actions, busy }: {
     <li className={'border rounded-xl p-3 space-y-2 ' + (item.attention ? 'border-red-800 bg-red-950/20' : 'border-gray-700 bg-gray-800/50')}>
       <div className='flex items-start justify-between gap-2'>
         <div className='min-w-0'>
-          <p className='font-medium leading-snug'>{label(table)}</p>
+          <p className='font-medium leading-snug'>{label(table)}{table.improvised && <span className='ml-2 text-[11px] font-normal text-purple-300'>improvisada</span>}</p>
           <p className='text-xs text-gray-400'>{table.startTime}–{table.endTime}</p>
         </div>
         <span className={'text-xs rounded-full px-2 py-0.5 text-right shrink-0 max-w-[55%] ' + badge.cls}>{badge.text}</span>
@@ -88,6 +88,7 @@ function TableCard({ item, nowMin, name, label, minPlayers, actions, busy }: {
         {memberIds.map((id, i) => (
           <span key={id} className={missing.has(id) ? 'text-amber-300' : 'text-gray-300'}>{i > 0 ? ' · ' : ''}{missing.has(id) ? '?' : '✓'} {name(id)}</span>
         ))}
+        {(table.guestCount ?? 0) > 0 && <span className='text-gray-400'>{memberIds.length > 0 ? ' · ' : ''}+{table.guestCount} sin la app</span>}
       </p>
       {kind === 'past' && <p className='text-xs text-gray-500'>Nadie la marcó: no figura como jugada ni como cancelada.</p>}
       {kind === 'unconfirmed' && <p className='text-xs text-gray-500'>El sistema la propuso y todavía no llegó al mínimo de gente que aceptó.</p>}

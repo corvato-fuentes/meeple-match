@@ -113,7 +113,8 @@ export default function TablesPage() {
     // An explainer who only explains is not seated, and that is fine: they stay as they are (see Table.explainerPlays)
     const keepsOnlyExplainer = isExplainOnly(t) && draft.explainerId === t.explainerId;
     const explainerId = keepsOnlyExplainer || draft.playerIds.includes(draft.explainerId) ? draft.explainerId : '';
-    if (!explainerId && draft.playerIds.length > 0) {
+    // (a table written down by the organizers as it started in the room never had an explainer: that is not a reason to undo it)
+    if (!explainerId && draft.playerIds.length > 0 && !t.improvised) {
       if (!window.confirm(`Ninguno de los jugadores de la mesa de ${t.gameName} marcó que sabe explicarla, y no elegiste quién la explica. Sin explicador la mesa se deshace y la gente vuelve a quedar libre. ¿Deshacerla?`)) return;
       await dissolveTable(code, t);
       cancelEdit();

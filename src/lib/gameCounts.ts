@@ -5,6 +5,6 @@ import type { Game } from './types';
  * lists show them), `copies` counts every entry people registered. Games removed with votes pending (`deleted`) are left out.
  */
 export function countGames(games: Game[]): { games: number; copies: number } {
-  const live = games.filter((g) => !g.deleted);
+  const live = games.filter((g) => !g.deleted && !g.adHoc);
   return { games: live.filter((g) => !g.groupId || g.groupId === g.id).length, copies: live.length };
 }
