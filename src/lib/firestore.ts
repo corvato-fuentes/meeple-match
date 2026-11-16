@@ -1329,3 +1329,27 @@ export function getPlayerTables(playerId: string, tables: Table[]): Table[] {
     (t) => (t.playerIds.includes(playerId) || t.explainerId === playerId) && t.status !== 'cancelled'
   );
 }
+
+/**
+ * An organizer seats a person at a table ("En vivo"). Done in a transaction so two organizers can't fill the same last place; returns
+ * `false` when the table is full, over, or they are already in it. If the person had been offered the table (or rejected it) that is
+ * cleared: they are in now. The table's state is left as it is — adding somebody doesn't confirm a table that was still waiting.
+ */
+export async function seatPlayerAtTable(eventCode: string, tableId: string, playerId: string, maxPlayers: number): Promise<boolean> {
+  const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return false;
+    const table = snap.data() as Table;
+    if (table.status !== 'recommended' && table.status !== 'confirmed' && table.status !== 'in-progress') return false;
+    if (table.playerIds.includes(playerId) || table.playerIds.length >= maxPlayers) return false;
+    tx.update(ref, {
+      playerIds: [...table.playerIds, playerId],
+      candidateIds: (table.candidateIds ?? []).filter((id) => id !== playerId),
+      queuedIds: (table.queuedIds ?? []).filter((id) => id !== playerId),
+      rejectedIds: (table.rejectedIds ?? []).filter((id) => id !== playerId),
+      isManuallyEdited: true,
+    });
+    return true;
+  });
+}
