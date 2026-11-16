@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { sendReceipt } from '@/lib/receipt';
 import PaymentDetails from '@/components/ui/PaymentDetails';
-import type { ReceiptState } from '@/lib/registration';
+import { flexibleRegistrationOn, type ReceiptState } from '@/lib/registration';
 import type { MeepleEvent, Player } from '@/lib/types';
 
 const TEXTS = {
@@ -13,6 +13,11 @@ const TEXTS = {
   missing: {
     title: '⚠️ Falta tu comprobante de pago',
     body: 'Este evento pide comprobante de pago. Mandalo para confirmar tu lugar.',
+  },
+  // Flexible registration: they said they are coming and chose to contribute later; the place is theirs
+  contributionPending: {
+    title: '💸 Tu contribución está pendiente',
+    body: 'Tu lugar está reservado. Cuando contribuyas, mandá el comprobante desde acá.',
   },
   rejected: {
     title: '⚠️ Tu comprobante fue rechazado',
@@ -37,7 +42,9 @@ export default function ReceiptNotice({ code, player, event, state, onSent }: {
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
-  const text = state === 'rejected' ? TEXTS.rejected : player.registrationStatus === 'tentative' ? TEXTS.tentative : TEXTS.missing;
+  const text = state === 'rejected' ? TEXTS.rejected
+    : player.registrationStatus === 'tentative' ? TEXTS.tentative
+    : flexibleRegistrationOn(event.settings) ? TEXTS.contributionPending : TEXTS.missing;
 
   async function send() {
     if (!file || sending) return;

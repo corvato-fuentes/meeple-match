@@ -529,7 +529,7 @@ export default function AdminPage() {
           <p className='text-sm font-medium'>Inscripción</p>
           {([
             ['free', 'Libre', 'No se pide comprobante ni se pregunta si va a venir. Cualquiera se anota.'],
-            ['flexible', 'Flexible', 'Se pide comprobante, pero se puede anotar como “indeciso” sin él: vota y suma juegos, aunque no tiene mesas ni cuenta para el máximo hasta que mande el comprobante o lo confirmes vos.'],
+            ['flexible', 'Flexible', 'Se pregunta qué tan probable es que vaya. “100% confirmado” queda con su lugar y contribuye en el momento o más tarde (el comprobante queda pendiente en su ticket). “Improbable” queda como indeciso: vota y suma juegos, pero no tiene mesas ni cuenta para el máximo hasta que mande el comprobante o lo confirmes vos.'],
             ['strict', 'Estricta', 'Se pide comprobante: sin pagar no se inscribe.'],
           ] as const).map(([mode, title, hint]) => {
             const active = registrationModeOf(settingsDraft) === mode;

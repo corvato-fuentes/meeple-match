@@ -67,8 +67,11 @@ export default function EventPage() {
     getPushStatus().then(setPushStatus).catch(() => setPushStatus('unsupported'));
   }, []);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
-  // Flexible registration: register without the receipt, as "indeciso", and send it later from the ticket
-  const [wantsTentative, setWantsTentative] = useState(false);
+  // Flexible registration: first how likely they are to come. "Sure" holds a place (and then they contribute now or later);
+  // "unlikely" registers them as "indeciso" (no place held) until they confirm from their ticket. null = not answered yet.
+  const [attendance, setAttendance] = useState<'sure' | 'unlikely' | null>(null);
+  // Sure to come, but prefers to send the receipt of the contribution later (from the ticket)
+  const [payLater, setPayLater] = useState(false);
   const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
 
   const [myGames, setMyGames] = useState<DraftGame[]>([]);
@@ -277,7 +280,7 @@ export default function EventPage() {
     const maxPlayers = event.settings.maxPlayers;
     if (!tentative && maxPlayers != null && playerCount >= maxPlayers) { alert('El evento está completo.'); setSubmitting(false); return; }
     const ticketCode = await generateUniqueTicketCode(code);
-    const paymentProofUrl = !tentative && paymentProofFile ? await uploadPaymentProof(code, ticketCode, paymentProofFile) : null;
+    const paymentProofUrl = !tentative && !payLater && paymentProofFile ? await uploadPaymentProof(code, ticketCode, paymentProofFile) : null;
     const savedGameIds: string[] = [];
     const canExplainGameIds: string[] = [];
     const playedOwnGameIds: string[] = [];
@@ -330,7 +333,11 @@ export default function EventPage() {
   const flexible = event ? flexibleRegistrationOn(event.settings) : false;
   const atMax = event?.settings.maxPlayers != null && playerCount >= event.settings.maxPlayers;
   const isFull = atMax && !flexible;
-  const tentative = flexible && (wantsTentative || atMax);
+  const tentative = flexible && (attendance === 'unlikely' || atMax);
+  // With flexible registration the question about coming comes first: nothing else about the payment until it is answered
+  const mustAnswerAttendance = flexible && !atMax && attendance === null;
+  // A contribution is owed now unless they chose to make it later (or are indecisos, who confirm later anyway)
+  const needsReceiptNow = !!event?.settings.paymentRequired && !tentative && !payLater;
 
   if (step === 'closed') return (
     <div className="p-8 text-center text-gray-400 space-y-4">
@@ -446,35 +453,56 @@ export default function EventPage() {
               minTime={event?.startTime} maxTime={event?.endTime} />
           </div>
         </div>
-        {event?.settings.paymentRequired && (
+        {flexible && !atMax && (
+          // First of all, before anything about the payment: how sure they are to come
           <div className="border border-indigo-800 bg-indigo-950/30 rounded-xl p-3 space-y-2">
-            <p className="text-sm font-medium">💸 Comprobante de pago</p>
-            <PaymentDetails alias={event.settings.paymentAlias} info={event.settings.paymentInfo} />
-            {flexible && !atMax && (
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setWantsTentative(false)}
-                  className={'rounded-lg border py-1.5 text-xs font-medium ' + (!wantsTentative ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
-                  Tengo el comprobante
-                </button>
-                <button type="button" onClick={() => setWantsTentative(true)}
-                  className={'rounded-lg border py-1.5 text-xs font-medium ' + (wantsTentative ? 'bg-amber-600 border-amber-600 text-white' : 'border-gray-700 text-gray-400 hover:bg-gray-800')}>
-                  Todavía no sé
-                </button>
-              </div>
+            <p className="text-sm font-medium">🙋 ¿Qué tan probable es que vayas?</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setAttendance('sure')} aria-pressed={attendance === 'sure'}
+                className={'rounded-lg border py-2 text-xs font-medium ' + (attendance === 'sure' ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+                ✅ 100% confirmado
+              </button>
+              <button type="button" onClick={() => setAttendance('unlikely')} aria-pressed={attendance === 'unlikely'}
+                className={'rounded-lg border py-2 text-xs font-medium ' + (attendance === 'unlikely' ? 'bg-amber-600 border-amber-600 text-white' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+                🤔 Improbable
+              </button>
+            </div>
+            {attendance === 'unlikely' && (
+              <p className="text-xs text-amber-300">
+                Te anotás como <strong>indeciso</strong>: podés votar juegos y sumar los tuyos, pero tu lugar no queda reservado ni se te arman mesas hasta que confirmes desde tu ticket.
+              </p>
             )}
+          </div>
+        )}
+        {event?.settings.paymentRequired && !mustAnswerAttendance && !(flexible && tentative && !atMax) && (
+          <div className="border border-indigo-800 bg-indigo-950/30 rounded-xl p-3 space-y-2">
+            <p className="text-sm font-medium">{flexible ? '💸 Tu contribución' : '💸 Comprobante de pago'}</p>
+            <PaymentDetails alias={event.settings.paymentAlias} info={event.settings.paymentInfo} />
             {tentative ? (
               <p className="text-xs text-amber-300">
                 Te anotás como <strong>indeciso</strong>: podés votar juegos y sumar los tuyos, pero tu lugar no queda reservado ni se te arman mesas hasta que mandes el comprobante desde tu ticket.
               </p>
+            ) : payLater ? (
+              <>
+                <p className="text-xs text-gray-300">Tu lugar queda reservado. Cuando contribuyas, mandá el comprobante desde tu ticket: te lo vas a ver ahí como pendiente.</p>
+                <button type="button" onClick={() => setPayLater(false)} className="text-xs text-indigo-400 hover:underline">
+                  ← Prefiero contribuir ahora
+                </button>
+              </>
             ) : (
               <>
-                <p className="text-xs text-gray-500">Subí una foto del comprobante de la transferencia para confirmar tu lugar.</p>
+                <p className="text-xs text-gray-500">{flexible ? 'Subí una foto del comprobante de tu contribución para confirmar tu lugar.' : 'Subí una foto del comprobante de la transferencia para confirmar tu lugar.'}</p>
                 <input type="file" accept="image/*"
                   onChange={handlePaymentProofChange}
                   className="w-full text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-white file:text-sm hover:file:bg-indigo-700" />
                 {paymentProofPreview && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={paymentProofPreview} alt="Comprobante subido" className="max-h-40 rounded-lg border border-gray-700" />
+                )}
+                {flexible && (
+                  <button type="button" onClick={() => setPayLater(true)} className="w-full border border-gray-700 rounded-lg py-2 text-xs font-medium text-gray-300 hover:bg-gray-800">
+                    Prefiero contribuir en otro momento
+                  </button>
                 )}
               </>
             )}
@@ -492,7 +520,7 @@ export default function EventPage() {
             )}
           </div>
         )}
-        <button disabled={!firstName.trim() || !lastName.trim() || !arrivalTime || !departureTime || !phone.trim() || (event?.settings.paymentRequired && !tentative ? !paymentProofFile : false) || checkingDuplicate}
+        <button disabled={!firstName.trim() || !lastName.trim() || !arrivalTime || !departureTime || !phone.trim() || mustAnswerAttendance || (needsReceiptNow && !paymentProofFile) || checkingDuplicate}
           onClick={handleStep1Next}
           className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold hover:bg-indigo-700 disabled:opacity-40">
           {checkingDuplicate ? 'Verificando...' : 'Siguiente →'}
