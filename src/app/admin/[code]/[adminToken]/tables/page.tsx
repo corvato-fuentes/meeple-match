@@ -6,6 +6,8 @@ import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateT
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import Time24Input from '@/components/ui/Time24Input';
+import FilterChip from '@/components/ui/FilterChip';
+import { STATUS_FILTERS, matchesStatusFilter, everSet, type StatusFilter } from '@/lib/tableStatusFilter';
 import { sameGameOverlaps, expectedTableEnd } from '@/lib/tableAlgorithm';
 import { nextExplainer } from '@/lib/explainer';
 import { asPlayingExplainer, isExplainOnly } from '@/lib/explainOnly';
@@ -38,6 +40,7 @@ export default function TablesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [addPlayerId, setAddPlayerId] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   useEffect(() => {
     verifyAdminToken(code, adminToken).then(async (ok) => {
@@ -46,9 +49,9 @@ export default function TablesPage() {
     });
     getPlayers(code).then(setPlayers);
     getGames(code).then(setGames);
-    // Tables the system dissolved while they were still waiting for players were never cancelled by anyone: not listed
-    // (a cancelled table that was waiting for its explainer is the same case, from before the mark existed)
-    const unsub = subscribeTables(code, (ts) => setTables(ts.filter((t) => !(t.status === 'cancelled' && (t.dissolved || t.awaitingExplainer)))));
+    // A cancelled table is only worth listing if it had been set (reached its minimum and was confirmed) and then fell through. One that
+    // only ever waited (the explainer said yes and nobody else did, or the system undid it) is noise. The mark is `everConfirmed`.
+    const unsub = subscribeTables(code, (ts) => setTables(ts.filter((t) => t.status !== 'cancelled' || everSet(t))));
     return unsub;
   }, [code, adminToken]);
 
@@ -171,15 +174,27 @@ export default function TablesPage() {
         <h1 className='text-xl font-bold'>Gestionar mesas — {event.name}</h1>
       </div>
 
+      {tables.length > 0 && (
+        // By state. The numbering stays the one of the whole schedule: filtering only hides tables, it never renumbers them
+        <div className='flex flex-wrap gap-2 mb-6'>
+          {STATUS_FILTERS.map((f) => {
+            const count = tables.filter((t) => matchesStatusFilter(t, f.key)).length;
+            // The states nobody is in are left out (the active one stays, so it can be turned off)
+            if (f.key !== 'all' && count === 0 && statusFilter !== f.key) return null;
+            return <FilterChip key={f.key} active={statusFilter === f.key} onClick={() => setStatusFilter(f.key)} label={f.label} count={count} activeClass={f.activeClass} />;
+          })}
+        </div>
+      )}
+
       {tables.length === 0 ? (
         <p className='text-gray-500 text-center py-12'>No hay mesas todavía. Generá desde el panel.</p>
       ) : (
         <div className='space-y-8'>
-          {sortedSlots.map((slot) => (
+          {sortedSlots.filter((slot) => slotGroups.get(slot)!.some((t) => matchesStatusFilter(t, statusFilter))).map((slot) => (
             <div key={slot}>
               <h2 className='text-lg font-bold text-yellow-400 mb-3'>Mesa #{slot + 1}</h2>
               <div className='space-y-3'>
-                {slotGroups.get(slot)!.map((t) => {
+                {slotGroups.get(slot)!.filter((t) => matchesStatusFilter(t, statusFilter)).map((t) => {
                   const isEditing = editingId === t.id;
                   const currentIds = isEditing && draft ? draft.playerIds : t.playerIds;
                   const candidates = candidatesFor(t, currentIds);

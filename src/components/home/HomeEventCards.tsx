@@ -59,7 +59,7 @@ export default function HomeEventCards() {
 
   return (
     <section className='space-y-3 text-left'>
-      <h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>Tus eventos</h2>
+      <h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>Tus eventos y juntadas</h2>
       <div className='space-y-3'>
         {sortCards(view, now).map((c) => {
           const when = whenOf(c, now);

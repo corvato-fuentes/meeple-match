@@ -6,7 +6,7 @@ import { generateUniqueShortCode } from '@/lib/shortCode';
 import { saveMyEvent, parseAdminLink } from '@/lib/myEvents';
 import { createMathTradeEvent, generateUniqueMathTradeCode } from '@/lib/mathtradeFirestore';
 import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
-import { isLocalhostName, listedByDefault } from '@/lib/publicEvents';
+import { isLocalhostName, listedByDefault, type EventKind } from '@/lib/publicEvents';
 import { IN_DEVELOPMENT_NOTE, MATH_TRADE_ENABLED } from '@/lib/features';
 
 type Open = 'event' | 'trade' | 'admin' | null;
@@ -55,6 +55,8 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
   // ── create an event ────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ name: '', date: '', startTime: '10:00', endTime: '18:00', location: '', mapUrl: '' });
+  // An event, or a juntada at someone's home: the same thing underneath, but it is called differently and has its own pin on the map
+  const [kind, setKind] = useState<EventKind>('event');
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -68,7 +70,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
         settings: {
           bufferMinutes: 15, maxPlayers: null, maxGamesPerPlayer: null, physicalTables: null, breaks: [],
           paymentRequired: false, paymentInfo: null, paymentAlias: null, flexibleRegistration: false, registrationBannerUrl: null,
-          listed,
+          listed, kind,
         },
       });
       saveMyEvent({ code, adminToken, name: form.name, date: form.date });
@@ -124,11 +126,23 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
   const field = 'w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-2';
   return (
     <div className='space-y-4'>
-      <Card icon='➕' title='Crear un evento' hint='Armá tu jornada de juegos: inscripción, mesas y juegos en un solo lugar.'
-        open={open === 'event'} onOpen={() => setOpen('event')} onClose={() => setOpen(null)} button='Crear evento →'>
+      <Card icon='➕' title='Crear un evento o juntada' hint='Armá tu jornada o tu juntada de juegos: inscripción, mesas y juegos en un solo lugar.'
+        open={open === 'event'} onOpen={() => setOpen('event')} onClose={() => setOpen(null)} button='Crear →'>
         <form onSubmit={handleCreate} className='space-y-4'>
           <div>
-            <label className='block text-sm font-medium mb-1'>Nombre del evento</label>
+            <span className='block text-sm font-medium mb-1'>¿Qué armás?</span>
+            <div className='flex gap-2'>
+              {([['event', '🎲 Evento', 'Jornada, club, salón'], ['meetup', '🏠 Juntada', 'En casa, entre amigos']] as const).map(([k, label, hint]) => (
+                <button key={k} type='button' onClick={() => setKind(k)} aria-pressed={kind === k}
+                  className={'flex-1 rounded-lg border px-3 py-2 text-left ' + (kind === k ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-700 text-gray-300 hover:bg-gray-700/50')}>
+                  <span className='block text-sm font-semibold'>{label}</span>
+                  <span className={'block text-xs ' + (kind === k ? 'text-indigo-100' : 'text-gray-500')}>{hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className='block text-sm font-medium mb-1'>{kind === 'meetup' ? 'Nombre de la juntada' : 'Nombre del evento'}</label>
             <input required className={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder='Board Game Night — Junio' />
           </div>
           <div className='grid grid-cols-2 gap-3'>
@@ -138,7 +152,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
             </div>
             <div>
               <label className='block text-sm font-medium mb-1'>Lugar</label>
-              <input className={field} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder='Club, domicilio...' />
+              <input className={field} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder={kind === 'meetup' ? 'Barrio o zona: la dirección exacta se la das a quienes se anoten' : 'Club, domicilio...'} />
             </div>
           </div>
           <div>
@@ -148,7 +162,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
           <label className='flex items-start gap-2 text-sm text-gray-300'>
             <input type='checkbox' className='mt-1' checked={listed} onChange={(e) => setListed(e.target.checked)} />
             <span>
-              Mostrar en «Explorar eventos»
+              Mostrar en «Explorar eventos y juntadas»
               <span className='block text-xs text-gray-500'>
                 Aparece en la lista y en el mapa públicos del inicio. Si lo desmarcás, solo entra quien tenga el código. Lo podés cambiar después en la configuración.
               </span>
@@ -168,7 +182,7 @@ export default function OrganizePanel({ openAdmin = false }: { openAdmin?: boole
             </div>
           </div>
           <button type='submit' disabled={loading} className='w-full bg-indigo-600 text-white rounded-lg py-3 font-semibold hover:bg-indigo-700 disabled:opacity-50'>
-            {loading ? 'Creando...' : 'Crear evento'}
+            {loading ? 'Creando...' : kind === 'meetup' ? 'Crear juntada' : 'Crear evento'}
           </button>
         </form>
       </Card>

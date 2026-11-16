@@ -475,11 +475,23 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+        <div>
+          <span className='text-xs text-gray-400 block mb-1'>¿Es un evento o una juntada?</span>
+          <div className='flex gap-2'>
+            {([['event', '🎲 Evento'], ['meetup', '🏠 Juntada']] as const).map(([k, label]) => (
+              <button key={k} type='button' onClick={() => handleDraftChange('kind', k)} aria-pressed={(settingsDraft.kind ?? 'event') === k}
+                className={'px-3 py-1.5 rounded-full text-sm font-medium border ' + ((settingsDraft.kind ?? 'event') === k ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className='text-xs text-gray-500 mt-1'>Cambia el ícono con el que aparece en el mapa del inicio.</p>
+        </div>
         <label className='flex items-start gap-2 text-sm text-gray-300'>
           <input type='checkbox' className='mt-1' checked={settingsDraft.listed !== false}
             onChange={(e) => handleDraftChange('listed', e.target.checked)} />
           <span>
-            Mostrar en «Explorar eventos»
+            Mostrar en «Explorar eventos y juntadas»
             <span className='block text-xs text-gray-500'>Aparece en la lista y en el mapa del inicio, con su nombre, día, horario, lugar y cuántos se inscribieron. Si lo desmarcás, solo entra quien tenga el código.</span>
           </span>
         </label>

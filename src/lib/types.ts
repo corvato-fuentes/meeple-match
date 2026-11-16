@@ -30,6 +30,9 @@ export interface EventSettings {
   registrationBannerUrl: string | null; // custom banner image shown to players on the registration screen
   // Shown in "Explorar eventos" on the home page (name, day, hours, place, how many are in). On when missing; off = only with the code.
   listed?: boolean;
+  // What it is: an "event" (a jornada, a club, a venue) or a "meetup" (a juntada at someone's home). Only changes how it is called and its pin on the
+  // map; everything else works the same. An event when missing.
+  kind?: 'event' | 'meetup';
 }
 
 /**
@@ -160,6 +163,10 @@ export interface Table {
   // everyone who accepted left, the owner's own table took its place…). It never got confirmed and nobody cancelled it:
   // the admin's table list doesn't show it as "cancelada". That state is for tables the admin cancels or confirmed ones.
   dissolved?: boolean;
+  // Set the moment the table reached its minimum and was confirmed (also kept if it later dropped back to waiting, or was cancelled).
+  // The admin's "canceladas" are the tables with this mark: one that was set and then fell through. A table that only ever waited
+  // (an explainer said yes, nobody else did) is noise there.
+  everConfirmed?: boolean;
 }
 
 // Derived — never stored in Firestore

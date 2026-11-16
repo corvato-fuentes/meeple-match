@@ -22,7 +22,7 @@ const chip = (on: boolean) =>
   'px-3 py-1 rounded-full text-sm font-medium border ' + (on ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800');
 
 /**
- * Every event that is open to join and not over yet, as cards: flyer, name, day, hours, place, how many are in, and a way into it.
+ * Every event or juntada that is open to join and not over yet, as cards: flyer, name, day, hours, place, how many are in, and a way into it.
  * After them, the places where people play every week (no registration in the app: a WhatsApp or Instagram to get in touch).
  * It can be seen as a list or on a map with a pin for each event that could be located and for each place: one view at a time.
  * Organizers can leave their event out (in the event's settings). Whether an event is over is decided here, with the hours.
@@ -50,11 +50,11 @@ export default function EventExplorer() {
 
   useEffect(() => { queueMicrotask(load); }, [load]);
 
-  if (state.kind === 'loading') return <p className='text-sm text-gray-500'>Buscando eventos…</p>;
+  if (state.kind === 'loading') return <p className='text-sm text-gray-500'>Buscando eventos y juntadas…</p>;
   if (state.kind === 'error') {
     return (
       <div className='text-sm space-y-2'>
-        <p className='text-red-400'>No se pudieron cargar los eventos. Revisá tu conexión.</p>
+        <p className='text-red-400'>No se pudieron cargar los eventos y juntadas. Revisá tu conexión.</p>
         <button onClick={load} className='text-indigo-400 hover:underline'>Intentar de nuevo</button>
       </div>
     );
@@ -77,10 +77,10 @@ export default function EventExplorer() {
       {view === 'map' && (
         <>
           <div id='explorer-map'><EventMap events={pinned} places={RECURRING_PLACES} focus={focus} /></div>
-          <p className='text-xs text-gray-500'>🎲 Eventos con inscripción · 🏠 Lugares donde se juega siempre</p>
+          <p className='text-xs text-gray-500'>🎲 Eventos · 🏠 Juntadas en casa · 🏪 Lugares donde se juega siempre</p>
           {withoutPin > 0 && (
             <p className='text-xs text-gray-500'>
-              {withoutPin === 1 ? '1 evento no tiene' : `${withoutPin} eventos no tienen`} ubicación en el mapa: lo{withoutPin === 1 ? '' : 's'} ves en «Lista».
+              {withoutPin === 1 ? '1 evento o juntada no tiene' : `${withoutPin} eventos y juntadas no tienen`} ubicación en el mapa: lo{withoutPin === 1 ? '' : 's'} ves en «Lista».
             </p>
           )}
         </>
@@ -88,16 +88,17 @@ export default function EventExplorer() {
       {/* The map and the list are two views of the same events: one at a time */}
       {view === 'list' && (
         <>
-          {state.events.length === 0 && <p className='text-sm text-gray-500'>Todavía no hay eventos disponibles.</p>}
+          {state.events.length === 0 && <p className='text-sm text-gray-500'>Todavía no hay eventos ni juntadas disponibles.</p>}
           {state.events.map((e) => (
             <div key={e.code} className='border border-gray-700 rounded-xl p-3 bg-gray-900'>
+              {e.kind === 'meetup' && <span className='inline-block mb-2 text-xs px-2 py-0.5 rounded-full bg-amber-900/50 text-amber-300 border border-amber-700'>🏠 Juntada</span>}
               <EventSummary name={e.name} bannerUrl={e.bannerUrl} date={e.date} startTime={e.startTime} endTime={e.endTime}
                 location={e.location} when={whenOf(e, state.now)}>
                 <p>👥 {e.players === 1 ? '1 inscripto' : `${e.players} inscriptos`}</p>
               </EventSummary>
               <div className='flex flex-wrap items-center gap-3 mt-3'>
                 <Link href={`/event/${e.code}`} className='bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-indigo-700'>
-                  Ver evento →
+                  {e.kind === 'meetup' ? 'Ver juntada →' : 'Ver evento →'}
                 </Link>
                 {e.geo ? (
                   <button type='button' onClick={() => showOnMap(eventPinKey(e.code))} className='text-xs text-indigo-400 hover:underline'>

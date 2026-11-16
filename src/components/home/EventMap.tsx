@@ -17,8 +17,9 @@ export const placePinKey = (id: string) => `place:${id}`;
 const pinHtml = (color: string, emoji: string) =>
   `<div style="width:34px;height:34px;border-radius:50%;background:${color};border:2px solid #fff;display:flex;align-items:center;` +
   `justify-content:center;font-size:17px;box-shadow:0 1px 5px rgba(0,0,0,.55)">${emoji}</div>`;
-const EVENT_PIN_HTML = pinHtml('#4f46e5', '🎲'); // events with a date: indigo
-const PLACE_PIN_HTML = pinHtml('#0d9488', '🏠'); // places where people play every week: teal
+const EVENT_PIN_HTML = pinHtml('#4f46e5', '🎲'); // events: indigo
+const MEETUP_PIN_HTML = pinHtml('#d97706', '🏠'); // juntadas at someone's home: amber
+const PLACE_PIN_HTML = pinHtml('#0d9488', '🏪'); // places where people play every week: teal
 
 /** A line of a popup. Built with textContent, never as HTML: names and places are typed by whoever organizes. */
 function lineIn(box: HTMLElement, text: string, style = '') {
@@ -51,13 +52,14 @@ function linkIn(box: HTMLElement, href: string, text: string, style: string, ext
 function popupFor(e: PinnedEvent): HTMLElement {
   const box = newBox();
   lineIn(box, e.name, 'font-weight:700;font-size:14px;margin-bottom:2px');
+  if (e.kind === 'meetup') lineIn(box, '🏠 Juntada', 'color:#b45309;font-size:12px;font-weight:600');
   lineIn(box, `📅 ${dayLabel(e.date)}${e.startTime && e.endTime ? ` · ${e.startTime}–${e.endTime}` : ''}`);
   if (e.location) lineIn(box, `📍 ${e.location}`);
   lineIn(box, e.players === 1 ? '👥 1 inscripto' : `👥 ${e.players} inscriptos`);
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:6px';
   const style = 'color:#4338ca;font-weight:600;text-decoration:none';
-  linkIn(row, `/event/${encodeURIComponent(e.code)}`, 'Ver evento →', style);
+  linkIn(row, `/event/${encodeURIComponent(e.code)}`, e.kind === 'meetup' ? 'Ver juntada →' : 'Ver evento →', style);
   if (e.mapUrl && isAllowedMapUrl(e.mapUrl)) linkIn(row, e.mapUrl, 'Cómo llegar', style, true);
   box.appendChild(row);
   return box;
@@ -112,14 +114,15 @@ export default function EventMap({ events, places = [], focus = null }: { events
       }).addTo(map);
       const iconOf = (html: string) => L.divIcon({ className: '', html, iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -18] });
       const eventIcon = iconOf(EVENT_PIN_HTML);
+      const meetupIcon = iconOf(MEETUP_PIN_HTML);
       const placeIcon = iconOf(PLACE_PIN_HTML);
       const byKey = new Map<string, import('leaflet').Marker>();
       for (const p of places) {
         byKey.set(placePinKey(p.id), L.marker([p.geo.lat, p.geo.lng], { icon: placeIcon, title: p.name, riseOnHover: true }).bindPopup(popupForPlace(p)).addTo(map));
       }
-      // events last: when a place and an event share the spot, the one with a date is on top
+      // events and juntadas last: when a place and an event share the spot, the one with a date is on top
       for (const e of events) {
-        byKey.set(eventPinKey(e.code), L.marker([e.geo.lat, e.geo.lng], { icon: eventIcon, title: e.name, riseOnHover: true }).bindPopup(popupFor(e)).addTo(map));
+        byKey.set(eventPinKey(e.code), L.marker([e.geo.lat, e.geo.lng], { icon: e.kind === 'meetup' ? meetupIcon : eventIcon, title: e.name, riseOnHover: true }).bindPopup(popupFor(e)).addTo(map));
       }
       const markers = [...byKey.values()];
       const spotlight = focus ? byKey.get(focus) : undefined;
