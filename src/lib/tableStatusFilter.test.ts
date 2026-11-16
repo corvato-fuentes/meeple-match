@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { STATUS_FILTERS, matchesStatusFilter } from './tableStatusFilter';
+import { STATUS_FILTERS, everSet, matchesStatusFilter } from './tableStatusFilter';
 
 const t = (status: string, postedByOwner?: boolean) => ({ status, postedByOwner }) as never;
+
+describe('everSet (which cancelled tables the admin sees)', () => {
+  it('is a table that was confirmed and then fell through', () => {
+    expect(everSet({ everConfirmed: true })).toBe(true);
+  });
+  it('is not one that only ever waited, nor one from before the mark existed', () => {
+    expect(everSet({})).toBe(false);
+    expect(everSet({ everConfirmed: false })).toBe(false);
+  });
+});
 
 describe('matchesStatusFilter', () => {
   it('"Todas" holds everything', () => {

@@ -530,19 +530,18 @@ export default function BoardPage() {
               🎯 Tarjetas
             </button>
             {viewer && (
-              // "Solo mis mesas" and "Con lugar libre" are opposite questions (the tables I'm in / the ones with room): one at a time
+              // "Solo mis mesas" and "Con lugar libre" are opposite questions (the tables I'm in / the ones with room): one at a time.
+              // Pressing one just un-presses the other: neither is ever hidden by the other.
               <button onClick={() => { setOnlyMine((v) => !v); setOnlyFree(false); }} aria-pressed={onlyMine}
                 className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
                 🎫 Solo mis mesas
               </button>
             )}
-            {/* Shows up when some table — confirmed, or still waiting for players — has a place; never selected by itself */}
-            {(freeCount > 0 || onlyFree) && (
-              <button onClick={() => { setOnlyFree((v) => !v); setOnlyMine(false); }} aria-pressed={onlyFree}
-                className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
-                🪑 Con lugar libre ({freeCount})
-              </button>
-            )}
+            {/* Always there (with its count, 0 when nothing has a place); never selected by itself */}
+            <button onClick={() => { setOnlyFree((v) => !v); setOnlyMine(false); }} aria-pressed={onlyFree}
+              className={'px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium border ' + (onlyFree ? 'bg-emerald-600 text-white border-emerald-600' : freeCount === 0 ? 'border-gray-800 text-gray-500 hover:bg-gray-800' : 'border-gray-700 text-gray-300 hover:bg-gray-800')}>
+              🪑 Con lugar libre ({freeCount})
+            </button>
           </div>
 
           {view === 'grid' ? (

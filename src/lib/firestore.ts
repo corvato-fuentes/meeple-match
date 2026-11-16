@@ -147,7 +147,7 @@ export async function updateGame(
 
 /** A table nobody left can explain is undone: cancelled, its people go back to the pool (marked as undone by the system while it was waiting). */
 function dissolvedFields(table: Pick<Table, 'status'>) {
-  return { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], ...dissolvedIfWaiting(table) };
+  return { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], ...cancelMarks(table) };
 }
 
 /** Undoes a table, e.g. when the admin leaves it without anybody who can explain it. */
@@ -155,9 +155,12 @@ export async function dissolveTable(eventCode: string, table: Table): Promise<vo
   await updateDoc(doc(db, 'events', eventCode, 'tables', table.id), dissolvedFields(table));
 }
 
-/** What marks a table the system cancelled while it was still waiting for players (see `Table.dissolved`). */
-function dissolvedIfWaiting(table: Pick<Table, 'status'>): { dissolved?: true } {
-  return table.status === 'recommended' ? { dissolved: true } : {};
+/**
+ * What marks a table that is being cancelled: one still waiting for players was undone (`Table.dissolved`, it never got set);
+ * one that was confirmed or underway keeps the mark that it was (`Table.everConfirmed`), which is what the admin lists as cancelled.
+ */
+function cancelMarks(table: Pick<Table, 'status'>): { dissolved?: true; everConfirmed?: true } {
+  return table.status === 'recommended' ? { dissolved: true } : { everConfirmed: true };
 }
 
 /** Moves when a table ends (the admin's "Ajustar" on a table whose time doesn't match its duration). */
@@ -369,7 +372,7 @@ export async function removePlayerGame(eventCode: string, playerId: string, game
     tablesSnap.docs.forEach((tableDoc) => {
       const table = tableDoc.data() as Table;
       if (table.gameId === gameId && table.status !== 'cancelled') {
-        batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [], ...dissolvedIfWaiting(table) });
+        batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [], ...cancelMarks(table) });
       }
     });
   }
@@ -582,8 +585,8 @@ export async function setPlayerOrganizer(eventCode: string, playerId: string, is
  */
 export async function removePlayerFromTable(eventCode: string, table: Table, playerId: string): Promise<void> {
   const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
-  const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId' | 'explainerPlays' | 'explainEndTime'>> = { playerIds: remainingPlayerIds };
-  if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
+  const fields: Partial<Pick<Table, 'playerIds' | 'status' | 'explainerId' | 'explainerPlays' | 'explainEndTime' | 'dissolved' | 'everConfirmed'>> = { playerIds: remainingPlayerIds };
+  if (remainingPlayerIds.length === 0) { fields.status = 'cancelled'; Object.assign(fields, cancelMarks(table)); }
   else if (table.explainerId === playerId) {
     // Only someone who said they can explain the game takes over; with nobody, the table is undone
     const docs = await Promise.all(remainingPlayerIds.map((id) => getDoc(doc(db, 'events', eventCode, 'players', id))));
@@ -669,7 +672,7 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
       const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
       if (wasSeated) fields.playerIds = remainingPlayerIds;
       if (wasExplainer) {
-        if (remainingPlayerIds.length === 0) { fields.status = 'cancelled'; Object.assign(fields, dissolvedIfWaiting(table)); }
+        if (remainingPlayerIds.length === 0) { fields.status = 'cancelled'; Object.assign(fields, cancelMarks(table)); }
         else {
           const next = nextExplainer([table.gameId, promoted.id], remainingPlayerIds, playerById);
           if (next) Object.assign(fields, asPlayingExplainer(next)); else Object.assign(fields, dissolvedFields(table));
@@ -679,13 +682,13 @@ export async function deletePlayer(eventCode: string, playerId: string): Promise
       return;
     }
     if (fullyRemovedGameIds.has(table.gameId) && table.status !== 'cancelled') {
-      batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [], ...dissolvedIfWaiting(table) });
+      batch.update(tableDoc.ref, { status: 'cancelled', playerIds: [], ...cancelMarks(table) });
       return;
     }
     if (!wasSeated && !wasExplainer) return;
     const remainingPlayerIds = table.playerIds.filter((id) => id !== playerId);
     const fields: Record<string, unknown> = { playerIds: remainingPlayerIds };
-    if (remainingPlayerIds.length === 0) fields.status = 'cancelled';
+    if (remainingPlayerIds.length === 0) { fields.status = 'cancelled'; Object.assign(fields, cancelMarks(table)); }
     else if (wasExplainer) {
       const next = nextExplainer([table.gameId], remainingPlayerIds, playerById);
       if (next) Object.assign(fields, asPlayingExplainer(next)); else Object.assign(fields, dissolvedFields(table));
@@ -918,7 +921,7 @@ export async function respondToRecommendation(
       const full = playerIds.length >= maxPlayers;
       tx.update(ref, {
         candidateIds: full ? [] : candidateIds, playerIds, ...(full && { queuedIds: [] }),
-        ...(playerIds.length >= minSeats && { status: 'confirmed' as const }),
+        ...(playerIds.length >= minSeats && { status: 'confirmed' as const, everConfirmed: true }),
       });
     } else {
       const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
@@ -955,7 +958,7 @@ export async function joinPostedTable(
     const full = playerIds.length >= maxPlayers; // nobody else can be offered it now
     tx.update(ref, {
       playerIds, candidateIds: full ? [] : candidateIds, ...(full && { queuedIds: [] }),
-      ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const }),
+      ...(playerIds.length >= Math.max(MIN_TABLE_SEATS, minPlayers) && { status: 'confirmed' as const, everConfirmed: true }),
     });
     joined = true;
   });
@@ -1024,7 +1027,7 @@ export async function leaveAlgorithmTable(eventCode: string, tableId: string, pl
 
     const remaining = table.playerIds.filter((id) => id !== playerId);
     const rejectedIds = [...new Set([...(table.rejectedIds ?? []), playerId])];
-    const cancel = { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], rejectedIds, ...dissolvedIfWaiting(table) };
+    const cancel = { status: 'cancelled' as const, playerIds: [] as string[], candidateIds: [] as string[], queuedIds: [] as string[], rejectedIds, ...cancelMarks(table) };
     if (remaining.length === 0) { tx.update(ref, cancel); return; }
 
     let explainerId = table.explainerId;
@@ -1091,7 +1094,7 @@ export async function leavePostedTable(
     const table = snap.data() as Table;
     if (table.status !== 'recommended' && table.status !== 'confirmed') return;
     if (table.explainerId === playerId) {
-      tx.update(ref, { status: 'cancelled' as const });
+      tx.update(ref, { status: 'cancelled' as const, ...cancelMarks(table) });
       return;
     }
     if (!table.playerIds.includes(playerId)) return;
@@ -1139,8 +1142,16 @@ export async function updateTableStatus(
   status: Table['status'],
   isManuallyEdited = false
 ): Promise<void> {
-  await updateDoc(doc(db, 'events', eventCode, 'tables', tableId), {
+  const ref = doc(db, 'events', eventCode, 'tables', tableId);
+  // Setting a table as confirmed (or cancelling one that was) is what makes it count as having been set
+  let marks: { everConfirmed?: true } = status === 'confirmed' || status === 'in-progress' || status === 'completed' ? { everConfirmed: true } : {};
+  if (status === 'cancelled') {
+    const before = (await getDoc(ref)).data() as Table | undefined;
+    if (before && (before.everConfirmed || before.status !== 'recommended')) marks = { everConfirmed: true };
+  }
+  await updateDoc(ref, {
     status,
+    ...marks,
     ...(isManuallyEdited && { isManuallyEdited: true }),
   });
   if (status === 'confirmed') requestPushSync(eventCode); // the admin confirmed it by hand

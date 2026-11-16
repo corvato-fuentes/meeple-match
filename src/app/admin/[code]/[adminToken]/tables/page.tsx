@@ -7,7 +7,7 @@ import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import Time24Input from '@/components/ui/Time24Input';
 import FilterChip from '@/components/ui/FilterChip';
-import { STATUS_FILTERS, matchesStatusFilter, type StatusFilter } from '@/lib/tableStatusFilter';
+import { STATUS_FILTERS, matchesStatusFilter, everSet, type StatusFilter } from '@/lib/tableStatusFilter';
 import { sameGameOverlaps, expectedTableEnd } from '@/lib/tableAlgorithm';
 import { nextExplainer } from '@/lib/explainer';
 import { asPlayingExplainer, isExplainOnly } from '@/lib/explainOnly';
@@ -49,9 +49,9 @@ export default function TablesPage() {
     });
     getPlayers(code).then(setPlayers);
     getGames(code).then(setGames);
-    // Tables the system dissolved while they were still waiting for players were never cancelled by anyone: not listed
-    // (a cancelled table that was waiting for its explainer is the same case, from before the mark existed)
-    const unsub = subscribeTables(code, (ts) => setTables(ts.filter((t) => !(t.status === 'cancelled' && (t.dissolved || t.awaitingExplainer)))));
+    // A cancelled table is only worth listing if it had been set (reached its minimum and was confirmed) and then fell through. One that
+    // only ever waited (the explainer said yes and nobody else did, or the system undid it) is noise. The mark is `everConfirmed`.
+    const unsub = subscribeTables(code, (ts) => setTables(ts.filter((t) => t.status !== 'cancelled' || everSet(t))));
     return unsub;
   }, [code, adminToken]);
 

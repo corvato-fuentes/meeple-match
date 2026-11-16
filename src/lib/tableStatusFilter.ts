@@ -14,6 +14,12 @@ export const STATUS_FILTERS: { key: StatusFilter; label: string; activeClass: st
 ];
 
 /**
+ * A cancelled table worth showing the admin: one that had been set (reached its minimum and was confirmed) and then fell through.
+ * Only the mark says so: a cancelled table without it (it only ever waited, or it is from before the mark existed) is noise.
+ */
+export const everSet = (t: Pick<Table, 'everConfirmed'>): boolean => t.everConfirmed === true;
+
+/**
  * Does the table belong under this chip. A table still waiting for players is "recommended" when the algorithm proposed it and
  * "postulada" when its owner posted it (the admin's state menu already calls them that), so each is its own chip.
  */
