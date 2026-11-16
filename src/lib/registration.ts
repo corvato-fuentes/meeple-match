@@ -36,17 +36,19 @@ export function settingsForMode(mode: RegistrationMode): Pick<EventSettings, 'pa
  *  - 'missing': there is none (registered before the event asked for it, or as "indeciso");
  *  - 'rejected': an organizer turned it down and the player was asked for a new one;
  *  - 'sent': there is one, waiting for review or already approved — or an organizer confirmed the payment without a receipt
- *    (paid in person), which settles it just the same.
+ *    (paid in person), which settles it just the same;
+ *  - 'declined': flexible registration, the player chose not to contribute. Nothing is owed (a receipt sent later wins over it).
  */
-export type ReceiptState = 'not-required' | 'missing' | 'rejected' | 'sent';
+export type ReceiptState = 'not-required' | 'missing' | 'rejected' | 'sent' | 'declined';
 
 export function receiptStateOf(
-  p: Pick<Player, 'paymentProofUrl' | 'paymentReview'>, settings: Pick<EventSettings, 'paymentRequired'>
+  p: Pick<Player, 'paymentProofUrl' | 'paymentReview' | 'contributionDeclined'>, settings: Pick<EventSettings, 'paymentRequired'>
 ): ReceiptState {
   if (!settings.paymentRequired) return 'not-required';
   if (p.paymentReview === 'rejected') return 'rejected';
   if (p.paymentReview === 'approved') return 'sent';
-  return p.paymentProofUrl ? 'sent' : 'missing';
+  if (p.paymentProofUrl) return 'sent';
+  return p.contributionDeclined ? 'declined' : 'missing';
 }
 
 /** Who still owes a receipt: the ones without it and the ones whose receipt was rejected. */

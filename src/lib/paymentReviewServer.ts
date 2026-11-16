@@ -49,7 +49,7 @@ export async function remindReceipts(code: string, onlyPlayerId?: string): Promi
   const docs = onlyPlayerId ? [await players(code).doc(onlyPlayerId).get()] : (await players(code).get()).docs;
   const owing = docs
     .filter((d) => d.exists)
-    .map((d) => ({ id: d.id, state: receiptStateOf({ paymentProofUrl: (d.data()?.paymentProofUrl as string | null) ?? null, paymentReview: d.data()?.paymentReview ?? null }, settings) }))
+    .map((d) => ({ id: d.id, state: receiptStateOf({ paymentProofUrl: (d.data()?.paymentProofUrl as string | null) ?? null, paymentReview: d.data()?.paymentReview ?? null, contributionDeclined: !!d.data()?.contributionDeclined }, settings) }))
     .filter((x): x is { id: string; state: 'missing' | 'rejected' } => owesReceipt(x.state));
   const { devices } = await notifyPlayers(code, owing.map((x) => reminderFor(x.id, x.state)));
   return { owing: owing.length, devices };

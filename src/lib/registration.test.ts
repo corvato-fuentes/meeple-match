@@ -63,6 +63,13 @@ describe('receiptStateOf', () => {
     expect(receiptStateOf({ paymentProofUrl: null, paymentReview: 'approved' }, on)).toBe('sent');
     expect(owesReceipt(receiptStateOf({ paymentProofUrl: null, paymentReview: 'approved' }, on))).toBe(false);
   });
+  it('someone who chose not to contribute owes nothing, until a receipt arrives', () => {
+    expect(receiptStateOf({ paymentProofUrl: null, contributionDeclined: true }, on)).toBe('declined');
+    expect(owesReceipt('declined')).toBe(false);
+    expect(receiptStateOf({ paymentProofUrl: proof, contributionDeclined: true }, on)).toBe('sent');
+    expect(receiptStateOf({ paymentProofUrl: proof, paymentReview: 'rejected', contributionDeclined: true }, on)).toBe('rejected');
+    expect(receiptStateOf({ paymentProofUrl: null, contributionDeclined: true }, { paymentRequired: false })).toBe('not-required');
+  });
   it('a rejection counts even if the proof is still stored', () => {
     expect(receiptStateOf({ paymentProofUrl: null, paymentReview: 'rejected' }, on)).toBe('rejected');
   });
