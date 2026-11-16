@@ -767,10 +767,12 @@ export default function MyTicketPage() {
         <TicketQr code={code} ticketCode={player.ticketCode} />
         {/* The ticket is not a confirmed place until the receipt is in (indeciso, asked for after registering, or rejected):
             the notice is part of the card, and tapping it opens the form to send the receipt */}
-        {owesReceipt(receipt) && (
-          <ReceiptNotice code={code} player={player} event={event} state={receipt as 'missing' | 'rejected'} onSent={(url) => {
+        {(owesReceipt(receipt) || receipt === 'declined') && (
+          <ReceiptNotice code={code} player={player} event={event} state={receipt as 'missing' | 'rejected' | 'declined'}
+            onDeclinedChange={(declined) => setPlayer((p) => p ? { ...p, contributionDeclined: declined } : p)}
+            onSent={(url) => {
             const wasTentative = isTentative(player);
-            setPlayer((p) => p ? { ...p, registrationStatus: 'confirmed', paymentProofUrl: url, paymentReview: null } : p);
+            setPlayer((p) => p ? { ...p, registrationStatus: 'confirmed', paymentProofUrl: url, paymentReview: null, contributionDeclined: false } : p);
             if (wasTentative) runTableGeneration(code, event).catch(() => {}); // now they are put in tables
           }} />
         )}

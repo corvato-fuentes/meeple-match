@@ -116,6 +116,8 @@ export interface Player {
   // What an organizer decided about the receipt: 'approved' or 'rejected' (the player is asked to send a new one). Missing
   // = not reviewed yet (or no receipt). A new receipt resets it.
   paymentReview?: 'approved' | 'rejected' | null;
+  // Flexible registration: a confirmed player who chose, from their ticket, not to contribute. Keeps the place; stops being asked for the receipt.
+  contributionDeclined?: boolean;
   // Admin-flagged event organizer/staff — surfaced (with contact info) on the ticket-gated
   // Organizadores page so players know who to reach out to, unlike the public roster.
   isOrganizer?: boolean;

@@ -479,12 +479,18 @@ export async function findPlayerByContact(
  * receipt) and to move someone back to "indeciso". Confirming ignores the maximum: it is the organizers' call.
  */
 export async function setPlayerRegistrationStatus(eventCode: string, playerId: string, status: 'confirmed' | 'tentative'): Promise<void> {
-  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { registrationStatus: status });
+  // An indeciso has no place to contribute for: whatever they said about contributing is wiped
+  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { registrationStatus: status, ...(status === 'tentative' && { contributionDeclined: false }) });
+}
+
+/** A confirmed player says, from their ticket, that they prefer not to contribute (or goes back to leaving it pending). */
+export async function setContributionDeclined(eventCode: string, playerId: string, declined: boolean): Promise<void> {
+  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { contributionDeclined: declined });
 }
 
 /** A player who registered as "indeciso" sends the receipt: it is saved and their registration becomes a full one. */
 export async function confirmRegistrationWithProof(eventCode: string, playerId: string, proofUrl: string): Promise<void> {
-  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { paymentProofUrl: proofUrl, registrationStatus: 'confirmed', paymentReview: null });
+  await updateDoc(doc(db, 'events', eventCode, 'players', playerId), { paymentProofUrl: proofUrl, registrationStatus: 'confirmed', paymentReview: null, contributionDeclined: false });
 }
 
 export async function addPlayer(eventCode: string, player: Omit<Player, 'id'>): Promise<string> {

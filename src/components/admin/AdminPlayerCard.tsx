@@ -119,6 +119,7 @@ export default function AdminPlayerCard({
           {isTentative(p) && <span className='bg-amber-900 text-amber-300 px-1.5 py-0.5 rounded'>🤔 indeciso</span>}
           {receipt === 'missing' && <span className='bg-amber-900/60 text-amber-300 px-1.5 py-0.5 rounded'>💸 sin comprobante</span>}
           {receipt === 'rejected' && <span className='bg-red-900 text-red-300 px-1.5 py-0.5 rounded'>❌ comprobante rechazado</span>}
+          {receipt === 'declined' && <span className='bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded'>🙅 prefiere no contribuir</span>}
           {receipt === 'sent' && p.paymentReview === 'approved' && (
             <span className='bg-green-900 text-green-300 px-1.5 py-0.5 rounded'>{p.paymentProofUrl ? '✅ pago aprobado' : '✅ pago confirmado'}</span>
           )}
