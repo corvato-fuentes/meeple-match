@@ -20,6 +20,38 @@ export const STATUS_FILTERS: { key: StatusFilter; label: string; activeClass: st
 export const everSet = (t: Pick<Table, 'everConfirmed'>): boolean => t.everConfirmed === true;
 
 /**
+ * The numbers of the admin's dashboard. They are built so they don't jump around once the event starts: `confirmedTotal` counts every
+ * table that got set (waiting to start, underway or finished), so a table going from "confirmada" to "en curso" doesn't make it drop;
+ * the second row of the dashboard (shown from the event's start) says in which of those states they are.
+ */
+export interface TableMetrics {
+  recommended: number;
+  posted: number;
+  /** Set and not cancelled: toStart + inProgress + completed. */
+  confirmedTotal: number;
+  /** Confirmed, not started yet. */
+  toStart: number;
+  inProgress: number;
+  completed: number;
+  /** Only the ones that had been set and fell through (see `everSet`). */
+  cancelled: number;
+}
+
+export function tableMetrics(tables: Pick<Table, 'status' | 'postedByOwner' | 'everConfirmed'>[]): TableMetrics {
+  const count = (f: (t: (typeof tables)[number]) => boolean) => tables.filter(f).length;
+  const toStart = count((t) => t.status === 'confirmed');
+  const inProgress = count((t) => t.status === 'in-progress');
+  const completed = count((t) => t.status === 'completed');
+  return {
+    recommended: count((t) => matchesStatusFilter(t, 'recommended')),
+    posted: count((t) => matchesStatusFilter(t, 'posted')),
+    confirmedTotal: toStart + inProgress + completed,
+    toStart, inProgress, completed,
+    cancelled: count((t) => t.status === 'cancelled' && everSet(t)),
+  };
+}
+
+/**
  * Does the table belong under this chip. A table still waiting for players is "recommended" when the algorithm proposed it and
  * "postulada" when its owner posted it (the admin's state menu already calls them that), so each is its own chip.
  */
