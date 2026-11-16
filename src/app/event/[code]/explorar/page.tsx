@@ -146,7 +146,8 @@ export default function ExploreTablesPage() {
         <div className="space-y-2">
           {entries.map(({ table: t, clashes }) => {
             // Only tables still waiting for players are not a conflict: taking this one just leaves them (and says so afterwards)
-            const { loud, quiet } = splitConflicts(clashes, player.id);
+            const { loud, quiet } = splitConflicts(clashes);
+            const explainsQuiet = quiet.some((c) => c.explainerId === player.id);
             const describe = (cs: Table[]) => cs.map((c) => `${c.gameName} (${c.startTime}–${c.endTime}${c.status === 'confirmed' ? ', confirmada' : ''})`).join(' y ');
             return (
             <div key={t.id} className="border border-indigo-800 bg-indigo-950/20 rounded-xl p-3">
@@ -156,8 +157,8 @@ export default function ExploreTablesPage() {
                   ? <PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} />
                   : <RecommendedWho t={t} game={gameMap.get(t.gameId)} nameOf={nameOf} />}
                 note={loud.length > 0
-                  ? <>⚠️ Se pisa con {describe(loud)}{quiet.length > 0 && <>; y aceptaste {describe(quiet)}, que todavía no se confirmó</>}</>
-                  : <>ℹ️ Aceptaste {describe(quiet)}, que todavía no se confirmó: si aceptás esta, salís de {quiet.length > 1 ? 'esas' : 'esa'}.</>} />
+                  ? <>⚠️ Se pisa con {describe(loud)}{quiet.length > 0 && <>. Además aceptaste {describe(quiet)}, que todavía no se confirmó{explainsQuiet && ' (la explicás vos: pasa a otro explicador, o queda esperando uno)'}</>}</>
+                  : <>ℹ️ Aceptaste {describe(quiet)}, que todavía no se confirmó: si aceptás esta, salís de {quiet.length > 1 ? 'esas' : 'esa'}.{explainsQuiet && ' La explicás vos: pasa a otro explicador, o queda esperando uno.'}</>} />
               {showRejected ? (
                 <div className="mt-3">
                   <ActionButton tone="neutral" onClick={() => reconsider(t)} disabled={joiningId === t.id}>

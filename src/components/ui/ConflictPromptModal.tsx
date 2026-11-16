@@ -33,8 +33,8 @@ export default function ConflictPromptModal({
   const first = conflicts[0];
   const list = conflicts.map((c) => label(c, many)).join(', ');
   const staying = many ? 'mis mesas' : first.gameName;
-  // Tables only waiting for players and none explained by the player: not a conflict, just "you would step out of them"
-  const headsUp = prompt.kind === 'soft' && !prompt.asExplainer;
+  // Tables only waiting for players: not a conflict, just "you would step out of them" (what happens with the explaining is added below)
+  const headsUp = prompt.kind === 'soft';
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => onChoice(false)}>
       <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm"
