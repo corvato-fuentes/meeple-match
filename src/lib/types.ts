@@ -30,6 +30,9 @@ export interface EventSettings {
   registrationBannerUrl: string | null; // custom banner image shown to players on the registration screen
   // Shown in "Explorar eventos" on the home page (name, day, hours, place, how many are in). On when missing; off = only with the code.
   listed?: boolean;
+  // What it is: an "event" (a jornada, a club, a venue) or a "meetup" (a juntada at someone's home). Only changes how it is called and its pin on the
+  // map; everything else works the same. An event when missing.
+  kind?: 'event' | 'meetup';
 }
 
 /**

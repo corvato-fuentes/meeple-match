@@ -36,15 +36,15 @@ export default function LandingPage() {
     <main className='max-w-lg mx-auto px-4 py-12 space-y-8 text-center'>
       <div>
         <h1 className='text-3xl font-bold mb-2'>Meeple Loop 🎲</h1>
-        <p className='text-gray-400'>Organizá o unite a un evento de juegos de mesa</p>
+        <p className='text-gray-400'>Organizá o unite a un evento o juntada de juegos de mesa</p>
       </div>
 
       {view === 'home' && (
         <>
           <HomeEventCards />
           <section className='space-y-3'>
-            <Choice icon='🎲' title='Unirme a un evento' hint='Con el código de un evento o a un intercambio' onClick={() => setView('join')} />
-            <Choice icon='🛠️' title='Organizar un evento' hint='Creá el tuyo o entrá al que ya organizás' onClick={() => setView('organize')} />
+            <Choice icon='🎲' title='Unirme a un evento o juntada' hint='Con el código, explorando el mapa o a un intercambio' onClick={() => setView('join')} />
+            <Choice icon='🛠️' title='Organizar un evento o juntada' hint='Creá el tuyo o entrá al que ya organizás' onClick={() => setView('organize')} />
           </section>
         </>
       )}
@@ -53,7 +53,7 @@ export default function LandingPage() {
         <section className='space-y-4'>
           <div className='flex items-center gap-3 text-left'>
             <button onClick={() => { setView('home'); setOpenAdmin(false); }} className='text-gray-500 hover:text-gray-300'>←</button>
-            <h2 className='text-xl font-semibold'>{view === 'join' ? '🎲 Unirme a un evento' : '🛠️ Organizar un evento'}</h2>
+            <h2 className='text-xl font-semibold'>{view === 'join' ? '🎲 Unirme a un evento o juntada' : '🛠️ Organizar un evento o juntada'}</h2>
           </div>
           {view === 'join' ? <JoinPanel /> : <OrganizePanel openAdmin={openAdmin} />}
         </section>

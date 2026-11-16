@@ -14,7 +14,14 @@ export interface PublicEvent {
   players: number;
   /** Where its pin goes on the map; null when it could not be located. */
   geo: LatLng | null;
+  /** An event, or a juntada (a meetup at someone's home): they get different pins. */
+  kind: EventKind;
 }
+
+export type EventKind = 'event' | 'meetup';
+
+/** What the event is: an event unless its organizer said it is a juntada. */
+export const kindOf = (e: Pick<MeepleEvent, 'settings'>): EventKind => (e.settings?.kind === 'meetup' ? 'meetup' : 'event');
 
 /** Events are listed unless the organizer turned it off. */
 export const isListed = (e: Pick<MeepleEvent, 'settings'>): boolean => e.settings?.listed !== false;
@@ -40,6 +47,6 @@ export function toPublicEvent(code: string, e: MeepleEvent, players: number, now
   if (!isListed(e) || !e.name || !e.date || e.date < oldestDateToList(now)) return null;
   return {
     code, name: e.name, date: e.date, startTime: e.startTime, endTime: e.endTime, location: e.location ?? '',
-    mapUrl: e.mapUrl ?? null, bannerUrl: e.settings?.registrationBannerUrl ?? null, players, geo,
+    mapUrl: e.mapUrl ?? null, bannerUrl: e.settings?.registrationBannerUrl ?? null, players, geo, kind: kindOf(e),
   };
 }

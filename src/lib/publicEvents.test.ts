@@ -26,11 +26,16 @@ describe('a new event and the public list', () => {
 });
 
 describe('toPublicEvent', () => {
+  it('says whether it is an event or a juntada, an event when the organizer did not say', () => {
+    expect(toPublicEvent('A', event(), 0, now)?.kind).toBe('event');
+    expect(toPublicEvent('A', event({}, { kind: 'event' }), 0, now)?.kind).toBe('event');
+    expect(toPublicEvent('A', event({}, { kind: 'meetup' }), 0, now)?.kind).toBe('meetup');
+  });
   it('keeps only what the list shows: no payment data, nothing about people', () => {
     const p = toPublicEvent('ABC123', event(), 7, now);
     expect(p).toEqual({
       code: 'ABC123', name: 'Jornada', date: '2026-11-15', startTime: '10:00', endTime: '18:00', location: 'Club',
-      mapUrl: null, bannerUrl: 'https://img/x.jpg', players: 7, geo: null,
+      mapUrl: null, bannerUrl: 'https://img/x.jpg', players: 7, geo: null, kind: 'event',
     });
     expect(JSON.stringify(p)).not.toContain('alias');
     expect(JSON.stringify(p)).not.toContain('bancarios');
