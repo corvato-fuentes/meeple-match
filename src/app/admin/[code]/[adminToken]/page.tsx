@@ -15,6 +15,7 @@ import ConfirmModal from '@/components/ui/ConfirmModal';
 import AnnounceCard from '@/components/ui/AnnounceCard';
 import Time24Input from '@/components/ui/Time24Input';
 import { countGames } from '@/lib/gameCounts';
+import { tableMetrics } from '@/lib/tableStatusFilter';
 import { tentativeCount, registrationModeOf, settingsForMode, owesReceipt, receiptStateOf } from '@/lib/registration';
 import { remindReceipts } from '@/lib/paymentReviewClient';
 import type { MeepleEvent, Player, Table, Game } from '@/lib/types';
@@ -300,12 +301,12 @@ export default function AdminPage() {
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
   if (!event || !settingsDraft) return <div className='p-8 text-center'>Cargando...</div>;
 
-  const confirmedCount = tables.filter((t) => ['confirmed', 'in-progress'].includes(t.status)).length;
+  const metrics = tableMetrics(tables);
   const gameCount = countGames(games);
   const tentativeTotal = tentativeCount(players);
-  const recommendedCount = tables.filter((t) => t.status === 'recommended' && !t.postedByOwner).length;
-  const postulatedCount = tables.filter((t) => t.status === 'recommended' && t.postedByOwner).length;
   const eventStatus = computeEventStatus(event.date, event.startTime, event.endTime);
+  // From the event's start the tables start to move on (underway, finished): that detail gets its own row so the first one doesn't change
+  const showPlayRow = eventStatus !== 'open' || metrics.inProgress > 0 || metrics.completed > 0;
 
   return (
     <main className='max-w-2xl mx-auto px-4 py-10 space-y-6'>
@@ -367,10 +368,21 @@ export default function AdminPage() {
         <StatCard label='Juegos registrados' value={gameCount.games} sub={gameCount.copies > gameCount.games ? `(${gameCount.copies} copias)` : ''} />
       </div>
       <div className='grid grid-cols-3 gap-3'>
-        <StatCard label='Mesas recomendadas' value={recommendedCount} />
-        <StatCard label='Mesas postuladas' value={postulatedCount} />
-        <StatCard label='Mesas confirmadas' value={confirmedCount} />
+        <StatCard label='Mesas recomendadas' value={metrics.recommended} />
+        <StatCard label='Mesas postuladas' value={metrics.posted} />
+        <StatCard label='Mesas confirmadas' value={metrics.confirmedTotal} sub={showPlayRow ? 'en total' : ''} />
       </div>
+      {showPlayRow && (
+        <div className='space-y-1.5'>
+          <p className='text-xs text-gray-500'>🎲 Durante el evento (las confirmadas, según cómo van)</p>
+          <div className='grid grid-cols-4 gap-3'>
+            <StatCard label='Por empezar' value={metrics.toStart} />
+            <StatCard label='En curso' value={metrics.inProgress} />
+            <StatCard label='Completadas' value={metrics.completed} />
+            <StatCard label='Canceladas' value={metrics.cancelled} />
+          </div>
+        </div>
+      )}
 
       {/* Status — always derived from the event's own schedule, never picked manually */}
       <AnnounceCard code={code} adminToken={adminToken} />
