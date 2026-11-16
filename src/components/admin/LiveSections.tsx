@@ -28,6 +28,7 @@ export function FreeTablesSection({ rows, people, label, onSeat, busy }: {
   return (
     <section className='space-y-2'>
       <h2 className='font-semibold flex items-center gap-2'>🪑 Lugares libres <span className='text-sm font-normal text-gray-500'>({rows.length})</span></h2>
+      {rows.some((r) => r.waiting) && <p className='text-xs text-gray-500'>«Sin confirmar» es una mesa que el sistema propuso y todavía no llegó al mínimo de gente que aceptó: se puede sumar gente igual, pero todavía no es seguro que se juegue.</p>}
       {rows.length === 0 && <p className='text-sm text-gray-500 border border-gray-800 rounded-xl p-3'>No hay mesas con lugar libre por ahora.</p>}
       {rows.map((r) => {
         const fits = people.filter((p) => p.options.some((o) => o.table.id === r.table.id));
@@ -43,7 +44,7 @@ export function FreeTablesSection({ rows, people, label, onSeat, busy }: {
                 <span className={'text-xs rounded-full px-2 py-0.5 ' + (r.running ? 'bg-green-900 text-green-300' : 'bg-indigo-900 text-indigo-300')}>
                   {r.running ? 'Ahora' : `En ${r.startsInMin} min`}
                 </span>
-                {r.waiting && <span className='text-[11px] text-amber-400'>se está armando</span>}
+                {r.waiting && <span className='text-[11px] text-amber-400'>sin confirmar</span>}
               </div>
             </div>
             {fits.length > 0 ? (

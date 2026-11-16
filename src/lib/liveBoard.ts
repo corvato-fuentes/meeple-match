@@ -1,7 +1,8 @@
 import type { Game, Player, Table } from './types';
 import { isTentative } from './registration';
 import { occupiedWindow } from './explainOnly';
-import { toMinutes } from './timeUtils';
+import { toMinutes, toTimeString } from './timeUtils';
+import { sameGameOverlaps } from './tableAlgorithm';
 
 /**
  * What the organizers need while the event is running ("En vivo"): which tables have a free place right now or soon, who is without a
@@ -143,3 +144,102 @@ export function tablesOf(player: Pick<Player, 'id'>, tables: Table[], nowMin: nu
 
 /** Should seating someone at this table also count as them being at the venue. */
 export const impliesPresence = (row: Pick<FreeTable, 'running' | 'startsInMin'>): boolean => row.running || row.startsInMin <= PRESENT_IF_STARTS_WITHIN;
+
+// ── Stage B: the state of the tables themselves ──────────────────────────────────────────────────────────
+
+/** "Por empezar" shows the confirmed tables starting within this many minutes (the rest of the day isn't what matters now). */
+export const UPCOMING_MINUTES = 60;
+/** A table nobody confirmed is only worth showing when it is about to start. */
+export const UNCONFIRMED_MINUTES = 30;
+
+export type LiveKind =
+  /** Underway. */
+  | 'running'
+  /** Underway and past its end time. */
+  | 'overtime'
+  /** Confirmed and past its start time, but nobody started it. */
+  | 'late'
+  /** Confirmed and its whole time has passed with nobody marking it: was it played or not? */
+  | 'past'
+  /** Confirmed, starts within the hour. */
+  | 'upcoming'
+  /** Never reached its minimum of people, and it is about to start (or should have). */
+  | 'unconfirmed';
+
+export interface LiveTable {
+  table: Table;
+  kind: LiveKind;
+  /** Minutes past the start (`late`, `unconfirmed` once started) or the end (`overtime`, `past`); until the start for `upcoming`. */
+  minutes: number;
+  /** Everyone the table holds: seated, plus an explainer who only explains. */
+  memberIds: string[];
+  /** Members nobody has confirmed as there. */
+  missingIds: string[];
+  /** Needs the organizers' eyes now: it should have started, or it should have ended. */
+  attention: boolean;
+}
+
+/** The people a table holds: the ones seated, and an explainer who only explains (not seated, but expected). */
+export function membersOf(t: Table): string[] {
+  const ids = [...t.playerIds];
+  if (t.explainerId && !ids.includes(t.explainerId) && occupiedWindow(t, t.explainerId)) ids.push(t.explainerId);
+  return ids;
+}
+
+/**
+ * The tables to run the event with: the ones being played, the ones that should be and aren't, the ones about to start and the ones
+ * nobody confirmed that are about to. Running ones first; the rest by hour.
+ */
+export function liveTables(tables: Table[], present: Set<string>, nowMin: number): LiveTable[] {
+  const out: LiveTable[] = [];
+  for (const table of tables) {
+    const start = toMinutes(table.startTime);
+    const end = toMinutes(table.endTime);
+    let kind: LiveKind | null = null;
+    let minutes = 0;
+    if (table.status === 'in-progress') {
+      kind = end <= nowMin ? 'overtime' : 'running';
+      minutes = kind === 'overtime' ? nowMin - end : nowMin - start;
+    } else if (table.status === 'confirmed') {
+      if (end <= nowMin) { kind = 'past'; minutes = nowMin - end; }
+      else if (start <= nowMin) { kind = 'late'; minutes = nowMin - start; }
+      else if (start - nowMin <= UPCOMING_MINUTES) { kind = 'upcoming'; minutes = start - nowMin; }
+    } else if (table.status === 'recommended' && !table.awaitingExplainer && table.playerIds.length > 0 && end > nowMin && start - nowMin <= UNCONFIRMED_MINUTES) {
+      kind = 'unconfirmed';
+      minutes = nowMin - start;
+    }
+    if (!kind) continue;
+    const memberIds = membersOf(table);
+    out.push({
+      table, kind, minutes, memberIds, missingIds: memberIds.filter((id) => !present.has(id)),
+      attention: kind === 'late' || kind === 'past' || kind === 'overtime' || (kind === 'unconfirmed' && start <= nowMin),
+    });
+  }
+  const rank: Record<LiveKind, number> = { overtime: 0, late: 1, unconfirmed: 2, running: 3, upcoming: 4, past: 5 };
+  return out.sort((a, b) => rank[a.kind] - rank[b.kind] || toMinutes(a.table.startTime) - toMinutes(b.table.startTime));
+}
+
+/**
+ * What would clash if a table ran [start, end) instead of its own time: people it holds who are in another live table then, and
+ * other tables of the same game when the game has no spare copy. Both empty means it is safe. Only to warn: nothing is blocked.
+ */
+export function timeChangeClashes(args: {
+  table: Table; start: string; end: string; tables: Table[]; copies: number; bufferMinutes: number;
+}): { people: { playerId: string; table: Table }[]; sameGame: Table[] } {
+  const { table, start, end, tables, copies, bufferMinutes } = args;
+  const s = toMinutes(start);
+  const e = toMinutes(end);
+  const people: { playerId: string; table: Table }[] = [];
+  for (const id of membersOf(table)) {
+    for (const other of tables) {
+      if (other.id === table.id || !isLive(other)) continue;
+      const w = occupiedWindow(other, id);
+      if (w && toMinutes(w.start) < e && toMinutes(w.end) > s) people.push({ playerId: id, table: other });
+    }
+  }
+  const sameGame = sameGameOverlaps({ tables, table, start, end, bufferMinutes, gameCopies: copies });
+  return { people, sameGame };
+}
+
+/** "HH:MM" plus minutes, never past the end of the day. */
+export const addMinutes = (time: string, delta: number): string => toTimeString(Math.min(23 * 60 + 59, toMinutes(time) + delta));

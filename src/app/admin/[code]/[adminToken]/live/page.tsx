@@ -4,12 +4,14 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   getEvent, verifyAdminToken, subscribeTables, subscribePlayers, subscribeGames, seatPlayerAtTable, removePlayerFromTable,
+  getTableById, updateTableStatus, updateTable, setTableEnd,
 } from '@/lib/firestore';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import { everSet } from '@/lib/tableStatusFilter';
-import { freeTables, peopleWithoutTable, impliesPresence, type FreeTable } from '@/lib/liveBoard';
+import { freeTables, peopleWithoutTable, impliesPresence, liveTables, timeChangeClashes, addMinutes, type FreeTable } from '@/lib/liveBoard';
 import { toTimeString } from '@/lib/timeUtils';
 import { FreeTablesSection, PeopleSection, MovePanel } from '@/components/admin/LiveSections';
+import { TablesSection, type TableActions } from '@/components/admin/LiveTables';
 import type { Game, MeepleEvent, Player, Table } from '@/lib/types';
 
 const CLOCK_MS = 30_000; // the clock the page works with
@@ -89,6 +91,8 @@ export default function LivePage() {
   const rows = useMemo(() => freeTables(tables, games, nowMin), [tables, games, nowMin]);
   const people = useMemo(() => peopleWithoutTable({ players, tables, rows, present, nowMin }), [players, tables, rows, present, nowMin]);
 
+  const live = useMemo(() => liveTables(tables, present, nowMin), [tables, present, nowMin]);
+
   const label = (t: Table) => `${t.gameName}${slotOf.has(t.id) ? ` · Mesa #${slotOf.get(t.id)}` : ''}`;
 
   const markPresent = useCallback(async (playerId: string) => {
@@ -136,6 +140,68 @@ export default function LivePage() {
     return `${player.name} salió de ${label(from)}.`;
   });
 
+  const nameOf = (id: string) => players.find((p) => p.id === id)?.name ?? 'Alguien';
+  const copiesOf = (t: Table) => games.filter((g) => (g.groupId ?? g.id) === t.gameId).length || 1;
+
+  /** What would clash if the table ran [start, end) — as a sentence to ask about — or null when nothing does. */
+  function clashText(table: Table, start: string, end: string): string | null {
+    const c = timeChangeClashes({ table, start, end, tables, copies: copiesOf(table), bufferMinutes: event?.settings.bufferMinutes ?? 0 });
+    const parts: string[] = [];
+    if (c.people.length > 0) parts.push(c.people.map((x) => `${nameOf(x.playerId)} tiene otra mesa (${x.table.gameName} ${x.table.startTime}–${x.table.endTime})`).join('; '));
+    if (c.sameGame.length > 0) parts.push(`no hay otra copia libre de ${table.gameName} para ese horario`);
+    return parts.length > 0 ? parts.join('. ') : null;
+  }
+
+  // The tables' own states, in real time
+  const startTable = (table: Table, presentIds: string[], absentIds: string[]) => run(async () => {
+    await Promise.all(presentIds.map((id) => markPresent(id).catch(() => {})));
+    // Each one leaves in turn, re-reading the table in between: taking out an explainer can change who explains it
+    for (const id of absentIds) {
+      const current = await getTableById(code, table.id);
+      if (!current || current.status === 'cancelled') break;
+      await removePlayerFromTable(code, current, id);
+    }
+    const after = await getTableById(code, table.id);
+    if (!after || after.status === 'cancelled') return `${label(table)} se deshizo: no quedó nadie que pueda explicarla o jugarla.`;
+    await updateTableStatus(code, table.id, 'in-progress', true);
+    return `${label(table)} empezó con ${presentIds.length} persona${presentIds.length === 1 ? '' : 's'}.${absentIds.length > 0 ? ` Salieron ${absentIds.length}: su lugar quedó libre.` : ''}`;
+  });
+
+  const finishTable = (table: Table) => run(async () => {
+    await updateTableStatus(code, table.id, 'completed', true);
+    return `${label(table)} terminó.`;
+  });
+
+  const extendTable = (table: Table) => run(async () => {
+    const end = addMinutes(table.endTime, 15);
+    const clash = clashText(table, table.startTime, end);
+    if (clash && !window.confirm(`Si sigue hasta las ${end}: ${clash}. ¿Alargarla igual?`)) return 'No se cambió nada.';
+    await setTableEnd(code, table.id, end);
+    return `${label(table)} ahora termina a las ${end}.`;
+  });
+
+  const waitTable = (table: Table) => run(async () => {
+    const start = addMinutes(table.startTime, 15);
+    const end = addMinutes(table.endTime, 15);
+    const clash = clashText(table, start, end);
+    if (clash && !window.confirm(`Si empieza a las ${start}: ${clash}. ¿Esperar igual?`)) return 'No se cambió nada.';
+    await updateTable(code, table.id, { startTime: start, endTime: end, ...(table.explainEndTime ? { explainEndTime: addMinutes(table.explainEndTime, 15) } : {}) });
+    return `${label(table)} se pasó a las ${start}.`;
+  });
+
+  const confirmTable = (table: Table) => run(async () => {
+    await updateTableStatus(code, table.id, 'confirmed', true);
+    return `${label(table)} quedó confirmada.`;
+  });
+
+  const cancelTable = (table: Table) => run(async () => {
+    if (!window.confirm(`¿Marcar ${label(table)} como cancelada? Quienes estaban anotados quedan libres.`)) return 'No se cambió nada.';
+    await updateTableStatus(code, table.id, 'cancelled', true);
+    return `${label(table)} quedó cancelada.`;
+  });
+
+  const tableActions: TableActions = { onStart: startTable, onFinish: finishTable, onExtend: extendTable, onWait: waitTable, onConfirm: confirmTable, onCancel: cancelTable };
+
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
   if (!event || !now) return <div className='p-8 text-center'>Cargando...</div>;
 
@@ -159,10 +225,11 @@ export default function LivePage() {
         </p>
       )}
 
-      <div className='grid grid-cols-3 gap-2'>
+      <div className='grid grid-cols-4 gap-2'>
         {[
-          { n: rows.length, text: 'Mesas con lugar' },
-          { n: people.now.length, text: 'Sin mesa ahora' },
+          { n: live.filter((l) => l.attention).length, text: 'Piden atención' },
+          { n: rows.length, text: 'Con lugar' },
+          { n: people.now.length, text: 'Sin mesa' },
           { n: people.soon.length, text: 'Libres pronto' },
         ].map((k) => (
           <div key={k.text} className='border border-gray-700 rounded-xl p-2.5 text-center'>
@@ -179,6 +246,7 @@ export default function LivePage() {
         </p>
       )}
 
+      <TablesSection items={live} nowMin={nowMin} players={players} games={games} label={label} actions={tableActions} busy={busy} />
       <MovePanel players={players} tables={tables} rows={rows} nowMin={nowMin} label={label} busy={busy} onMove={move} onRemove={remove} />
       <FreeTablesSection rows={rows} people={[...people.now, ...people.soon]} label={label} busy={busy} onSeat={seat} />
       <PeopleSection now={people.now} soon={people.soon} nowMin={nowMin} label={label} busy={busy} onSeat={seat} onArrived={arrived} />

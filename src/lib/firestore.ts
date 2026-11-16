@@ -766,6 +766,12 @@ export function subscribePlayers(eventCode: string, cb: (players: Player[]) => v
 
 // ── Tables ────────────────────────────────────────────────────────────────────
 
+/** One table as it is right now (or null if it is gone): for steps that change a table several times in a row. */
+export async function getTableById(eventCode: string, tableId: string): Promise<Table | null> {
+  const snap = await getDoc(doc(db, 'events', eventCode, 'tables', tableId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Table) : null;
+}
+
 export async function getTables(eventCode: string): Promise<Table[]> {
   const snap = await getDocs(collection(db, 'events', eventCode, 'tables'));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Table));

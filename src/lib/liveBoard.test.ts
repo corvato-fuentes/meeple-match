@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { destinationsFor, fitsPlayer, freeTables, impliesPresence, peopleWithoutTable, tablesOf } from './liveBoard';
+import { addMinutes, destinationsFor, fitsPlayer, freeTables, impliesPresence, liveTables, membersOf, peopleWithoutTable, tablesOf, timeChangeClashes } from './liveBoard';
 
 const t = (id: string, gameId: string, start: string, end: string, playerIds: string[], extra: Record<string, unknown> = {}) =>
   ({ id, gameId, gameName: gameId.toUpperCase(), startTime: start, endTime: end, playerIds, status: 'confirmed', explainerId: playerIds[0] ?? 'x', ...extra }) as never;
@@ -121,5 +121,64 @@ describe('tablesOf and impliesPresence', () => {
     expect(impliesPresence({ running: true, startsInMin: 0 })).toBe(true);
     expect(impliesPresence({ running: false, startsInMin: 10 })).toBe(true);
     expect(impliesPresence({ running: false, startsInMin: 40 })).toBe(false);
+  });
+});
+
+describe('liveTables (stage B)', () => {
+  const now = min('16:42');
+  const live = (tables: unknown[], present: string[] = []) => liveTables(tables as never, new Set(present), now);
+
+  it('a confirmed table past its start is late, and asks for attention; one starting within the hour is upcoming', () => {
+    const r = live([t('late', 'dixit', '16:30', '18:00', ['a', 'b']), t('soon', 'azul', '17:15', '18:30', ['c']), t('far', 'azul', '19:00', '20:00', ['c'])]);
+    expect(r.map((x) => [x.table.id, x.kind, x.minutes, x.attention])).toEqual([['late', 'late', 12, true], ['soon', 'upcoming', 33, false]]);
+  });
+  it('a confirmed table whose whole time passed is "past": was it played? It asks for attention, after the late ones', () => {
+    const r = live([t('old', 'dixit', '10:00', '12:00', ['a']), t('late', 'azul', '16:30', '18:00', ['b'])]);
+    expect(r.map((x) => [x.table.id, x.kind, x.minutes, x.attention])).toEqual([['late', 'late', 12, true], ['old', 'past', 282, true]]);
+  });
+  it('an underway table is running, and overtime (attention) once past its end', () => {
+    const r = live([t('ok', 'dixit', '16:00', '17:30', ['a'], { status: 'in-progress' }), t('over', 'azul', '15:00', '16:20', ['b'], { status: 'in-progress' })]);
+    expect(r.map((x) => [x.table.id, x.kind, x.minutes, x.attention])).toEqual([['over', 'overtime', 22, true], ['ok', 'running', 42, false]]);
+  });
+  it('lists who is not confirmed as there, an explainer who only explains included', () => {
+    const table = t('t', 'dixit', '16:30', '18:00', ['a', 'b'], { explainerId: 'exp', explainerPlays: false, explainEndTime: '17:00' });
+    expect(membersOf(table)).toEqual(['a', 'b', 'exp']);
+    expect(live([table], ['a'])[0].missingIds).toEqual(['b', 'exp']);
+  });
+  it('a table nobody confirmed shows only when it is about to start, and asks for attention once it should have', () => {
+    const r = live([
+      t('u1', 'dixit', '16:55', '18:00', ['a'], { status: 'recommended' }),
+      t('u2', 'azul', '16:30', '18:00', ['a'], { status: 'recommended' }),
+      t('far', 'azul', '18:00', '19:00', ['a'], { status: 'recommended' }),
+      t('empty', 'azul', '16:50', '19:00', [], { status: 'recommended' }),
+      t('noexp', 'azul', '16:50', '19:00', ['a'], { status: 'recommended', awaitingExplainer: true }),
+      t('over', 'azul', '15:00', '16:30', ['a'], { status: 'recommended' }),
+    ]);
+    expect(r.map((x) => [x.table.id, x.attention])).toEqual([['u2', true], ['u1', false]]);
+  });
+  it('leaves out finished and cancelled tables', () => {
+    expect(live([t('c', 'dixit', '16:30', '18:00', ['a'], { status: 'completed' }), t('x', 'dixit', '16:30', '18:00', ['a'], { status: 'cancelled' })])).toEqual([]);
+  });
+});
+
+describe('timeChangeClashes', () => {
+  const base = { bufferMinutes: 0, copies: 1 };
+  it('finds the people of the table who are in another table then', () => {
+    const tables = [t('t1', 'dixit', '16:00', '17:00', ['ana', 'bea']), t('t2', 'azul', '17:00', '18:00', ['ana'])];
+    expect(timeChangeClashes({ ...base, table: tables[0], start: '16:00', end: '17:00', tables }).people).toEqual([]);
+    const r = timeChangeClashes({ ...base, table: tables[0], start: '16:00', end: '17:15', tables });
+    expect(r.people.map((x) => [x.playerId, x.table.id])).toEqual([['ana', 't2']]);
+  });
+  it('finds a table of the same game when there is no spare copy', () => {
+    const tables = [t('t1', 'dixit', '16:00', '17:00', ['ana']), t('t2', 'dixit', '17:00', '18:00', ['bea'])];
+    expect(timeChangeClashes({ ...base, table: tables[0], start: '16:00', end: '17:30', tables }).sameGame.map((x) => x.id)).toEqual(['t2']);
+    expect(timeChangeClashes({ ...base, copies: 2, table: tables[0], start: '16:00', end: '17:30', tables }).sameGame).toEqual([]);
+  });
+});
+
+describe('addMinutes', () => {
+  it('adds minutes and never passes the end of the day', () => {
+    expect(addMinutes('16:50', 15)).toBe('17:05');
+    expect(addMinutes('23:50', 30)).toBe('23:59');
   });
 });
