@@ -19,7 +19,7 @@ import FilterChip from '@/components/ui/FilterChip';
 import PushOptIn from '@/components/ui/PushOptIn';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import {
-  EXPLORE_CHIPS, attentionCount, chipCounts, chipsFor, clashesOf, exploreRows, rowsFor, type ExploreChip, type ExploreRow,
+  EXPLORE_CHIPS, chipCounts, chipsFor, clashesOf, exploreRows, rowsFor, type ExploreChip, type ExploreRow,
 } from '@/lib/exploreTables';
 import { liveAvailability } from '@/lib/liveBoard';
 import { blockedMessage } from '@/lib/freeSeats';
@@ -152,7 +152,6 @@ export default function ExploreTablesPage() {
 
   const rows = exploreRows({ viewer: player, tables: allTables, games, bufferMinutes: buffer, started });
   const counts = chipCounts(rows);
-  const attention = attentionCount(rows);
   // Opens on what is waiting for them, whatever it holds; the address can ask for another one (the old links land here)
   const eventHasStarted = liveAvailability(event.date, todayStr) !== 'before';
   const chips = chipsFor(eventHasStarted);
@@ -460,13 +459,6 @@ export default function ExploreTablesPage() {
         <p className="text-sm text-amber-300 border border-amber-800 bg-amber-950/30 rounded-xl px-3 py-2">
           Estás anotado como indeciso: mandá el comprobante desde tu ticket para poder sumarte a mesas.
         </p>
-      )}
-
-      {attention > 0 && active !== 'for-you' && (
-        <button onClick={() => setChip('for-you')}
-          className="w-full text-left text-sm border border-amber-800 bg-amber-950/30 text-amber-300 rounded-xl px-3 py-2 hover:bg-amber-950/50">
-          🔔 {attention === 1 ? 'Hay 1 mesa esperando tu respuesta' : `Hay ${attention} mesas esperando tu respuesta`} →
-        </button>
       )}
 
       <section>

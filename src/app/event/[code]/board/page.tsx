@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -151,8 +151,14 @@ export default function BoardPage() {
   // splits in two: algorithm-recommended tables wait on candidates accepting/rejecting, while
   // owner-posted ones wait on enough players joining to reach the game's minimum.
   const scheduledTables = useMemo(() => tables.filter((t) => t.status !== 'recommended'), [tables]);
-  const recommendedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !t.postedByOwner), [tables]);
-  const postulatedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !!t.postedByOwner), [tables]);
+  // A game the viewer voted "no me interesa" is not offered to them: its tables stay out of the lists of waiting tables and of the
+  // "Con lugar libre" view. The grid itself is the schedule of the whole event and keeps all of them. A table the viewer is in is never hidden.
+  const dislikes = useCallback(
+    (t: Table) => !!viewer && viewer.interests?.[t.gameId] === 'no' && !isInTable(t, viewer.id),
+    [viewer]
+  );
+  const recommendedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !t.postedByOwner && !dislikes(t)), [tables, dislikes]);
+  const postulatedTables = useMemo(() => tables.filter((t) => t.status === 'recommended' && !!t.postedByOwner && !dislikes(t)), [tables, dislikes]);
 
   // The recommended tables, split by where the viewer stands: the ones waiting on their answer come first; the ones
   // they accepted, and everything else (rejected, not in the table, or not voted), are one chip away.
@@ -203,20 +209,21 @@ export default function BoardPage() {
   // cards and the lists.
   const myId = viewer?.id ?? null;
   const exploreConfirmed = useMemo(
-    () => scheduledTables.filter((t) => openIds.has(t.id) && (myId === null || !isInTable(t, myId))),
-    [scheduledTables, openIds, myId]
+    () => scheduledTables.filter((t) => openIds.has(t.id) && (myId === null || !isInTable(t, myId)) && !dislikes(t)),
+    [scheduledTables, openIds, myId, dislikes]
   );
   const exploreConfirmedIds = useMemo(() => new Set(exploreConfirmed.map((t) => t.id)), [exploreConfirmed]);
-  const exploreWaiting = useMemo(() => waitingOpen.filter((t) => myId === null || !isInTable(t, myId)), [waitingOpen, myId]);
+  const exploreWaiting = useMemo(() => waitingOpen.filter((t) => (myId === null || !isInTable(t, myId)) && !dislikes(t)), [waitingOpen, myId, dislikes]);
   const freeCount = exploreConfirmed.length + exploreWaiting.length;
   const takeable = useMemo(() => {
     const m = new Map<string, SeatOption>();
     for (const t of [...scheduledTables.filter((x) => openIds.has(x.id)), ...waitingOpen]) {
+      if (dislikes(t)) continue; // nothing to offer for a game they said no to (the grid shows it without the "take it" icon)
       const option = seatOptionFor({ viewer, table: t, game: gameMap.get(t.gameId), tables, started: false });
       if (option) m.set(t.id, option);
     }
     return m;
-  }, [scheduledTables, tables, openIds, waitingOpen, viewer, gameMap]);
+  }, [scheduledTables, tables, openIds, waitingOpen, viewer, gameMap, dislikes]);
 
   // The lists of waiting tables also hold the confirmed ones that still have room, in the chips where they belong: one the system
   // offered to the viewer is "Por aceptar"; the rest of the explore set, confirmed or not, is "Otras con lugar". The tables the viewer
