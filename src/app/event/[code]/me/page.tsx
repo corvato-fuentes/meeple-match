@@ -909,7 +909,7 @@ export default function MyTicketPage() {
             <div className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 space-y-2 text-left">
               <p>Todavía no tenés mesas confirmadas.</p>
               <p>
-                Cuando votás tus juegos, el sistema busca otros inscriptos que los votaron y te propone una mesa en un
+                Cuando votás tus juegos, el sistema busca otros inscriptos que los votaron y te recomienda una mesa en un
                 horario en el que coincidan. La propuesta te espera en <strong className="text-indigo-300">Explorar mesas</strong>,
                 en «Para vos», donde podés aceptarla o rechazarla. Una vez que la aceptás, aparece acá.
               </p>
@@ -917,7 +917,7 @@ export default function MyTicketPage() {
                 Los juegos que llevás se recomiendan automáticamente a quienes los votan.
               </p>
               <p>
-                En <strong className="text-indigo-300">Explorar mesas</strong> también ves las mesas que abrieron otros inscriptos
+                En <strong className="text-indigo-300">Explorar mesas</strong> también ves las mesas que propusieron otros inscriptos
                 y podés sumarte. Cuando la mesa junta el mínimo de jugadores necesario, aparece acá como confirmada.
               </p>
             </div>
@@ -984,7 +984,7 @@ export default function MyTicketPage() {
             <span>🎲 Explorar mesas</span>
             {countBadge(attentionN, 'bg-amber-500 text-black', attentionN === 1 ? 'mesa esperando tu respuesta' : 'mesas esperando tu respuesta')}
             <HelpPopover title="🎲 Explorar mesas">
-              <p>Las mesas del evento, de los juegos que votaste: las que te proponemos, las que armó otro jugador y están abiertas, y las confirmadas.</p>
+              <p>Las mesas del evento, de los juegos que votaste: las que te recomendamos, las que propusieron otros jugadores y están abiertas, y las confirmadas.</p>
               <p>Abre en «Para vos»: lo que espera tu respuesta. El número indica cuántas mesas son.</p>
               <p>«Todas» las muestra por horario (con «Solo con lugar» ves dónde podés sumarte), «Sin votar» las de juegos que todavía no votaste y «Rechazadas» las que dijiste que no.</p>
               <p>Si traés un juego, para armar una mesa tuya usá «Proponer mesa» en «Tus juegos».</p>
