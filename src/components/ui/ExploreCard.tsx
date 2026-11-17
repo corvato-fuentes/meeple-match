@@ -89,8 +89,8 @@ export default function ExploreCard({ row, game, slot, nameOf, viewerId, who, in
             <RowLabel row={row} />
           </p>
           <p className='text-sm text-gray-400'>🕒 {t.startTime}–{t.endTime}</p>
-          <p className='text-sm text-gray-400'>👥 {seatsLine(row)}</p>
           {explainer && <p className='text-sm text-gray-400'>🎓 {explainer}</p>}
+          <p className='text-sm text-gray-400'>👥 {seatsLine(row)}</p>
           {!row.rejected && <StepBar step={row.step} />}
         </div>
       </div>
