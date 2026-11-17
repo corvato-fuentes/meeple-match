@@ -79,7 +79,8 @@ function labelOf(args: { table: Table; step: TableStep; mine: boolean; offered: 
 }
 
 /**
- * Every table the person can see (cancelled ones are gone), with everything the screen needs. `started` says whether a table's hour has
+ * Every table the person can see, with everything the screen needs. Cancelled ones are gone, and so are the tables of a game they voted
+ * "no me interesa": they don't show in any filter (unless the person is already in that table, which is never hidden from them). `started` says whether a table's hour has
  * come: a table that started no longer takes people.
  */
 export function exploreRows(args: {
@@ -98,11 +99,12 @@ export function exploreRows(args: {
   const rows: ExploreRow[] = [];
   for (const table of tables) {
     if (table.status === 'cancelled') continue;
+    const inIt = isInTable(table, viewer.id);
+    if (!inIt && viewer.interests?.[table.gameId] === 'no') continue;
     const game = gameOf.get(table.gameId);
     const step = STEP_OF[table.status];
     const taken = table.playerIds.length;
     const max = game ? game.maxPlayers : null;
-    const inIt = isInTable(table, viewer.id);
     const mine = inIt && step !== 'done';
     const rejected = !inIt && (table.rejectedIds ?? []).includes(viewer.id);
     const offered = !isTentative(viewer) && (isOfferFor(table, viewer.id, game) || isPostedOfferFor(table, viewer.id, game));

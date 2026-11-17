@@ -41,6 +41,39 @@ describe('exploreRows: the life of a table', () => {
   });
 });
 
+describe('exploreRows: a game voted "no me interesa"', () => {
+  const v = viewer({ interests: { azul: 'no', dixit: 'yes' } });
+  const tables = [
+    table('no-rec', 'azul', '12:00', '13:00', ['a'], { candidateIds: ['me'] }),
+    table('no-posted', 'azul', '13:00', '14:00', ['a'], { postedByOwner: true }),
+    table('no-conf', 'azul', '14:00', '15:00', ['a', 'b'], { status: 'confirmed' }),
+    table('no-play', 'azul', '10:00', '11:00', ['a', 'b'], { status: 'in-progress' }),
+    table('no-done', 'azul', '08:00', '09:00', ['a', 'b'], { status: 'completed' }),
+    table('no-rejected', 'azul', '16:00', '17:00', ['a'], { rejectedIds: ['me'] }),
+    table('yes', 'dixit', '12:00', '13:00', ['a']),
+    table('unvoted', 'brass', '15:30', '17:30', ['a']),
+  ];
+  it('is not shown in any filter: not as an offer, not open, not confirmed, not underway, not finished, not rejected', () => {
+    const r = rows(tables, v);
+    expect(r.map((x) => x.table.id).sort()).toEqual(['unvoted', 'yes']);
+    const counts = chipCounts(r);
+    expect(counts['for-you']).toBe(0);
+    expect(counts.rejected).toBe(0);
+    expect(counts.done).toBe(0);
+    expect(counts.all).toBe(2);
+  });
+  it('a game they voted yes, or never voted, still shows', () => {
+    const r = rows(tables, v);
+    expect(r.map((x) => x.table.id)).toContain('yes');
+    expect(r.map((x) => x.table.id)).toContain('unvoted');
+  });
+  it('a table they are in is never hidden, whatever they voted', () => {
+    const r = rows([table('mine', 'azul', '14:00', '15:00', ['me', 'a'], { status: 'confirmed' })], v);
+    expect(r.map((x) => x.table.id)).toEqual(['mine']);
+    expect(r[0].mine).toBe(true);
+  });
+});
+
 describe('exploreRows: what is for you', () => {
   it('an offer that waits for your answer is for you, and so is an open posted table of a game you voted that fits', () => {
     const v = viewer({ interests: { dixit: 'yes' } });
