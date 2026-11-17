@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMinutes, destinationsFor, fitsPlayer, freeTables, impliesPresence, liveTables, membersOf, peopleWithoutTable, tablesOf, timeChangeClashes } from './liveBoard';
+import { liveAvailability, localDateString, addMinutes, destinationsFor, fitsPlayer, freeTables, impliesPresence, liveTables, membersOf, peopleWithoutTable, tablesOf, timeChangeClashes } from './liveBoard';
 
 const t = (id: string, gameId: string, start: string, end: string, playerIds: string[], extra: Record<string, unknown> = {}) =>
   ({ id, gameId, gameName: gameId.toUpperCase(), startTime: start, endTime: end, playerIds, status: 'confirmed', explainerId: playerIds[0] ?? 'x', ...extra }) as never;
@@ -173,6 +173,19 @@ describe('timeChangeClashes', () => {
     const tables = [t('t1', 'dixit', '16:00', '17:00', ['ana']), t('t2', 'dixit', '17:00', '18:00', ['bea'])];
     expect(timeChangeClashes({ ...base, table: tables[0], start: '16:00', end: '17:30', tables }).sameGame.map((x) => x.id)).toEqual(['t2']);
     expect(timeChangeClashes({ ...base, copies: 2, table: tables[0], start: '16:00', end: '17:30', tables }).sameGame).toEqual([]);
+  });
+});
+
+describe('liveAvailability', () => {
+  it('is inactive before the day of the event, active on it, and still reachable after', () => {
+    expect(liveAvailability('2026-11-15', '2026-11-14')).toBe('before');
+    expect(liveAvailability('2026-11-15', '2026-11-15')).toBe('today');
+    expect(liveAvailability('2026-11-15', '2026-11-16')).toBe('after');
+    expect(liveAvailability('2026-12-01', '2026-11-30')).toBe('before');
+  });
+  it('writes a local date as YYYY-MM-DD', () => {
+    expect(localDateString(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05');
+    expect(localDateString(new Date(2026, 10, 15, 0, 0))).toBe('2026-11-15');
   });
 });
 

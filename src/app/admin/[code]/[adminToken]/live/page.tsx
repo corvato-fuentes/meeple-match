@@ -8,7 +8,8 @@ import {
 } from '@/lib/firestore';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
 import { everSet } from '@/lib/tableStatusFilter';
-import { freeTables, peopleWithoutTable, impliesPresence, liveTables, timeChangeClashes, addMinutes, type FreeTable } from '@/lib/liveBoard';
+import { freeTables, peopleWithoutTable, impliesPresence, liveTables, timeChangeClashes, addMinutes, liveAvailability, localDateString, type FreeTable } from '@/lib/liveBoard';
+import { dayLabel } from '@/lib/shareTable';
 import { toTimeString } from '@/lib/timeUtils';
 import { FreeTablesSection, PeopleSection, MovePanel } from '@/components/admin/LiveSections';
 import { TablesSection, type TableActions } from '@/components/admin/LiveTables';
@@ -18,8 +19,6 @@ import type { Game, MeepleEvent, Player, Table } from '@/lib/types';
 
 const CLOCK_MS = 30_000; // the clock the page works with
 const PRESENCE_MS = 15_000; // arrivals other organizers confirm
-
-const todayLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /**
  * "En vivo": the organizers' screen for the day of the event. Which tables have a free place (right now, and in time order), who is
@@ -224,7 +223,25 @@ export default function LivePage() {
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
   if (!event || !now) return <div className='p-8 text-center'>Cargando...</div>;
 
-  const onEventDay = simulated != null || event.date === todayLocal(now);
+  // The screen has nothing to manage before the day of the event. "?hora=" is a rehearsal: it opens the screen whatever the day
+  const availability = simulated != null ? 'today' : liveAvailability(event.date, localDateString(now));
+  if (availability === 'before') {
+    return (
+      <main className='max-w-2xl mx-auto px-4 py-8 space-y-5'>
+        <div className='flex items-center gap-3'>
+          <Link href={`/admin/${code}/${adminToken}`} className='text-gray-500 hover:text-gray-300'>←</Link>
+          <h1 className='text-xl font-bold'>🔴 En vivo</h1>
+        </div>
+        <div className='border border-gray-700 rounded-2xl p-6 text-center space-y-2'>
+          <p className='text-3xl' aria-hidden='true'>⏳</p>
+          <p className='font-semibold'>Todavía no está activo</p>
+          <p className='text-sm text-gray-400'>Esta pantalla se activa el día del evento ({dayLabel(event.date)}). Hasta entonces no hay mesas que gestionar en vivo.</p>
+          <p className='text-sm text-gray-400'>Para armar o editar mesas con calma, usá <Link href={`/admin/${code}/${adminToken}/tables`} className='underline text-indigo-300'>Gestionar mesas</Link>.</p>
+        </div>
+      </main>
+    );
+  }
+  const onEventDay = availability === 'today';
   const label24 = toTimeString(nowMin);
   const runningCount = rows.filter((r) => r.running).length;
 
@@ -240,7 +257,7 @@ export default function LivePage() {
 
       {!onEventDay && (
         <p className='text-xs text-amber-300 border border-amber-800 bg-amber-950/30 rounded-xl p-3'>
-          Esta pantalla es para el día del evento ({event.date}). Hoy no es ese día, así que lo que ves usa la hora de ahora y puede no tener sentido.
+          El evento fue el {dayLabel(event.date)}. Lo que ves usa la hora de ahora, así que sirve para ordenar lo que haya quedado sin marcar, no para seguir el evento.
         </p>
       )}
 
