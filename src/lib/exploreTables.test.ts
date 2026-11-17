@@ -34,11 +34,13 @@ describe('exploreRows: the life of a table', () => {
       table('mine', 'brass', '14:00', '15:00', ['me', 'a']),
       table('exp', 'dixit', '16:00', '17:00', [], { awaitingExplainer: true, candidateIds: ['z'] }),
       table('plain', 'dixit', '17:30', '19:00', ['a']),
+      table('forYou', 'dixit', '11:00', '12:00', ['a'], { postedByOwner: true }),
     ], viewer({ interests: { dixit: 'yes', brass: 'yes' } }));
-    expect(byId(r, 'posted').label).toBe('Abierta');
+    expect(byId(r, 'posted').label).toBe('Propuesta abierta');
     expect(byId(r, 'mine').label).toBe('Anotado · falta gente');
     expect(byId(r, 'exp').label).toBe('Esperando quien la explique');
     expect(byId(r, 'plain').label).toBe('Esperando gente');
+    expect(byId(r, 'forYou').label).toBe('Te la recomendamos'); // a posted table of a game they voted, open for them
   });
 });
 

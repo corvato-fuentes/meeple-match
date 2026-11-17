@@ -152,7 +152,7 @@ export function RecommendedWho({ t, game, nameOf }: { t: Table; game: Game | und
 export function PostedWho({ t, nameOf, explainerNames }: { t: Table; nameOf: (id: string) => string; explainerNames: string[] }) {
   return (
     <>
-      <Line>🎒 Lo trae: <Name>{nameOf(t.explainerId)}</Name></Line>
+      <Line>🎒 La propuso y la trae: <Name>{nameOf(t.explainerId)}</Name></Line>
       <Line>🎓 Lo explica y juega: <Name>{explainerNames.length > 0 ? explainerNames.join(', ') : 'nadie todavía'}</Name></Line>
     </>
   );

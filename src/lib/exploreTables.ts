@@ -82,7 +82,8 @@ function labelOf(args: { table: Table; step: TableStep; mine: boolean; offered: 
   if (table.awaitingExplainer) return offered ? 'Buscamos quien la explique' : 'Esperando quien la explique';
   if (mine) return 'Anotado · falta gente';
   if (offered && !table.postedByOwner) return 'Te la recomendamos';
-  if (table.postedByOwner) return offered || openForYou ? 'Abierta, sumate' : 'Abierta';
+  // A table a player put forward: for the ones it is recommended to, it reads like the system's own (its detail says who proposed it)
+  if (table.postedByOwner) return offered || openForYou ? 'Te la recomendamos' : 'Propuesta abierta';
   return 'Esperando gente';
 }
 
