@@ -127,6 +127,9 @@ export interface Player {
   // True only for players created by the "Modo demo" seeder — lets resetEventData wipe just the
   // generated test data and leave real registrations (and the games/tables tied to them) alone.
   isDemoData?: boolean;
+  // Someone who sits at a table without using the app: the organizers wrote them down (see lib/unregistered). Not registered: no ticket,
+  // no votes, not offered anything, not counted. Only here so that they take a seat and can be moved from table to table.
+  unregistered?: boolean;
 }
 
 export interface Table {
@@ -173,7 +176,8 @@ export interface Table {
   // (an explainer said yes, nobody else did) is noise there.
   everConfirmed?: boolean;
   // A table that started in the room without having been planned in the app: the organizers wrote it down (see lib/improvised).
-  // It is underway from the start, has no explainer, and may include people who don't use the app (`guestCount`, seats taken).
+  // It is underway from the start and has no explainer. The people who don't use the app are players marked `unregistered` (in `playerIds`);
+  // `guestCount` is how the first version wrote them down (just seats taken, no names), still counted for the tables that have it.
   improvised?: boolean;
   guestCount?: number;
 }

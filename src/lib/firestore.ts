@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { MeepleEvent, EventAdminConfig, Game, Player, Table, InterestLevel } from './types';
+import { guestNames, isUnregistered, registeredOnly } from './unregistered';
 import type { FakePlayerDraft, FakePlayerForTables, FakeGameForTables } from './fakeData';
 import { randomInterest, randomOwnGameInterest, generateFakePostulatedTables } from './fakeData';
 import { generateTicketCodeCandidate } from './ticketCode';
@@ -440,11 +441,16 @@ export function subscribeAllGames(eventCode: string, cb: (games: Game[]) => void
 
 // ── Players ───────────────────────────────────────────────────────────────────
 
-export async function getPlayers(eventCode: string): Promise<Player[]> {
+/**
+ * The registered players. The people the organizers wrote down without the app (`unregistered`) are left out unless asked for: they
+ * are only for seating at tables (names and moving), never for what counts people (the algorithm, the roster, emails, the totals).
+ */
+export async function getPlayers(eventCode: string, opts?: { withUnregistered?: boolean }): Promise<Player[]> {
   const snap = await getDocs(
     query(collection(db, 'events', eventCode, 'players'), orderBy('registeredAt'))
   );
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Player));
+  const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Player));
+  return opts?.withUnregistered ? all : registeredOnly(all);
 }
 
 export async function getPlayerByTicketCode(eventCode: string, ticketCode: string): Promise<Player | null> {
@@ -757,10 +763,13 @@ export async function updatePlayerWishlist(
   await updateDoc(doc(db, 'events', eventCode, 'players', playerId), data);
 }
 
-export function subscribePlayers(eventCode: string, cb: (players: Player[]) => void) {
+export function subscribePlayers(eventCode: string, cb: (players: Player[]) => void, opts?: { withUnregistered?: boolean }) {
   return onSnapshot(
     query(collection(db, 'events', eventCode, 'players'), orderBy('registeredAt')),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Player)))
+    (snap) => {
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Player));
+      cb(opts?.withUnregistered ? all : registeredOnly(all));
+    }
   );
 }
 
@@ -1361,6 +1370,22 @@ export async function seatPlayerAtTable(eventCode: string, tableId: string, play
 }
 
 /**
+ * Writes down people who sit without the app, by name: players marked `unregistered`, free the whole event, with no ticket, votes or
+ * contact. Returns their ids, in the order of the names.
+ */
+export async function addUnregisteredPlayers(eventCode: string, names: string[], event: Pick<MeepleEvent, 'startTime' | 'endTime'>): Promise<string[]> {
+  return Promise.all(names.map(async (name) => {
+    const guest: Omit<Player, 'id' | 'registeredAt'> = {
+      name, firstName: name, lastName: '', alias: null, email: null, phone: null,
+      arrivalTime: event.startTime, departureTime: event.endTime, ticketCode: '',
+      bringGameIds: [], interests: {}, canExplain: [], playedGameIds: [], repeatGameIds: [], paymentProofUrl: null,
+      unregistered: true,
+    };
+    return (await addDoc(collection(db, 'events', eventCode, 'players'), { ...guest, registeredAt: serverTimestamp() })).id;
+  }));
+}
+
+/**
  * The organizers write down a table that started in the room without being planned ("mesa improvisada"): the game (one of the
  * event's, or a new one made on the spot — hidden from the players and from the algorithm), the people of the app who sit, and how
  * many more don't use it. It is underway from the start. Returns the new table's id.
@@ -1369,7 +1394,9 @@ export async function createImprovisedTable(eventCode: string, input: {
   game: { id: string; name: string } | {
     id: null; name: string; minPlayers: number; maxPlayers: number; setupMinutes: number; explanationMinutes: number; perPlayerMinutes: number;
   };
-  startTime: string; endTime: string; playerIds: string[]; guestCount: number;
+  startTime: string; endTime: string; playerIds: string[];
+  /** The people who sit without the app, one name each (empty = "Invitado N"): they are written down as unregistered players. */
+  guestNames: string[];
 }): Promise<string> {
   let gameId: string;
   const g = input.game;
@@ -1385,11 +1412,12 @@ export async function createImprovisedTable(eventCode: string, input: {
     };
     gameId = (await addDoc(collection(db, 'events', eventCode, 'games'), created)).id;
   }
-  const existing = await getTables(eventCode);
+  const [existing, event, everyone] = await Promise.all([getTables(eventCode), getEvent(eventCode), getPlayers(eventCode, { withUnregistered: true })]);
+  const guestIds = event ? await addUnregisteredPlayers(eventCode, guestNames(input.guestNames, everyone.filter(isUnregistered).length), event) : [];
   const table: Omit<Table, 'id'> = {
     gameId, gameName: input.game.name, startTime: input.startTime, endTime: input.endTime,
-    explainerId: '', playerIds: input.playerIds, status: 'in-progress', isManuallyEdited: true, everConfirmed: true,
-    improvised: true, guestCount: input.guestCount,
+    explainerId: '', playerIds: [...input.playerIds, ...guestIds], status: 'in-progress', isManuallyEdited: true, everConfirmed: true,
+    improvised: true,
     batchNumber: existing.length ? Math.max(...existing.map((t) => t.batchNumber)) : 1,
     tableNumber: existing.length ? Math.max(...existing.map((t) => t.tableNumber)) + 1 : 1,
   };

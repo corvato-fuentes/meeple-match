@@ -15,6 +15,7 @@ import { FreeTablesSection, PeopleSection, MovePanel } from '@/components/admin/
 import { TablesSection, type TableActions } from '@/components/admin/LiveTables';
 import NewTablePanel, { type NewTableInput } from '@/components/admin/LiveNewTable';
 import { sameGameOverlaps } from '@/lib/tableAlgorithm';
+import { isUnregistered, registeredOnly, withGuestMark } from '@/lib/unregistered';
 import type { Game, MeepleEvent, Player, Table } from '@/lib/types';
 
 const CLOCK_MS = 30_000; // the clock the page works with
@@ -30,9 +31,9 @@ export default function LivePage() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [event, setEvent] = useState<MeepleEvent | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [everyone, setEveryone] = useState<Player[]>([]);
   const [games, setGames] = useState<Game[]>([]);
-  const [present, setPresent] = useState<Set<string>>(new Set());
+  const [checkedIn, setPresent] = useState<Set<string>>(new Set());
   const [now, setNow] = useState<Date | null>(null);
   // "?hora=14:30" in the address pretends it is that time (to rehearse before the event, or to try the screen out of hours)
   const [simulated, setSimulated] = useState<number | null>(null);
@@ -53,7 +54,8 @@ export default function LivePage() {
     // Same list as "Gestionar mesas": cancelled ones count only if they had been set, so the numbering is the same
     const unsubs = [
       subscribeTables(code, (ts) => setTables(ts.filter((t) => t.status !== 'cancelled' || everSet(t)))),
-      subscribePlayers(code, setPlayers),
+      // Every name, the people written down without the app included: they sit at tables and can be moved like anyone
+      subscribePlayers(code, (ps) => setEveryone(ps.map(withGuestMark)), { withUnregistered: true }),
       // Including the games made on the spot for improvised tables (the players never see those)
       subscribeAllGames(code, (gs) => setGames(gs.filter((g) => !g.deleted))),
     ];
@@ -90,6 +92,10 @@ export default function LivePage() {
     return map;
   }, [tables, event]);
 
+  // Who is registered (the ones the door and "sin mesa" are about); the people without the app are always counted as there
+  const players = useMemo(() => registeredOnly(everyone), [everyone]);
+  const guestIds = useMemo(() => new Set(everyone.filter(isUnregistered).map((p) => p.id)), [everyone]);
+  const present = useMemo(() => new Set([...checkedIn, ...guestIds]), [checkedIn, guestIds]);
   const rows = useMemo(() => freeTables(tables, games, nowMin), [tables, games, nowMin]);
   const people = useMemo(() => peopleWithoutTable({ players, tables, rows, present, nowMin }), [players, tables, rows, present, nowMin]);
 
@@ -142,7 +148,7 @@ export default function LivePage() {
     return `${player.name} salió de ${label(from)}.`;
   });
 
-  const nameOf = (id: string) => players.find((p) => p.id === id)?.name ?? 'Alguien';
+  const nameOf = (id: string) => everyone.find((p) => p.id === id)?.name ?? 'Alguien';
   const copiesOf = (t: Table) => games.filter((g) => (g.groupId ?? g.id) === t.gameId).length || 1;
 
   /** What would clash if the table ran [start, end) — as a sentence to ask about — or null when nothing does. */
@@ -213,8 +219,8 @@ export default function LivePage() {
       if (busyCopies.length > 0 && !window.confirm(`No hay otra copia libre de ${input.game.name} en ese horario (ya está en la mesa de las ${busyCopies[0].startTime}). ¿Anotarla igual?`)) return 'No se cambió nada.';
     }
     await createImprovisedTable(code, input);
-    await Promise.all(input.playerIds.map((id) => markPresent(id).catch(() => {})));
-    const n = input.playerIds.length + input.guestCount;
+    await Promise.all(input.playerIds.filter((id) => !guestIds.has(id)).map((id) => markPresent(id).catch(() => {})));
+    const n = input.playerIds.length + input.guestNames.length;
     return `Mesa de ${input.game.name} anotada, en curso hasta las ${input.endTime} (${n} personas).`;
   });
 
@@ -282,9 +288,9 @@ export default function LivePage() {
         </p>
       )}
 
-      <NewTablePanel games={games} players={players} tables={tables} present={present} nowMin={nowMin} busy={busy} onCreate={createTable} />
-      <TablesSection items={live} nowMin={nowMin} players={players} games={games} label={label} actions={tableActions} busy={busy} />
-      <MovePanel players={players} tables={tables} rows={rows} nowMin={nowMin} label={label} busy={busy} onMove={move} onRemove={remove} />
+      <NewTablePanel games={games} players={everyone} tables={tables} present={present} nowMin={nowMin} busy={busy} onCreate={createTable} />
+      <TablesSection items={live} nowMin={nowMin} players={everyone} games={games} label={label} actions={tableActions} busy={busy} />
+      <MovePanel players={everyone} tables={tables} rows={rows} nowMin={nowMin} label={label} busy={busy} onMove={move} onRemove={remove} />
       <FreeTablesSection rows={rows} people={[...people.now, ...people.soon]} label={label} busy={busy} onSeat={seat} />
       <PeopleSection now={people.now} soon={people.soon} nowMin={nowMin} label={label} busy={busy} onSeat={seat} onArrived={arrived} />
       <p className='text-[11px] text-gray-600 text-center'>Se actualiza solo. Para armar o editar mesas con calma, usá <Link href={`/admin/${code}/${adminToken}/tables`} className='underline'>Gestionar mesas</Link>.</p>

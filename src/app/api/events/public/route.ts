@@ -51,8 +51,10 @@ export async function GET() {
     }
 
     const events = await Promise.all(listable.map(async (d) => {
-      const count = await d.ref.collection('players').count().get();
-      return toPublicEvent(d.id, d.data() as MeepleEvent, count.data().count, now, pins.get(d.id) ?? null);
+      const players = d.ref.collection('players');
+      // The people the organizers wrote down at a table without the app are not registered
+      const [count, unregistered] = await Promise.all([players.count().get(), players.where('unregistered', '==', true).count().get()]);
+      return toPublicEvent(d.id, d.data() as MeepleEvent, count.data().count - unregistered.data().count, now, pins.get(d.id) ?? null);
     }));
     const list = events.filter((e): e is PublicEvent => e !== null).sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
     return NextResponse.json({ events: list });

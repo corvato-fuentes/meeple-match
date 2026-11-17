@@ -109,7 +109,8 @@ export default function BoardPage() {
 
   useEffect(() => {
     getEvent(code).then(setEvent);
-    getPlayers(code).then(setPlayers);
+    // Names only: the people written down without the app also sit at tables
+    getPlayers(code, { withUnregistered: true }).then(setPlayers);
     getGames(code).then(setGames);
     const unsub = subscribeTables(code, (ts) =>
       setTables(ts.filter((t) => t.status !== 'cancelled'))

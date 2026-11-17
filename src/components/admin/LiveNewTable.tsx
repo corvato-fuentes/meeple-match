@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { DEFAULT_NEW_GAME_TIMES, DURATION_CHOICES, findGameByText, newGameMinutes, proposedMinutes, suggestGames, type NewGameTimes } from '@/lib/improvised';
 import { addMinutes, isFreeBetween } from '@/lib/liveBoard';
 import { isTentative } from '@/lib/registration';
+import { isUnregistered } from '@/lib/unregistered';
 import { toTimeString } from '@/lib/timeUtils';
 import type { Game, Player, Table } from '@/lib/types';
 
@@ -13,7 +14,8 @@ export interface NewTableInput {
   startTime: string;
   endTime: string;
   playerIds: string[];
-  guestCount: number;
+  /** One name per person who sits without the app (empty = "Invitado N"). */
+  guestNames: string[];
 }
 
 const field = 'w-full border border-gray-700 bg-gray-900 rounded-lg px-2 py-1 text-sm';
@@ -47,7 +49,9 @@ export default function NewTablePanel({ games, players, tables, present, nowMin,
   const [chosen, setChosen] = useState<Game | null>(null);
   const [minutes, setMinutes] = useState<number | null>(null); // null = the proposal, until the organizers change it
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [guests, setGuests] = useState(0);
+  // The people who sit without the app, one name each (a name can stay empty)
+  const [guestList, setGuestList] = useState<string[]>([]);
+  const guests = guestList.length;
   const [search, setSearch] = useState('');
   // Only for a game that isn't loaded yet
   const [minP, setMinP] = useState(2);
@@ -86,7 +90,7 @@ export default function NewTablePanel({ games, players, tables, present, nowMin,
   function chooseGame(g: Game) { setChosen(g); setGameText(g.name); setMinutes(null); }
   function toggle(id: string) { setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
   function reset() {
-    setGameText(''); setChosen(null); setMinutes(null); setPicked(new Set()); setGuests(0); setSearch('');
+    setGameText(''); setChosen(null); setMinutes(null); setPicked(new Set()); setGuestList([]); setSearch('');
     setMinP(2); setMaxP(4); setTimes(DEFAULT_NEW_GAME_TIMES);
   }
   function create() {
@@ -95,7 +99,7 @@ export default function NewTablePanel({ games, players, tables, present, nowMin,
       game: game
         ? { id: game.id, name: game.name }
         : { id: null, name: typed, minPlayers: minP, maxPlayers: maxP, ...times },
-      startTime: toTimeString(nowMin), endTime: finalEnd, playerIds, guestCount: guests,
+      startTime: toTimeString(nowMin), endTime: finalEnd, playerIds, guestNames: guestList,
     });
     reset();
     setOpen(false);
@@ -163,7 +167,7 @@ export default function NewTablePanel({ games, players, tables, present, nowMin,
           </div>
 
           <div className='space-y-1.5'>
-            <p className='text-xs text-gray-400'>Quiénes juegan, de los anotados en la app (los libres durante todo ese rato)</p>
+            <p className='text-xs text-gray-400'>Quiénes juegan, de los anotados en la app y de los que ya anotaste sin la app (los libres durante todo ese rato)</p>
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder='Buscar por nombre…'
               className='w-full border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm' />
             <ul className='max-h-52 overflow-y-auto space-y-0.5 border border-gray-800 rounded-lg p-1.5'>
@@ -174,6 +178,7 @@ export default function NewTablePanel({ games, players, tables, present, nowMin,
                     <input type='checkbox' checked={picked.has(p.id)} onChange={() => toggle(p.id)} />
                     <span className='truncate'>{p.name}</span>
                     {present.has(p.id) && <span className='text-[11px] text-green-400 shrink-0'>en el lugar</span>}
+                    {isUnregistered(p) && <span className='text-[11px] text-purple-300 shrink-0'>sin app</span>}
                   </label>
                 </li>
               ))}
@@ -181,16 +186,22 @@ export default function NewTablePanel({ games, players, tables, present, nowMin,
             {busyCount > 0 && <p className='text-[11px] text-gray-500'>{busyCount} más tienen otra mesa en ese rato. Si una de ellas dejó su mesa, sacala primero desde «Cambió de mesa o se fue».</p>}
           </div>
 
-          <div className='flex items-center justify-between gap-3'>
-            <div>
-              <p className='text-sm'>Otras personas que juegan y no están en la app</p>
-              <p className='text-[11px] text-gray-500'>Alguien que se sumó sin anotarse. No tienen nombre acá: solo cuentan para que la mesa tenga sus lugares ocupados.</p>
-            </div>
-            <div className='flex items-center gap-2 shrink-0'>
-              <button onClick={() => setGuests((n) => Math.max(0, n - 1))} aria-label='Una menos' className='w-8 h-8 rounded-lg border border-gray-700 hover:bg-gray-800'>−</button>
-              <span className='w-6 text-center font-medium'>{guests}</span>
-              <button onClick={() => setGuests((n) => Math.min(20, n + 1))} aria-label='Una más' className='w-8 h-8 rounded-lg border border-gray-700 hover:bg-gray-800'>+</button>
-            </div>
+          <div className='space-y-1.5'>
+            <p className='text-sm'>Otras personas que juegan y no están en la app</p>
+            <p className='text-[11px] text-gray-500'>Alguien que se sumó sin anotarse. Quedan anotadas como «sin app»: ocupan su lugar en la mesa y después las podés sentar en otras, pero no votan ni reciben nada.</p>
+            {guestList.map((name, i) => (
+              <div key={i} className='flex items-center gap-2'>
+                <input value={name} maxLength={40} onChange={(e) => setGuestList((l) => l.map((x, j) => (j === i ? e.target.value : x)))}
+                  placeholder={'Nombre (si no, queda «Invitado»)'} aria-label={`Nombre de la persona ${i + 1} sin la app`}
+                  className='flex-1 border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm' />
+                <button onClick={() => setGuestList((l) => l.filter((_, j) => j !== i))} aria-label='Quitar'
+                  className='w-8 h-8 rounded-lg border border-gray-700 hover:bg-gray-800 shrink-0'>×</button>
+              </div>
+            ))}
+            {guests < 20 && (
+              <button onClick={() => setGuestList((l) => [...l, ''])}
+                className='text-xs border border-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-800'>+ Agregar a alguien sin la app</button>
+            )}
           </div>
 
           <div className='flex items-center justify-between gap-3'>
