@@ -247,7 +247,7 @@ export default function TablesPage() {
                             onChange={(e) => updateTableStatus(code, t.id, e.target.value as Table['status'], true)}
                             className='text-sm border border-gray-700 bg-gray-900 rounded-lg px-2 py-1'
                           >
-                            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s === 'recommended' && t.postedByOwner ? 'postulada' : STATUS_LABEL[s]}</option>)}
+                            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s === 'recommended' && t.postedByOwner ? 'propuesta' : STATUS_LABEL[s]}</option>)}
                           </select>
                           {!isEditing && t.status === 'recommended' && isIdealTable(t) && (
                             <button onClick={() => updateTableStatus(code, t.id, 'confirmed', true)}

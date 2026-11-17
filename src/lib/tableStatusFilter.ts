@@ -6,7 +6,7 @@ export type StatusFilter = 'all' | 'recommended' | 'posted' | 'confirmed' | 'in-
 export const STATUS_FILTERS: { key: StatusFilter; label: string; activeClass: string }[] = [
   { key: 'all', label: 'Todas', activeClass: 'bg-gray-200 border-gray-200 text-gray-900' },
   { key: 'recommended', label: '💡 Recomendadas', activeClass: 'bg-indigo-500 border-indigo-500 text-white' },
-  { key: 'posted', label: '📣 Postuladas', activeClass: 'bg-purple-500 border-purple-500 text-white' },
+  { key: 'posted', label: '📣 Propuestas', activeClass: 'bg-purple-500 border-purple-500 text-white' },
   { key: 'confirmed', label: '✅ Confirmadas', activeClass: 'bg-green-600 border-green-600 text-black' },
   { key: 'in-progress', label: '🟢 En curso', activeClass: 'bg-emerald-500 border-emerald-500 text-black' },
   { key: 'completed', label: '🏁 Completadas', activeClass: 'bg-gray-500 border-gray-500 text-white' },
@@ -53,7 +53,7 @@ export function tableMetrics(tables: Pick<Table, 'status' | 'postedByOwner' | 'e
 
 /**
  * Does the table belong under this chip. A table still waiting for players is "recommended" when the algorithm proposed it and
- * "postulada" when its owner posted it (the admin's state menu already calls them that), so each is its own chip.
+ * "propuesta" when its owner posted it (the admin's state menu already calls them that), so each is its own chip.
  */
 export function matchesStatusFilter(t: Pick<Table, 'status' | 'postedByOwner'>, filter: StatusFilter): boolean {
   if (filter === 'all') return true;

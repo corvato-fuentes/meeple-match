@@ -23,7 +23,7 @@ export default function VotingHelp() {
               <li><strong>🔁 ¿Otra mesa?:</strong> cuando aceptes una mesa recomendada, te va a preguntar ahí mismo si querés sumarte también a una segunda mesa del mismo juego más adelante.</li>
             </ul>
             <p className="text-gray-400">
-              Cuando el sistema encuentra un horario en común para suficiente gente, te va a proponer esa mesa como
+              Cuando el sistema encuentra un horario en común para suficiente gente, te va a recomendar esa mesa como
               “recomendada” — ahí la aceptás o la rechazás. Una vez que llega al mínimo de aceptados, se confirma.
             </p>
             <button onClick={() => setOpen(false)}

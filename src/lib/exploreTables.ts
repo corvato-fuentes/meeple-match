@@ -81,7 +81,7 @@ function labelOf(args: { table: Table; step: TableStep; mine: boolean; offered: 
   // Still gathering people
   if (table.awaitingExplainer) return offered ? 'Buscamos quien la explique' : 'Esperando quien la explique';
   if (mine) return 'Anotado · falta gente';
-  if (offered && !table.postedByOwner) return 'Te la proponemos';
+  if (offered && !table.postedByOwner) return 'Te la recomendamos';
   if (table.postedByOwner) return offered || openForYou ? 'Abierta, sumate' : 'Abierta';
   return 'Esperando gente';
 }
