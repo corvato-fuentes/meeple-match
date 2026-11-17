@@ -19,11 +19,11 @@ describe('planPushes — what is due', () => {
     const t = table({ id: 'k', status: 'confirmed', candidateIds: ['p1', 'p2'], playerIds: ['p2', 'p3'], startTime: '16:00', endTime: '17:00' });
     expect(kinds(plan([t], ['p1', 'p2', 'p3']))).toEqual(['confirmed:p2', 'confirmed:p3', 'offer:p1']);
   });
-  it('offers a table an owner posted to the interested people too, and sends them to the posted tables screen', () => {
+  it('offers a table an owner posted to the interested people too, and sends them to Explorar mesas', () => {
     const t = table({ id: 'p', postedByOwner: true, candidateIds: ['p1'], playerIds: ['p9'], startTime: '15:00', endTime: '16:00' });
     expect(kinds(plan([t], ['p1', 'p2']))).toEqual(['offer:p1']);
     const [m] = composePayloads(plan([t], ['p1']), { code: 'ABC123', ticketCode: 'T1', slotByTableId: new Map(), nowMinutes: 600 });
-    expect(m.payload.url).toBe('/event/ABC123/postulated?ticket=T1');
+    expect(m.payload.url).toBe('/event/ABC123/mesas?ticket=T1');
   });
   it('never offers again a table the player rejected, nor a posted one they were not offered', () => {
     expect(plan([table({ candidateIds: ['p1'], rejectedIds: ['p1'] })], ['p1'])).toHaveLength(0);
@@ -68,11 +68,11 @@ describe('planPushes — what is skipped', () => {
 describe('composePayloads — what each message says', () => {
   const ctx = { code: 'ABC123', ticketCode: 'TK1 ?', slotByTableId: new Map([['c1', 3]]), nowMinutes: 600 };
 
-  it('a single offer names the table and opens the recommended page with the ticket in the link', () => {
+  it('a single offer names the table and opens Explorar mesas with the ticket in the link', () => {
     const [m] = composePayloads(plan([table({ id: 'o1', candidateIds: ['p1'], startTime: '14:00', endTime: '15:00' })], ['p1']), ctx);
     expect(m.payload.title).toBe('🟡 Te ofrecen una mesa');
     expect(m.payload.body).toContain('Catan · 14:00–15:00');
-    expect(m.payload.url).toBe('/event/ABC123/recommended?ticket=TK1%20%3F');
+    expect(m.payload.url).toBe('/event/ABC123/mesas?ticket=TK1%20%3F');
     expect(m.payload.ttl).toBe(3600);
   });
   it('several offers are folded into one message', () => {

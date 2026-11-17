@@ -97,8 +97,8 @@ export function composePayloads(items: PlannedPush[], ctx: ComposeContext): { pa
   const slotText = (t: Table) => { const s = ctx.slotByTableId.get(t.id); return s != null ? ` · Mesa #${s}` : ''; };
 
   const offers = byKind('offer');
-  // Offers of tables owners posted are answered on the Mesas postuladas screen; the rest, on Mesas recomendadas
-  const offersUrl = `/event/${ctx.code}/${offers.length > 0 && offers.every((o) => o.table.postedByOwner) ? 'postulated' : 'recommended'}${ticketQuery}`;
+  // Every offer is answered on "Explorar mesas", which opens on what is waiting for the person
+  const offersUrl = `/event/${ctx.code}/mesas${ticketQuery}`;
   if (offers.length === 1) {
     const t = offers[0].table;
     out.push({
