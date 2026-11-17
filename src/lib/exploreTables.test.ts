@@ -3,7 +3,7 @@ import { attentionCount, chipCounts, chipsFor, clashesOf, durationLine, explaine
 
 const game = (id: string, maxPlayers = 4, minPlayers = 2) => ({ id, name: id.toUpperCase(), maxPlayers, minPlayers }) as never;
 const viewer = (extra: Record<string, unknown> = {}) =>
-  ({ id: 'me', name: 'Yo', arrivalTime: '10:00', departureTime: '20:00', interests: {}, repeatGameIds: [], ...extra }) as never;
+  ({ id: 'me', name: 'Yo', arrivalTime: '10:00', departureTime: '20:00', interests: { dixit: 'yes', azul: 'yes', brass: 'yes' }, repeatGameIds: [], ...extra }) as never;
 const table = (id: string, gameId: string, start: string, end: string, playerIds: string[], extra: Record<string, unknown> = {}) =>
   ({ id, gameId, gameName: gameId.toUpperCase(), startTime: start, endTime: end, playerIds, status: 'recommended', explainerId: playerIds[0] ?? 'x', ...extra }) as never;
 
@@ -30,10 +30,10 @@ describe('exploreRows: the life of a table', () => {
   it('words a posted table, one the person is in, and one waiting for its explainer', () => {
     const r = rows([
       table('posted', 'azul', '12:00', '13:00', ['a'], { postedByOwner: true }),
-      table('mine', 'azul', '14:00', '15:00', ['me', 'a']),
+      table('mine', 'brass', '14:00', '15:00', ['me', 'a']),
       table('exp', 'dixit', '16:00', '17:00', [], { awaitingExplainer: true, candidateIds: ['z'] }),
-      table('plain', 'brass', '17:30', '19:00', ['a']),
-    ]);
+      table('plain', 'dixit', '17:30', '19:00', ['a']),
+    ], viewer({ interests: { dixit: 'yes', brass: 'yes' } }));
     expect(byId(r, 'posted').label).toBe('Abierta');
     expect(byId(r, 'mine').label).toBe('Anotado · falta gente');
     expect(byId(r, 'exp').label).toBe('Esperando quien la explique');
@@ -60,7 +60,8 @@ describe('exploreRows: a game voted "no me interesa"', () => {
     expect(counts['for-you']).toBe(0);
     expect(counts.rejected).toBe(0);
     expect(counts.done).toBe(0);
-    expect(counts.all).toBe(2);
+    expect(counts.all).toBe(1);
+    expect(counts.unvoted).toBe(1);
   });
   it('a game they voted yes, or never voted, still shows', () => {
     const r = rows(tables, v);
@@ -124,7 +125,7 @@ describe('exploreRows: the filters', () => {
 
   it('counts every filter, and none is ever missing', () => {
     expect(chipCounts(r)).toEqual({
-      'for-you': 1, all: 5, mine: 1, recommended: 1, posted: 1, confirmed: 2, playing: 1, free: 3, rejected: 1, done: 1,
+      'for-you': 2, all: 5, mine: 1, recommended: 1, posted: 1, confirmed: 2, playing: 1, free: 3, unvoted: 0, rejected: 1, done: 1,
     });
   });
   it('keeps the rejected and the finished apart from "Todas", but still there under their own filter', () => {
@@ -139,6 +140,45 @@ describe('exploreRows: the filters', () => {
   it('a table whose hour has come takes no more people', () => {
     const started = exploreRows({ viewer: viewer(), tables: tables as never, games, bufferMinutes: 15, started: (t) => t.id === 'confOpen' });
     expect(started.find((x) => x.table.id === 'confOpen')!.chips.has('free')).toBe(false);
+  });
+});
+
+describe('exploreRows: a game never voted ("Sin votar")', () => {
+  const v = viewer({ interests: { dixit: 'yes' } });
+  const tables = [
+    table('u-forming', 'azul', '12:00', '13:00', ['a']),
+    table('u-posted', 'brass', '13:30', '15:30', ['a'], { postedByOwner: true }),
+    table('u-conf', 'azul', '14:00', '15:00', ['a', 'b'], { status: 'confirmed' }),
+    table('u-full', 'azul', '16:00', '17:00', ['a', 'b', 'c', 'd'], { status: 'confirmed' }),
+    table('u-play', 'azul', '10:00', '11:00', ['a', 'b'], { status: 'in-progress' }),
+    table('u-done', 'azul', '08:00', '09:00', ['a', 'b'], { status: 'completed' }),
+    table('u-late', 'azul', '21:00', '22:00', ['a']),
+    table('u-offer', 'brass', '17:00', '19:30', ['a'], { candidateIds: ['me'] }),
+    table('yes', 'dixit', '12:30', '13:30', ['a']),
+  ];
+  const r = rows(tables, v);
+  it('lives only under "Sin votar", and only while the person could still take it', () => {
+    expect(rowsFor(r, 'unvoted').map((x) => x.table.id)).toEqual(['u-forming', 'u-posted', 'u-conf']);
+    for (const id of ['u-forming', 'u-posted', 'u-conf']) expect([...byId(r, id).chips]).toEqual(['unvoted']);
+  });
+  it('a full table, one underway or finished, or one outside their hours is not shown at all', () => {
+    const ids = r.map((x) => x.table.id);
+    for (const id of ['u-full', 'u-play', 'u-done', 'u-late']) expect(ids).not.toContain(id);
+  });
+  it('does not feed "Todas", "Recomendadas", "Postuladas", "Confirmadas" or "Con lugar"', () => {
+    const c = chipCounts(r);
+    expect(c.unvoted).toBe(3);
+    expect(c.all).toBe(2); // the voted yes one and the offered one
+    expect(c.recommended + c.posted + c.confirmed).toBe(2);
+    expect(c.free).toBe(2);
+  });
+  it('an offered table of a game never voted keeps being for the person, and is not "Sin votar"', () => {
+    expect(byId(r, 'u-offer').unvoted).toBe(false);
+    expect(byId(r, 'u-offer').chips.has('for-you')).toBe(true);
+  });
+  it('a game voted yes or no is never "Sin votar"', () => {
+    expect(byId(r, 'yes').unvoted).toBe(false);
+    expect(rows([table('n', 'azul', '12:00', '13:00', ['a'])], viewer({ interests: { azul: 'no' } }))).toEqual([]);
   });
 });
 
@@ -202,10 +242,10 @@ describe('chipsFor', () => {
     const before = chipsFor(false).map((c) => c.key);
     expect(before).not.toContain('playing');
     expect(before).not.toContain('done');
-    expect(before).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'free', 'rejected']);
+    expect(before).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'free', 'unvoted', 'rejected']);
   });
   it('shows every filter from the day of the event on, in the same order', () => {
-    expect(chipsFor(true).map((c) => c.key)).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'playing', 'free', 'rejected', 'done']);
+    expect(chipsFor(true).map((c) => c.key)).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'playing', 'free', 'unvoted', 'rejected', 'done']);
   });
 });
 

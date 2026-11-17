@@ -16,7 +16,7 @@ import { toMinutes, toTimeString } from './timeUtils';
 export type ExploreChip =
   | 'for-you' | 'all' | 'mine'
   | 'recommended' | 'posted' | 'confirmed' | 'playing' | 'free'
-  | 'rejected' | 'done';
+  | 'unvoted' | 'rejected' | 'done';
 
 /** The order they are shown in: what needs you first, then the state of the tables, then the ones put aside. */
 export const EXPLORE_CHIPS: { key: ExploreChip; label: string }[] = [
@@ -28,6 +28,7 @@ export const EXPLORE_CHIPS: { key: ExploreChip; label: string }[] = [
   { key: 'confirmed', label: 'Confirmadas' },
   { key: 'playing', label: 'En curso' },
   { key: 'free', label: 'Con lugar' },
+  { key: 'unvoted', label: 'Sin votar' },
   { key: 'rejected', label: 'Rechazadas' },
   { key: 'done', label: 'Terminadas' },
 ];
@@ -60,6 +61,8 @@ export interface ExploreRow {
   rejected: boolean;
   /** An open posted table of a game they voted that fits them: it is for them even if nobody offered it. */
   openForYou: boolean;
+  /** A game they never voted (and that wasn't offered to them): it lives only under "Sin votar", the one place where voting sits next to a table. */
+  unvoted: boolean;
   /** What the person can do about its free place, as the rest of the app decides it (null when it isn't open). */
   option: SeatOption | null;
   /** How it is called, in plain words. */
@@ -88,7 +91,7 @@ function labelOf(args: { table: Table; step: TableStep; mine: boolean; offered: 
 
 /**
  * Every table the person can see, with everything the screen needs. Cancelled ones are gone, and so are the tables of a game they voted
- * "no me interesa": they don't show in any filter (unless the person is already in that table, which is never hidden from them). `started` says whether a table's hour has
+ * "no me interesa" (and the ones of a game they never voted that they can't take anymore): they don't show in any filter (unless the person is already in that table, which is never hidden from them). `started` says whether a table's hour has
  * come: a table that started no longer takes people.
  */
 export function exploreRows(args: {
@@ -122,14 +125,18 @@ export function exploreRows(args: {
     const forYou = (offered || openForYou) && !rejected;
     const isStarted = started(table);
     const option = seatOptionFor({ viewer, table, game, tables, started: isStarted });
+    // A game they never voted is not part of their tables: it only shows (under "Sin votar") while they could still take it
+    const unvoted = !inIt && !rejected && !forYou && viewer.interests?.[table.gameId] == null;
+    if (unvoted && !(option && (option.kind === 'vote' || option.kind === 'join'))) continue;
     const open = !!game && (hasOpenSeat(table, game, isStarted) || hasWaitingSeat(table, game, isStarted));
 
     const chips = new Set<ExploreChip>();
-    if (forYou) chips.add('for-you');
+    if (unvoted) chips.add('unvoted');
+    else if (forYou) chips.add('for-you');
     if (mine) chips.add('mine');
     if (rejected) chips.add('rejected');
     if (step === 'done') chips.add('done');
-    if (step !== 'done' && !rejected) {
+    if (step !== 'done' && !rejected && !unvoted) {
       chips.add('all');
       if (step === 'forming') chips.add(table.postedByOwner ? 'posted' : 'recommended');
       if (step === 'confirmed') chips.add('confirmed');
@@ -141,7 +148,7 @@ export function exploreRows(args: {
       table, game, step, taken, max,
       free: max == null ? 0 : Math.max(0, max - taken),
       missing: game ? missingToConfirm(table, game) : 0,
-      mine, offered, rejected, openForYou, option,
+      mine, offered, rejected, openForYou, unvoted, option,
       label: labelOf({ table, step, mine, offered, rejected, openForYou }),
       chips,
     });

@@ -48,18 +48,20 @@ const CHIP_STYLE: Record<ExploreChip, string> = {
   confirmed: 'bg-green-600 border-green-600 text-black',
   playing: 'bg-emerald-500 border-emerald-500 text-black',
   free: 'bg-emerald-600 border-emerald-600 text-white',
+  unvoted: 'bg-indigo-500 border-indigo-500 text-white',
   rejected: 'bg-gray-500 border-gray-500 text-white',
   done: 'bg-gray-500 border-gray-500 text-white',
 };
 const CHIP_HINT: Record<ExploreChip, string> = {
   'for-you': 'Lo que espera tu respuesta: las mesas que te proponemos y las abiertas de juegos que votaste.',
-  all: 'Todas las mesas del evento por horario, sin las que rechazaste ni las que ya terminaron.',
+  all: 'Las mesas de los juegos que votaste, por horario, sin las que rechazaste ni las que ya terminaron.',
   mine: 'Las mesas donde estás anotado o donde explicás.',
-  recommended: 'Las que arma el sistema con los votos de todos.',
+  recommended: 'Las que arma el sistema con los votos de todos, de juegos que votaste.',
   posted: 'Las que armó un jugador con su propio juego, abiertas para sumarse.',
   confirmed: 'Ya llegaron al mínimo: se van a jugar.',
   playing: 'Se están jugando ahora.',
   free: 'Tienen lugar y todavía no empezaron.',
+  unvoted: 'Mesas de juegos que no votaste y que todavía podés tomar. Acá podés decir si te interesan o no; las demás pestañas solo muestran juegos que votaste.',
   rejected: 'Las mesas que rechazaste. Si cambiaste de idea, podés volver a considerarlas.',
   done: 'Las que ya se jugaron.',
 };
@@ -72,6 +74,7 @@ const CHIP_EMPTY: Record<ExploreChip, string> = {
   confirmed: 'Todavía ninguna mesa se confirmó.',
   playing: 'No hay mesas en curso.',
   free: 'Ninguna mesa tiene lugar ahora.',
+  unvoted: 'No hay mesas de juegos sin votar para vos. Los demás juegos los votás en «Votar juegos».',
   rejected: 'No rechazaste ninguna mesa.',
   done: 'Todavía no terminó ninguna mesa.',
 };
