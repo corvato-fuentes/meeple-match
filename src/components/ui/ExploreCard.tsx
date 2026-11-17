@@ -88,15 +88,16 @@ export default function ExploreCard({ row, game, slot, nameOf, viewerId, who, in
             <span className='font-semibold text-gray-100'>{t.gameName}</span>
             <RowLabel row={row} />
           </p>
-          <p className='text-sm text-gray-400'>{t.startTime}–{t.endTime}</p>
-          <p className='text-sm text-gray-400'>{seatsLine(row)}{explainer && ` · ${explainer}`}</p>
+          <p className='text-sm text-gray-400'>🕒 {t.startTime}–{t.endTime}</p>
+          <p className='text-sm text-gray-400'>👥 {seatsLine(row)}</p>
+          {explainer && <p className='text-sm text-gray-400'>🎓 {explainer}</p>}
           {!row.rejected && <StepBar step={row.step} />}
         </div>
       </div>
       {note && <p className='mt-2 text-xs text-amber-300'>{note}</p>}
       {actions && <div className='mt-3 space-y-2'>{actions}</div>}
       <button type='button' onClick={() => setOpen((o) => !o)} aria-expanded={open}
-        className='mt-2 text-xs text-indigo-300 hover:underline'>
+        className='mt-2 block w-full text-center text-xs text-indigo-300 hover:underline'>
         {open ? 'Ocultar detalle ▴' : 'Ver detalle ▾'}
       </button>
       {open && (
