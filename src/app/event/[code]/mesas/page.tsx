@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -19,8 +19,9 @@ import FilterChip from '@/components/ui/FilterChip';
 import PushOptIn from '@/components/ui/PushOptIn';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import {
-  EXPLORE_CHIPS, attentionCount, chipCounts, clashesOf, exploreRows, rowsFor, type ExploreChip, type ExploreRow,
+  EXPLORE_CHIPS, attentionCount, chipCounts, chipsFor, clashesOf, exploreRows, rowsFor, type ExploreChip, type ExploreRow,
 } from '@/lib/exploreTables';
+import { liveAvailability } from '@/lib/liveBoard';
 import { blockedMessage } from '@/lib/freeSeats';
 import { splitConflicts } from '@/lib/scheduleConflicts';
 import { explainEndFor } from '@/lib/explainOnly';
@@ -103,6 +104,8 @@ export default function ExploreTablesPage() {
   const [acceptedOne, setAcceptedOne] = useState(false);
   // The table whose Aceptar opened the overlap popup (so its "Rechazar" knows which table to decline)
   const [acceptingTable, setAcceptingTable] = useState<Table | null>(null);
+  // The game the person just said "no me interesa" to: its tables are gone from the list, and they can take it back
+  const [dismissed, setDismissed] = useState<{ gameId: string; name: string } | null>(null);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -151,8 +154,12 @@ export default function ExploreTablesPage() {
   const counts = chipCounts(rows);
   const attention = attentionCount(rows);
   // Opens on what is waiting for them, whatever it holds; the address can ask for another one (the old links land here)
+  const eventHasStarted = liveAvailability(event.date, todayStr) !== 'before';
+  const chips = chipsFor(eventHasStarted);
   const urlChip = searchParams.get('filtro');
-  const active: ExploreChip = chip ?? (isChip(urlChip) ? urlChip : 'for-you');
+  const wanted: ExploreChip = chip ?? (isChip(urlChip) ? urlChip : 'for-you');
+  // A filter that isn't shown yet (an old address asking for "En curso" before the event) falls back to what is waiting for them
+  const active: ExploreChip = chips.some((c) => c.key === wanted) ? wanted : 'for-you';
   const visible = rowsFor(rows, active);
 
   // ── Actions ───────────────────────────────────────────────────────────────────────────────────────────
@@ -273,6 +280,25 @@ export default function ExploreTablesPage() {
     else await respond(t, accept, true);
   }
 
+  // "No me interesa este juego": the vote is saved and every table of that game leaves the list (see exploreRows)
+  async function setGameInterest(gameId: string, name: string, level: 'no' | null) {
+    if (!player) return;
+    const interests = { ...player.interests };
+    if (level) interests[gameId] = level; else delete interests[gameId];
+    const before = player;
+    setPlayer({ ...player, interests });
+    setDismissed(level ? { gameId, name } : null);
+    try {
+      await updatePlayerWishlist(code, player.id, {
+        interests, canExplain: player.canExplain, playedGameIds: player.playedGameIds ?? [], repeatGameIds: player.repeatGameIds ?? [],
+      });
+    } catch {
+      setPlayer(before);
+      setDismissed(null);
+      window.alert('No se pudo guardar tu voto. Probá de nuevo.');
+    }
+  }
+
   // "Rechazar" inside the overlap popup: closes it (cancelling the accept) and declines that table
   async function rejectFromConflictPopup() {
     const t = acceptingTable;
@@ -370,6 +396,21 @@ export default function ExploreTablesPage() {
     return null;
   }
 
+  // A game they never voted can be put aside right from its table, next to the offer to vote it
+  function withDismiss(r: ExploreRow, actions: ReactNode) {
+    const canDismiss = !!r.game && player!.interests?.[r.table.gameId] == null && !r.mine && !r.rejected && r.step !== 'done';
+    if (!canDismiss) return actions;
+    return (
+      <>
+        {actions}
+        <button onClick={() => setGameInterest(r.table.gameId, r.table.gameName, 'no')}
+          className="w-full text-xs text-gray-400 hover:text-gray-200 border border-gray-800 rounded-lg py-1.5 hover:bg-gray-800">
+          👎 No me interesa este juego
+        </button>
+      </>
+    );
+  }
+
   function card(r: ExploreRow) {
     const t = r.table;
     const posted = !!t.postedByOwner;
@@ -386,7 +427,7 @@ export default function ExploreTablesPage() {
             who={posted ? <PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} /> : <RecommendedWho t={t} game={r.game} nameOf={nameOf} />}
             note={note} badge={<RowLabel row={r} />} />
         }
-        actions={actionsFor(r)} />
+        actions={withDismiss(r, actionsFor(r))} />
     );
   }
 
@@ -408,6 +449,13 @@ export default function ExploreTablesPage() {
 
       {acceptedOne && <PushOptIn code={code} ticketCode={player.ticketCode} variant="prompt" />}
 
+      {dismissed && (
+        <div role="status" className="flex items-start justify-between gap-3 text-sm border border-gray-700 bg-gray-800/60 text-gray-200 rounded-xl px-3 py-2">
+          <p>👎 Listo: ya no te mostramos las mesas de <strong>{dismissed.name}</strong>. Si cambiás de idea, lo encontrás en «Juegos de todos» → Ocultados.</p>
+          <button onClick={() => setGameInterest(dismissed.gameId, dismissed.name, null)} className="shrink-0 text-indigo-300 hover:underline">Deshacer</button>
+        </div>
+      )}
+
       {tentative && (
         <p className="text-sm text-amber-300 border border-amber-800 bg-amber-950/30 rounded-xl px-3 py-2">
           Estás anotado como indeciso: mandá el comprobante desde tu ticket para poder sumarte a mesas.
@@ -423,7 +471,7 @@ export default function ExploreTablesPage() {
 
       <section>
         <div className="flex flex-wrap gap-2 mb-2">
-          {EXPLORE_CHIPS.map((c) => {
+          {chips.map((c) => {
             // The counter turns into a flag when that filter holds something waiting for them
             const hot = c.key === 'for-you' || c.key === 'recommended' || c.key === 'posted'
               ? rowsFor(rows, c.key).filter((r) => r.chips.has('for-you')).length : 0;

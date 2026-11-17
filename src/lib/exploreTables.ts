@@ -32,6 +32,14 @@ export const EXPLORE_CHIPS: { key: ExploreChip; label: string }[] = [
   { key: 'done', label: 'Terminadas' },
 ];
 
+/**
+ * The filters to show. "En curso" and "Terminadas" only mean something from the day of the event: before it nothing is underway or
+ * over, so they would be two dead chips. From the day of the event they are always there.
+ */
+export function chipsFor(eventHasStarted: boolean): { key: ExploreChip; label: string }[] {
+  return EXPLORE_CHIPS.filter((c) => eventHasStarted || (c.key !== 'playing' && c.key !== 'done'));
+}
+
 /** Where a table is in its life: still gathering people, set, being played, finished. */
 export type TableStep = 'forming' | 'confirmed' | 'playing' | 'done';
 

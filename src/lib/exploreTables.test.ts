@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attentionCount, chipCounts, clashesOf, exploreRows, rowsFor } from './exploreTables';
+import { attentionCount, chipCounts, chipsFor, clashesOf, exploreRows, rowsFor } from './exploreTables';
 
 const game = (id: string, maxPlayers = 4, minPlayers = 2) => ({ id, name: id.toUpperCase(), maxPlayers, minPlayers }) as never;
 const viewer = (extra: Record<string, unknown> = {}) =>
@@ -139,6 +139,18 @@ describe('exploreRows: the filters', () => {
   it('a table whose hour has come takes no more people', () => {
     const started = exploreRows({ viewer: viewer(), tables: tables as never, games, bufferMinutes: 15, started: (t) => t.id === 'confOpen' });
     expect(started.find((x) => x.table.id === 'confOpen')!.chips.has('free')).toBe(false);
+  });
+});
+
+describe('chipsFor', () => {
+  it('leaves out "En curso" and "Terminadas" until the day of the event', () => {
+    const before = chipsFor(false).map((c) => c.key);
+    expect(before).not.toContain('playing');
+    expect(before).not.toContain('done');
+    expect(before).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'free', 'rejected']);
+  });
+  it('shows every filter from the day of the event on, in the same order', () => {
+    expect(chipsFor(true).map((c) => c.key)).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'playing', 'free', 'rejected', 'done']);
   });
 });
 
