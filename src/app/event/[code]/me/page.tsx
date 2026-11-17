@@ -8,7 +8,6 @@ import {
   postTable, updatePlayerProfile, leaveTable,
 } from '@/lib/firestore';
 import { runTableGeneration } from '@/lib/tableGeneration';
-import { isOfferFor } from '@/lib/offers';
 import { isFirmTable } from '@/lib/freeSeats';
 import { isExplainOnly } from '@/lib/explainOnly';
 import { countGames } from '@/lib/gameCounts';
@@ -27,6 +26,7 @@ import PlayerCountFields from '@/components/ui/PlayerCountFields';
 import LeaveTableConfirm from '@/components/ui/LeaveTableConfirm';
 import ShareTableButton from '@/components/ui/ShareTableButton';
 import ReceiptNotice from '@/components/ui/ReceiptNotice';
+import { attentionCount, exploreRows } from '@/lib/exploreTables';
 import { isTentative, receiptStateOf, owesReceipt, confirmedPlayers } from '@/lib/registration';
 import { tablesToExplore } from '@/lib/explore';
 import { isShareableTable, pendingTableKey } from '@/lib/shareTable';
@@ -505,17 +505,10 @@ export default function MyTicketPage() {
   // Counters on the two table buttons, kept to what's actionable so they never become noise:
   // recommended tables waiting for MY answer, and open posted tables for games I voted 👍 on that
   // still have a free seat and fit my schedule.
-  const pendingRecommendedCount = allTables.filter(
-    (t) => isOfferFor(t, player.id, games.find((g) => g.id === t.gameId))
-  ).length;
-  const joinablePostedCount = allTables.filter((t) => {
-    if (!t.postedByOwner || t.status !== 'recommended') return false;
-    if (t.playerIds.includes(player.id) || t.explainerId === player.id) return false;
-    if (interests[t.gameId] !== 'yes' || (t.rejectedIds ?? []).includes(player.id)) return false;
-    const game = games.find((g) => g.id === t.gameId);
-    if (!game || t.playerIds.length >= game.maxPlayers) return false;
-    return isPlayerFreeFor(t.startTime, t.endTime, true);
-  }).length;
+  // What is waiting for the person is counted the way the "Explorar mesas" screen counts it (its "Para vos"), so the two always agree
+  const attentionN = isTentative(player) ? 0 : attentionCount(exploreRows({
+    viewer: player, tables: allTables, games, bufferMinutes: event.settings.bufferMinutes, started: () => false,
+  }));
   // Games nobody has asked this player about yet: votes are what the tables are built from, so they are worth a nudge.
   // A merged game is voted once (on its primary entry).
   // Tables of games they want that their full agenda keeps the system from offering: worth a look, never pushed (no notification)
@@ -899,26 +892,17 @@ export default function MyTicketPage() {
           </div>
           {/* What is waiting for you, right under the title where you look first (the counters on the two buttons below
               are easy to miss): only shown when there is something to do, and each line goes to that screen. */}
-          {(pendingRecommendedCount > 0 || joinablePostedCount > 0 || unvotedGamesCount > 0 || exploreCount > 0) && (
+          {(attentionN > 0 || unvotedGamesCount > 0 || exploreCount > 0) && (
             <div className="space-y-2 mb-3">
-              {pendingRecommendedCount > 0 && (
-                <Link href={`/event/${code}/recommended?ticket=${player.ticketCode}`}
+              {attentionN > 0 && (
+                <Link href={`/event/${code}/mesas?ticket=${player.ticketCode}`}
                   className="flex items-center justify-between gap-3 border border-amber-700 bg-amber-950/30 text-amber-200 rounded-xl px-3 py-2.5 text-sm hover:bg-amber-950/50">
-                  <span>🟡 Tenés <strong>{pendingRecommendedCount}</strong> {pendingRecommendedCount === 1 ? 'mesa' : 'mesas'} por aceptar</span>
-                  <span aria-hidden="true">→</span>
-                </Link>
-              )}
-              {joinablePostedCount > 0 && (
-                <Link href={`/event/${code}/postulated?ticket=${player.ticketCode}`}
-                  className="flex items-center justify-between gap-3 border border-purple-700 bg-purple-950/30 text-purple-200 rounded-xl px-3 py-2.5 text-sm hover:bg-purple-950/50">
-                  <span>
-                    📣 Hay <strong>{joinablePostedCount}</strong> {joinablePostedCount === 1 ? 'mesa postulada abierta' : 'mesas postuladas abiertas'} para vos
-                  </span>
+                  <span>🔔 Hay <strong>{attentionN}</strong> {attentionN === 1 ? 'mesa esperando' : 'mesas esperando'} tu respuesta</span>
                   <span aria-hidden="true">→</span>
                 </Link>
               )}
               {exploreCount > 0 && (
-                <Link href={`/event/${code}/explorar?ticket=${player.ticketCode}`}
+                <Link href={`/event/${code}/mesas?filtro=all&ticket=${player.ticketCode}`}
                   className="flex items-center justify-between gap-3 border border-gray-600 bg-gray-800/60 text-gray-200 rounded-xl px-3 py-2.5 text-sm hover:bg-gray-800">
                   <span>👀 Hay <strong>{exploreCount}</strong> {exploreCount === 1 ? 'mesa' : 'mesas'} de juegos que querés que se pisan con tu agenda</span>
                   <span aria-hidden="true">→</span>
@@ -1009,38 +993,17 @@ export default function MyTicketPage() {
               })}
             </div>
           )}
-          <div className="grid grid-cols-2 gap-2 mt-3">
-            <Link href={`/event/${code}/recommended?ticket=${player.ticketCode}`}
-              className="flex items-center justify-center gap-1.5 text-sm border border-amber-800 text-amber-300 rounded-xl px-2 py-2 hover:bg-amber-950/30">
-              <span>🟡 Mesas recomendadas</span>
-              {countBadge(pendingRecommendedCount, 'bg-amber-500 text-black', pendingRecommendedCount === 1 ? 'mesa esperando tu respuesta' : 'mesas esperando tu respuesta')}
-              <HelpPopover title="🟡 Mesas recomendadas">
-                <p>El algoritmo arma mesas según tus votos y te ofrece un lugar en ellas.</p>
-                <p>Los juegos que llevás también se recomiendan automáticamente a quienes los votan.</p>
-                <p>Ahí las podés aceptar o rechazar, y también es donde votás qué juegos te interesan.</p>
-                <p>El número indica cuántas mesas están esperando tu respuesta.</p>
-              </HelpPopover>
-            </Link>
-            <Link href={`/event/${code}/postulated?ticket=${player.ticketCode}`}
-              className="flex items-center justify-center gap-1.5 text-sm border border-purple-800 text-purple-300 rounded-xl px-2 py-2 hover:bg-purple-950/30">
-              <span>📣 Mesas postuladas</span>
-              {countBadge(joinablePostedCount, 'bg-purple-400 text-black', joinablePostedCount === 1 ? 'mesa abierta de un juego que querés jugar' : 'mesas abiertas de juegos que querés jugar')}
-              <HelpPopover title="📣 Mesas postuladas">
-                <p>Acá vas a ver las mesas que vos mismo postulaste, y las que postularon otros jugadores para sumarte con un toque.</p>
-                <p>Cuando una mesa junta el mínimo de jugadores necesario, se confirma sola.</p>
-                <p>
-                  Cómo se lleva con las recomendadas: una mesa postulada tiene prioridad. Toma el lugar de las recomendadas del mismo juego
-                  que se pisen con ella, y mientras esté publicada la copia del juego queda ocupada a esa hora (si hay una sola, el algoritmo
-                  no arma otra mesa de ese juego encima).
-                </p>
-                <p>
-                  A quienes votaron el juego y les queda bien el horario se la ofrece como a cualquier recomendación (aceptan o rechazan);
-                  el resto puede sumarse directo con un toque.
-                </p>
-                <p>El número indica cuántas mesas abiertas son de juegos que votaste 👍, todavía tienen lugar y te quedan libres en ese horario.</p>
-              </HelpPopover>
-            </Link>
-          </div>
+          <Link href={`/event/${code}/mesas?ticket=${player.ticketCode}`}
+            className="mt-3 flex items-center justify-center gap-2 text-sm font-medium border border-indigo-700 bg-indigo-950/30 text-indigo-200 rounded-xl px-3 py-2.5 hover:bg-indigo-950/50">
+            <span>🎲 Explorar mesas</span>
+            {countBadge(attentionN, 'bg-amber-500 text-black', attentionN === 1 ? 'mesa esperando tu respuesta' : 'mesas esperando tu respuesta')}
+            <HelpPopover title="🎲 Explorar mesas">
+              <p>Todas las mesas del evento en un solo lugar: las que te proponemos, las que armó otro jugador y están abiertas, las confirmadas y las que se están jugando.</p>
+              <p>Abre en «Para vos»: lo que espera tu respuesta. El número indica cuántas mesas son.</p>
+              <p>Con los filtros de arriba ves cada estado con su cantidad. Las que rechazaste y las que ya terminaron quedan en sus propios filtros: no desaparecen.</p>
+              <p>Si traés un juego, para armar una mesa tuya usá «Proponer mesa» en «Tus juegos».</p>
+            </HelpPopover>
+          </Link>
         </section>
 
         <section className="pt-6">

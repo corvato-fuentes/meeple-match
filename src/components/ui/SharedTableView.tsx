@@ -121,7 +121,7 @@ export default function SharedTableView({ code, tableId, preview }: { code: stri
 
   // Signed in
   const ticketHref = `/event/${code}/me?ticket=${player.ticketCode}`;
-  const openTablesHref = `/event/${code}/postulated?ticket=${player.ticketCode}`;
+  const openTablesHref = `/event/${code}/mesas?filtro=all&libres=1&ticket=${player.ticketCode}`;
   if (event && computeEventStatus(event.date, event.startTime, event.endTime) === 'closed') {
     return shell(<p className="text-center text-sm text-gray-300">Este evento ya terminó.</p>);
   }

@@ -16,6 +16,7 @@ import AnnounceCard from '@/components/ui/AnnounceCard';
 import Time24Input from '@/components/ui/Time24Input';
 import { countGames } from '@/lib/gameCounts';
 import { tableMetrics } from '@/lib/tableStatusFilter';
+import { liveAvailability, localDateString } from '@/lib/liveBoard';
 import { tentativeCount, registrationModeOf, settingsForMode, owesReceipt, receiptStateOf } from '@/lib/registration';
 import { remindReceipts } from '@/lib/paymentReviewClient';
 import type { MeepleEvent, Player, Table, Game } from '@/lib/types';
@@ -661,11 +662,19 @@ export default function AdminPage() {
 
       {/* Actions */}
       <div className='flex flex-col gap-3'>
-        {/* The screen for the day itself: free places, people without a table, moving people around. Highlighted while the event is live */}
-        <Link href={`/admin/${code}/${adminToken}/live`}
-          className={'rounded-xl px-5 py-2 font-semibold text-center ' + (eventStatus === 'live' ? 'bg-red-600 text-white hover:bg-red-700' : 'border border-red-900 text-red-300 hover:bg-red-950/40')}>
-          🔴 En vivo
-        </Link>
+        {/* The screen for the day itself: free places, people without a table, moving people around. It has nothing to manage before the
+            day of the event, so until then it is shown switched off, with the reason. Highlighted while the event is live */}
+        {liveAvailability(event.date, localDateString(new Date())) === 'before' ? (
+          <div className='rounded-xl px-5 py-2 text-center border border-gray-800 text-gray-500' aria-disabled='true'>
+            <p className='font-semibold'>🔴 En vivo</p>
+            <p className='text-xs'>Se activa el día del evento</p>
+          </div>
+        ) : (
+          <Link href={`/admin/${code}/${adminToken}/live`}
+            className={'rounded-xl px-5 py-2 font-semibold text-center ' + (eventStatus === 'live' ? 'bg-red-600 text-white hover:bg-red-700' : 'border border-red-900 text-red-300 hover:bg-red-950/40')}>
+            🔴 En vivo
+          </Link>
+        )}
         <Link href={`/admin/${code}/${adminToken}/checkin`} className='border border-green-800 text-green-300 rounded-xl px-5 py-2 font-medium hover:bg-green-950/40 text-center'>
           ✅ Check-in (QR)
         </Link>

@@ -9,6 +9,17 @@ import { sameGameOverlaps } from './tableAlgorithm';
  * table, and where each of them fits. Pure: the page gives it the clock (`nowMin`, minutes since midnight) and the data.
  */
 
+/** A date as the device writes it: YYYY-MM-DD, in local time. */
+export const localDateString = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/**
+ * Whether the "En vivo" screen has anything to manage: not before the day of the event (nothing is happening yet), on the day, or after
+ * it (leftovers to tidy). Dates are YYYY-MM-DD, so they compare as text.
+ */
+export type LiveAvailability = 'before' | 'today' | 'after';
+export const liveAvailability = (eventDate: string, today: string): LiveAvailability =>
+  today < eventDate ? 'before' : today === eventDate ? 'today' : 'after';
+
 /** A free gap shorter than this is not worth offering a table for. */
 export const MIN_FREE_MINUTES = 30;
 /** "Próximamente": people who will be free within this many minutes. */
