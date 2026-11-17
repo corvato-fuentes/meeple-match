@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getEvent, verifyAdminToken, subscribeTables, subscribePlayers, subscribeAllGames, seatPlayerAtTable, removePlayerFromTable,
+  getEvent, verifyAdminToken, subscribeTables, subscribePlayers, subscribeAllGames, seatPlayerAtTable, removePlayerFromTable, seatNewUnregistered, deleteUnregisteredPlayer,
   getTableById, updateTableStatus, updateTable, setTableEnd, createImprovisedTable,
 } from '@/lib/firestore';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
@@ -131,6 +131,20 @@ export default function LivePage() {
     // Seating someone at a table that is running or about to start means they are there
     if (impliesPresence(row)) await markPresent(player.id).catch(() => {});
     return `${player.name} quedó en ${label(row.table)}.`;
+  });
+
+  // Someone who isn't in the app, written down by name and seated at a table with room
+  const seatGuest = (name: string, row: FreeTable) => run(async () => {
+    const ok = await seatNewUnregistered(code, row.table.id, name, row.game.maxPlayers);
+    if (!ok) throw new Error('Esa mesa se llenó o terminó justo ahora. Mirá la lista de nuevo.');
+    return `${name.trim() || 'Alguien sin la app'} quedó en ${label(row.table)}.`;
+  });
+
+  // Someone written down without the app by mistake: out of every table and off the list
+  const deleteGuest = (player: Player) => run(async () => {
+    if (!window.confirm(`¿Borrar a ${player.name} de la lista? Sale de las mesas donde está. No se puede deshacer.`)) return 'No se cambió nada.';
+    await deleteUnregisteredPlayer(code, player.id);
+    return `${player.name} se borró de la lista.`;
   });
 
   const arrived = (player: Player) => run(async () => { await markPresent(player.id); return `${player.name} está en el lugar.`; });
@@ -290,8 +304,8 @@ export default function LivePage() {
 
       <NewTablePanel games={games} players={everyone} tables={tables} present={present} nowMin={nowMin} busy={busy} onCreate={createTable} />
       <TablesSection items={live} nowMin={nowMin} players={everyone} games={games} label={label} actions={tableActions} busy={busy} />
-      <MovePanel players={everyone} tables={tables} rows={rows} nowMin={nowMin} label={label} busy={busy} onMove={move} onRemove={remove} />
-      <FreeTablesSection rows={rows} people={[...people.now, ...people.soon]} label={label} busy={busy} onSeat={seat} />
+      <MovePanel players={everyone} tables={tables} rows={rows} nowMin={nowMin} label={label} busy={busy} onMove={move} onRemove={remove} onDeleteGuest={deleteGuest} />
+      <FreeTablesSection rows={rows} people={[...people.now, ...people.soon]} label={label} busy={busy} onSeat={seat} onSeatGuest={seatGuest} />
       <PeopleSection now={people.now} soon={people.soon} nowMin={nowMin} label={label} busy={busy} onSeat={seat} onArrived={arrived} />
       <p className='text-[11px] text-gray-600 text-center'>Se actualiza solo. Para armar o editar mesas con calma, usá <Link href={`/admin/${code}/${adminToken}/tables`} className='underline'>Gestionar mesas</Link>.</p>
     </main>
