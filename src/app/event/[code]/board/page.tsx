@@ -470,7 +470,7 @@ export default function BoardPage() {
     return (
       <div key={t.id} className={'border rounded-xl p-3 ' + (posted ? 'border-indigo-700 bg-indigo-950/20' : 'border-amber-700 bg-amber-950/20')}>
         <WaitingTableInfo t={t} game={game} accent={posted ? 'indigo' : 'amber'} interested={posted ? null : interested} seatWord={posted ? 'anotados' : 'confirmados'}
-          badge={<span className={'text-[11px] rounded-full px-2 py-0.5 ' + (posted ? 'bg-purple-900 text-purple-300' : 'bg-yellow-900 text-yellow-300')}>{posted ? '📣 Postulada' : '🟡 Recomendada'}</span>}
+          badge={<span className={'text-[11px] rounded-full px-2 py-0.5 ' + (posted ? 'bg-purple-900 text-purple-300' : 'bg-yellow-900 text-yellow-300')}>{posted ? '📣 Propuesta' : '🟡 Recomendada'}</span>}
           who={posted
             ? <PostedWho t={t} nameOf={nameOfPlayer} explainerNames={t.playerIds.filter((id) => playerMap.get(id)?.canExplain.includes(t.gameId)).map(nameOfPlayer)} />
             : <RecommendedWho t={t} game={game} nameOf={nameOfPlayer} />}
@@ -587,7 +587,7 @@ export default function BoardPage() {
                 cardClass='border-gray-800 bg-gray-900' dim
               />
               {/* With "Con lugar libre" on, the tables still waiting for players are part of the same set (as on the grid): they come
-                  after the confirmed ones, each marked as "Postulada" or "Recomendada" */}
+                  after the confirmed ones, each marked as "Propuesta" or "Recomendada" */}
               {onlyFree && exploreWaiting.length > 0 && (
                 <section>
                   <h2 className='text-xl font-semibold mb-3 text-gray-200'>
@@ -694,7 +694,7 @@ export default function BoardPage() {
 
           {(postulatedTables.length > 0 || openPosted.length > 0) && (
             <section>
-              <h2 className='text-xl font-semibold mb-3 text-gray-200'>📣 Mesas postuladas — esperando jugadores</h2>
+              <h2 className='text-xl font-semibold mb-3 text-gray-200'>📣 Mesas propuestas — esperando jugadores</h2>
               <p className='text-sm text-gray-500 mb-3'>
                 Alguien ya propuso este horario para jugarlo — falta que se sumen jugadores hasta el mínimo para que se agende sola.
               </p>
@@ -833,7 +833,7 @@ export default function BoardPage() {
                 <div className='min-w-0'>
                   <h3 className='font-semibold text-gray-100'>{t.gameName}</h3>
                   <p className='text-xs text-gray-500'>
-                    {waiting ? `${t.postedByOwner ? '📣 Postulada' : '🟡 Recomendada'} · esperando jugadores` : `Mesa #${physicalSlotByTableId.get(t.id) ?? '?'}`} · {t.startTime}–{t.endTime}
+                    {waiting ? `${t.postedByOwner ? '📣 Propuesta' : '🟡 Recomendada'} · esperando jugadores` : `Mesa #${physicalSlotByTableId.get(t.id) ?? '?'}`} · {t.startTime}–{t.endTime}
                   </p>
                   <p className='text-xs text-emerald-300'>
                     🪑 {left > 0 ? `quedan ${left}` : 'sin lugares libres'}
@@ -1066,7 +1066,7 @@ function ScheduleGrid({
           <div className='text-[11px] opacity-75'>{cell.entry.startTime}–{cell.entry.endTime}</div>
           {cell.entry.waiting && (
             <div className='text-[11px] opacity-90'>
-              {cell.entry.waiting === 'posted' ? '📣 Postulada' : '🟡 Recomendada'}
+              {cell.entry.waiting === 'posted' ? '📣 Propuesta' : '🟡 Recomendada'}
               {cell.entry.seatsFilled != null && cell.entry.seatsMax != null && ` · ${cell.entry.seatsFilled}/${cell.entry.seatsMax}`}
             </div>
           )}
@@ -1202,9 +1202,9 @@ function TableSection({
           <div key={t.id} className={`rounded-2xl p-5 border-2 ${cardClass}`}>
             <div className='flex justify-between items-start mb-3'>
               <span className='text-2xl font-bold text-yellow-400'>Mesa #{slotMap.get(t.id) ?? '?'}</span>
-              {/* A table its owner posted that is still waiting for players reads "Postulada", not "Recomendada" */}
+              {/* A table its owner posted that is still waiting for players reads "Propuesta", not "Recomendada" */}
               <span className={'text-xs px-2 py-1 rounded-full font-medium ' + (t.status === 'recommended' && t.postedByOwner ? 'bg-purple-900 text-purple-300' : STATUS_COLOR[t.status])}>
-                {t.status === 'recommended' && t.postedByOwner ? 'Postulada' : STATUS_LABEL[t.status]}
+                {t.status === 'recommended' && t.postedByOwner ? 'Propuesta' : STATUS_LABEL[t.status]}
               </span>
             </div>
             <div className='flex items-center gap-3 mb-3'>

@@ -219,7 +219,7 @@ export default function AdminPage() {
     const notes: string[] = [];
     if (adjusted > 0) notes.push(`Se ajustó el horario de ${adjusted} jugador${adjusted === 1 ? '' : 'es'} para que entre en el nuevo horario del evento.`);
     if (pruned.removed > 0) notes.push(`Se quitaron ${pruned.removed} mesa${pruned.removed === 1 ? '' : 's'} recomendada${pruned.removed === 1 ? '' : 's'} que quedaban fuera del horario.`);
-    if (pruned.flagged > 0) notes.push(`⚠️ ${pruned.flagged} mesa${pruned.flagged === 1 ? '' : 's'} confirmada${pruned.flagged === 1 ? '' : 's'} o postulada${pruned.flagged === 1 ? '' : 's'} quedan fuera del nuevo horario: revisalas en “Gestionar mesas”.`);
+    if (pruned.flagged > 0) notes.push(`⚠️ ${pruned.flagged} mesa${pruned.flagged === 1 ? '' : 's'} confirmada${pruned.flagged === 1 ? '' : 's'} o propuesta${pruned.flagged === 1 ? '' : 's'} quedan fuera del nuevo horario: revisalas en “Gestionar mesas”.`);
     if (notes.length > 0) setScheduleNotice(notes.join(' '));
     setEvent((ev) => ev ? { ...ev, settings: settingsDraft, name, mapUrl, location, date, startTime, endTime } : ev);
     setNameDraft(name);
@@ -370,7 +370,7 @@ export default function AdminPage() {
       </div>
       <div className='grid grid-cols-3 gap-3'>
         <StatCard label='Mesas recomendadas' value={metrics.recommended} />
-        <StatCard label='Mesas postuladas' value={metrics.posted} />
+        <StatCard label='Mesas propuestas' value={metrics.posted} />
         <StatCard label='Mesas confirmadas' value={metrics.confirmedTotal} sub={showPlayRow ? 'en total' : ''} />
       </div>
       {showPlayRow && (

@@ -24,7 +24,7 @@ describe('exploreRows: the life of a table', () => {
     expect(r.map((x) => x.table.id)).not.toContain('gone');
     expect(r.map((x) => x.table.id)).not.toContain('done'); // finished tables are shown nowhere
     expect(r.map((x) => [x.table.id, x.step, x.label])).toEqual([
-      ['play', 'playing', 'Jugando'], ['rec', 'forming', 'Te la proponemos'], ['conf', 'confirmed', 'Confirmada'],
+      ['play', 'playing', 'Jugando'], ['rec', 'forming', 'Te la recomendamos'], ['conf', 'confirmed', 'Confirmada'],
     ]); // listed by hour: 10:00, 12:00, 14:00
   });
 
@@ -34,11 +34,13 @@ describe('exploreRows: the life of a table', () => {
       table('mine', 'brass', '14:00', '15:00', ['me', 'a']),
       table('exp', 'dixit', '16:00', '17:00', [], { awaitingExplainer: true, candidateIds: ['z'] }),
       table('plain', 'dixit', '17:30', '19:00', ['a']),
+      table('forYou', 'dixit', '11:00', '12:00', ['a'], { postedByOwner: true }),
     ], viewer({ interests: { dixit: 'yes', brass: 'yes' } }));
-    expect(byId(r, 'posted').label).toBe('Abierta');
+    expect(byId(r, 'posted').label).toBe('Propuesta abierta');
     expect(byId(r, 'mine').label).toBe('Anotado · falta gente');
     expect(byId(r, 'exp').label).toBe('Esperando quien la explique');
     expect(byId(r, 'plain').label).toBe('Esperando gente');
+    expect(byId(r, 'forYou').label).toBe('Te la recomendamos'); // a posted table of a game they voted, open for them
   });
 });
 
@@ -167,7 +169,7 @@ describe('exploreRows: a game never voted ("Sin votar")', () => {
     const ids = r.map((x) => x.table.id);
     for (const id of ['u-full', 'u-play', 'u-done', 'u-late']) expect(ids).not.toContain(id);
   });
-  it('does not feed "Todas", "Recomendadas", "Postuladas", "Confirmadas" or "Con lugar"', () => {
+  it('does not feed "Todas", "Recomendadas", "Propuestas", "Confirmadas" or "Con lugar"', () => {
     const c = chipCounts(r);
     expect(c.unvoted).toBe(3);
     expect(c.all).toBe(2); // the voted yes one and the offered one

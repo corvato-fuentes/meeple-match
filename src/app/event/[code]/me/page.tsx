@@ -46,7 +46,7 @@ function timesMessage(tables: Table[], myId: string): string {
   const owns = tables.filter((t) => t.postedByOwner && t.explainerId === myId).map((t) => t.gameName);
   const explains = tables.filter((t) => !t.postedByOwner && t.explainerId === myId).map((t) => t.gameName);
   return `No podrías jugar: ${list}. Si guardás, te bajás de ${tables.length === 1 ? 'esa mesa' : 'esas mesas'}.` +
-    (owns.length > 0 ? ` ${owns.length === 1 ? 'La mesa que postulaste se cancela' : 'Las mesas que postulaste se cancelan'} (${owns.join(', ')}).` : '') +
+    (owns.length > 0 ? ` ${owns.length === 1 ? 'La mesa que propusiste se cancela' : 'Las mesas que propusiste se cancelan'} (${owns.join(', ')}).` : '') +
     (explains.length > 0 ? ` Sos quien explica ${explains.join(', ')}: pasa a otra persona de la mesa, y si no hay quien lo explique se cancela.` : '');
 }
 
@@ -62,7 +62,7 @@ function replaceMessage(gameName: string, tables: Table[]): string {
     offered.size > 0 && `${offered.size} ${offered.size === 1 ? 'la tiene' : 'la tienen'} ofrecida`,
   ].filter(Boolean).join(' y ');
   return `${plural ? 'Hay mesas recomendadas' : 'Hay una mesa recomendada'} de ${gameName} de ${where} que todavía no ${plural ? 'están confirmadas' : 'está confirmada'}` +
-    `${people ? ` (${people})` : ''}. Si postulás la tuya, ${plural ? 'se cancelan' : 'se cancela'} y se les ofrece la tuya a las personas interesadas: tienen que volver a aceptar.`;
+    `${people ? ` (${people})` : ''}. Si proponés la tuya, ${plural ? 'se cancelan' : 'se cancela'} y se les ofrece la tuya a las personas interesadas: tienen que volver a aceptar.`;
 }
 
 type InterestLevel = 'yes' | 'no';
@@ -417,7 +417,7 @@ export default function MyTicketPage() {
   async function submitPropose(game: Game, replaceConfirmed = false) {
     if (!player || !event || !proposeStart || proposingSubmitting) return;
     if (isTentative(player)) {
-      setProposeError('Confirmá tu inscripción (mandá el comprobante) para postular una mesa.');
+      setProposeError('Confirmá tu inscripción (mandá el comprobante) para proponer una mesa.');
       return;
     }
     // The poster is the table's explainer, so they have to know how to teach the game. Votes and
@@ -716,7 +716,7 @@ export default function MyTicketPage() {
         onCancel={() => setPendingTimes(null)} />
       <ConfirmModal
         open={!!proposeIntroGameId}
-        title="📣 Antes de postular"
+        title="📣 Antes de proponer"
         message={(
           <>
             <p>
@@ -724,7 +724,7 @@ export default function MyTicketPage() {
               en el mejor horario que encuentra el algoritmo.
             </p>
             <p>
-              Si lo postulás, elegís vos el horario y tu mesa bloquea esa recomendación: toma el lugar de las recomendadas del mismo juego que
+              Si lo proponés, elegís vos el horario y tu mesa bloquea esa recomendación: toma el lugar de las recomendadas del mismo juego que
               se pisen con ella, y la copia del juego queda ocupada a esa hora.
             </p>
           </>
@@ -736,7 +736,7 @@ export default function MyTicketPage() {
         open={!!pendingReplace}
         title="Ya hay una mesa recomendada a esa hora"
         message={pendingReplace ? replaceMessage(pendingReplace.game.name, pendingReplace.tables) : ''}
-        confirmLabel="Postular y reemplazar"
+        confirmLabel="Proponer y reemplazar"
         onConfirm={() => pendingReplace && submitPropose(pendingReplace.game, true)}
         onCancel={() => setPendingReplace(null)} />
 
@@ -880,7 +880,7 @@ export default function MyTicketPage() {
               className="flex items-center gap-1 text-sm border border-gray-700 rounded-xl px-3 py-1.5 hover:bg-gray-800 shrink-0">
               <span>📺 Ver grilla completa</span>
               <HelpPopover title="📺 Ver grilla completa">
-                <p>Te lleva a la grilla horaria de todo el evento, con las mesas ya confirmadas de todos los jugadores. Desde ahí también podés sumarte a mesas recomendadas o postuladas con un toque.</p>
+                <p>Te lleva a la grilla horaria de todo el evento, con las mesas ya confirmadas de todos los jugadores. Desde ahí también podés sumarte a mesas recomendadas o propuestas con un toque.</p>
               </HelpPopover>
             </Link>
           </div>
@@ -909,15 +909,15 @@ export default function MyTicketPage() {
             <div className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 space-y-2 text-left">
               <p>Todavía no tenés mesas confirmadas.</p>
               <p>
-                Cuando votás tus juegos, el sistema busca otros inscriptos que los votaron y te propone una mesa en un
-                horario en el que coincidan. La propuesta te espera en <strong className="text-amber-300">Explorar mesas</strong>,
+                Cuando votás tus juegos, el sistema busca otros inscriptos que los votaron y te recomienda una mesa en un
+                horario en el que coincidan. La recomendación te espera en <strong className="text-indigo-300">Explorar mesas</strong>,
                 en «Para vos», donde podés aceptarla o rechazarla. Una vez que la aceptás, aparece acá.
               </p>
               <p>
                 Los juegos que llevás se recomiendan automáticamente a quienes los votan.
               </p>
               <p>
-                En <strong className="text-purple-300">Explorar mesas</strong> también ves las mesas que abrieron otros inscriptos
+                En <strong className="text-indigo-300">Explorar mesas</strong> también ves las mesas que propusieron otros inscriptos
                 y podés sumarte. Cuando la mesa junta el mínimo de jugadores necesario, aparece acá como confirmada.
               </p>
             </div>
@@ -984,7 +984,7 @@ export default function MyTicketPage() {
             <span>🎲 Explorar mesas</span>
             {countBadge(attentionN, 'bg-amber-500 text-black', attentionN === 1 ? 'mesa esperando tu respuesta' : 'mesas esperando tu respuesta')}
             <HelpPopover title="🎲 Explorar mesas">
-              <p>Las mesas del evento, de los juegos que votaste: las que te proponemos, las que armó otro jugador y están abiertas, y las confirmadas.</p>
+              <p>Las mesas del evento, de los juegos que votaste: las que te recomendamos, las que propusieron otros jugadores y están abiertas, y las confirmadas.</p>
               <p>Abre en «Para vos»: lo que espera tu respuesta. El número indica cuántas mesas son.</p>
               <p>«Todas» las muestra por horario (con «Solo con lugar» ves dónde podés sumarte), «Sin votar» las de juegos que todavía no votaste y «Rechazadas» las que dijiste que no.</p>
               <p>Si traés un juego, para armar una mesa tuya usá «Proponer mesa» en «Tus juegos».</p>
