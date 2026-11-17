@@ -1386,6 +1386,26 @@ export async function addUnregisteredPlayers(eventCode: string, names: string[],
 }
 
 /**
+ * Writes down someone who sits without the app, by name, and seats them at a table in one go (a free place the organizers are filling).
+ * False — and nobody is written down — when the table is full or over.
+ */
+export async function seatNewUnregistered(eventCode: string, tableId: string, name: string, maxPlayers: number): Promise<boolean> {
+  const [event, everyone] = await Promise.all([getEvent(eventCode), getPlayers(eventCode, { withUnregistered: true })]);
+  if (!event) return false;
+  const [id] = await addUnregisteredPlayers(eventCode, guestNames([name], everyone.filter(isUnregistered).length), event);
+  const seated = await seatPlayerAtTable(eventCode, tableId, id, maxPlayers);
+  if (!seated) await deletePlayer(eventCode, id);
+  return seated;
+}
+
+/** Takes someone who was written down without the app out of every table and off the list (they were put in by mistake). Never a registered player. */
+export async function deleteUnregisteredPlayer(eventCode: string, playerId: string): Promise<void> {
+  const snap = await getDoc(doc(db, 'events', eventCode, 'players', playerId));
+  if (!snap.exists() || !isUnregistered(snap.data() as Player)) return;
+  await deletePlayer(eventCode, playerId);
+}
+
+/**
  * The organizers write down a table that started in the room without being planned ("mesa improvisada"): the game (one of the
  * event's, or a new one made on the spot — hidden from the players and from the algorithm), the people of the app who sit, and how
  * many more don't use it. It is underway from the start. Returns the new table's id.

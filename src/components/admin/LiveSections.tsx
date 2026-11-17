@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { destinationsFor, tablesOf, type FreePerson, type FreeTable } from '@/lib/liveBoard';
 import { toTimeString } from '@/lib/timeUtils';
+import { isUnregistered } from '@/lib/unregistered';
 import type { Player, Table } from '@/lib/types';
 
 /** How a table reads in the live lists: its game, the physical table number of the schedule, and when. */
@@ -20,11 +21,15 @@ function SeatButton({ option, label, onSeat, busy }: { option: Option; label: st
 }
 
 /** Tables with a free place, running ones first. Each can be filled with someone who is free and fits. */
-export function FreeTablesSection({ rows, people, label, onSeat, busy }: {
+export function FreeTablesSection({ rows, people, label, onSeat, onSeatGuest, busy }: {
   rows: FreeTable[]; people: FreePerson[]; label: TableLabel; busy: boolean;
   onSeat: (player: Player, row: FreeTable) => void;
+  /** Someone who isn't in the app, written down by name (empty = "Invitado N") and seated at this table. */
+  onSeatGuest: (name: string, row: FreeTable) => void;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [guestRowId, setGuestRowId] = useState<string | null>(null);
+  const [guestName, setGuestName] = useState('');
   return (
     <section className='space-y-2'>
       <h2 className='font-semibold flex items-center gap-2'>🪑 Lugares libres <span className='text-sm font-normal text-gray-500'>({rows.length})</span></h2>
@@ -65,6 +70,20 @@ export function FreeTablesSection({ rows, people, label, onSeat, busy }: {
                 )}
               </>
             ) : <p className='text-xs text-gray-500'>Nadie sin mesa le encaja ahora.</p>}
+            {guestRowId === r.table.id ? (
+              <div className='flex items-center gap-2'>
+                <input value={guestName} maxLength={40} onChange={(e) => setGuestName(e.target.value)} autoFocus
+                  placeholder='Nombre (si no, queda «Invitado»)' aria-label='Nombre de la persona sin la app'
+                  className='flex-1 min-w-0 border border-gray-700 bg-gray-900 rounded-lg px-3 py-1.5 text-sm' />
+                <button onClick={() => { onSeatGuest(guestName, r); setGuestRowId(null); setGuestName(''); }} disabled={busy}
+                  className='shrink-0 text-xs bg-indigo-600 text-white rounded-lg px-2.5 py-1.5 hover:bg-indigo-700 disabled:opacity-50'>Sumar</button>
+                <button onClick={() => { setGuestRowId(null); setGuestName(''); }} aria-label='Cancelar'
+                  className='shrink-0 text-xs border border-gray-700 rounded-lg px-2.5 py-1.5 hover:bg-gray-800'>×</button>
+              </div>
+            ) : (
+              <button onClick={() => { setGuestRowId(r.table.id); setGuestName(''); }} disabled={busy}
+                className='text-xs text-purple-300 hover:underline disabled:opacity-50'>+ Sumar a alguien sin la app</button>
+            )}
           </div>
         );
       })}
@@ -130,15 +149,17 @@ export function PeopleSection({ now, soon, nowMin, label, onSeat, onArrived, bus
 }
 
 /** Find a person who is at a table and move them to another one, or take them out (they left, they won't come). */
-export function MovePanel({ players, tables, rows, nowMin, label, onMove, onRemove, busy }: {
+export function MovePanel({ players, tables, rows, nowMin, label, onMove, onRemove, onDeleteGuest, busy }: {
   players: Player[]; tables: Table[]; rows: FreeTable[]; nowMin: number; label: TableLabel; busy: boolean;
   onMove: (player: Player, from: Table, to: FreeTable) => void; onRemove: (player: Player, from: Table) => void;
+  /** Take someone written down without the app off the list for good (they were put in by mistake). */
+  onDeleteGuest: (player: Player) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [moving, setMoving] = useState<string | null>(null); // `${playerId}:${tableId}`
   const q = query.trim().toLowerCase();
-  const matches = q.length < 1 ? [] : players.filter((p) => p.name.toLowerCase().includes(q) && tablesOf(p, tables, nowMin).length > 0).slice(0, 6);
+  const matches = q.length < 1 ? [] : players.filter((p) => p.name.toLowerCase().includes(q) && (tablesOf(p, tables, nowMin).length > 0 || isUnregistered(p))).slice(0, 6);
   return (
     <section className='space-y-2'>
       <button onClick={() => setOpen((o) => !o)} aria-expanded={open}
@@ -153,7 +174,14 @@ export function MovePanel({ players, tables, rows, nowMin, label, onMove, onRemo
           {q && matches.length === 0 && <p className='text-xs text-gray-500'>Nadie con ese nombre está en una mesa.</p>}
           {matches.map((p) => (
             <div key={p.id} className='space-y-1.5'>
-              <p className='text-sm font-medium'>{p.name}</p>
+              <div className='flex items-center justify-between gap-2'>
+                <p className='text-sm font-medium'>{p.name}</p>
+                {isUnregistered(p) && (
+                  <button onClick={() => onDeleteGuest(p)} disabled={busy} title='Se anotó por error: lo saca de las mesas y de la lista'
+                    className='text-xs border border-red-900 text-red-300 rounded-lg px-2.5 py-0.5 hover:bg-red-950/40 disabled:opacity-50'>Borrar de la lista</button>
+                )}
+              </div>
+              {tablesOf(p, tables, nowMin).length === 0 && <p className='text-xs text-gray-500'>No está en ninguna mesa ahora.</p>}
               {tablesOf(p, tables, nowMin).map((t) => {
                 const key = `${p.id}:${t.id}`;
                 const dest = moving === key ? destinationsFor(p, rows, tables, t.id) : [];
