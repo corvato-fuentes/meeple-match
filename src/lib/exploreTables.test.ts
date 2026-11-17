@@ -22,9 +22,10 @@ describe('exploreRows: the life of a table', () => {
       table('gone', 'dixit', '16:00', '17:00', ['a'], { status: 'cancelled' }),
     ]);
     expect(r.map((x) => x.table.id)).not.toContain('gone');
+    expect(r.map((x) => x.table.id)).not.toContain('done'); // finished tables are shown nowhere
     expect(r.map((x) => [x.table.id, x.step, x.label])).toEqual([
-      ['done', 'done', 'Terminó'], ['play', 'playing', 'Jugando'], ['rec', 'forming', 'Te la proponemos'], ['conf', 'confirmed', 'Confirmada'],
-    ]); // listed by hour: 08:00, 10:00, 12:00, 14:00
+      ['play', 'playing', 'Jugando'], ['rec', 'forming', 'Te la proponemos'], ['conf', 'confirmed', 'Confirmada'],
+    ]); // listed by hour: 10:00, 12:00, 14:00
   });
 
   it('words a posted table, one the person is in, and one waiting for its explainer', () => {
@@ -59,7 +60,6 @@ describe('exploreRows: a game voted "no me interesa"', () => {
     const counts = chipCounts(r);
     expect(counts['for-you']).toBe(0);
     expect(counts.rejected).toBe(0);
-    expect(counts.done).toBe(0);
     expect(counts.all).toBe(1);
     expect(counts.unvoted).toBe(1);
   });
@@ -124,22 +124,24 @@ describe('exploreRows: the filters', () => {
   const r = rows(tables);
 
   it('counts every filter, and none is ever missing', () => {
-    expect(chipCounts(r)).toEqual({
-      'for-you': 2, all: 5, mine: 1, recommended: 1, posted: 1, confirmed: 2, playing: 1, free: 3, unvoted: 0, rejected: 1, done: 1,
-    });
+    expect(chipCounts(r)).toEqual({ 'for-you': 2, all: 5, unvoted: 0, playing: 1, rejected: 1 });
   });
-  it('keeps the rejected and the finished apart from "Todas", but still there under their own filter', () => {
+  it('keeps the rejected apart from "Todas", under their own filter, and shows no finished table anywhere', () => {
     expect(rowsFor(r, 'all').map((x) => x.table.id)).not.toContain('no');
-    expect(rowsFor(r, 'all').map((x) => x.table.id)).not.toContain('done');
     expect(rowsFor(r, 'rejected').map((x) => x.table.id)).toEqual(['no']);
-    expect(rowsFor(r, 'done').map((x) => x.table.id)).toEqual(['done']);
+    expect(r.map((x) => x.table.id)).not.toContain('done');
+  });
+  it('"Todas" holds the tables they are in too, whatever their state', () => {
+    expect(rowsFor(r, 'all').map((x) => x.table.id)).toContain('mine');
+    expect(byId(r, 'mine').mine).toBe(true);
   });
   it('lists tables by their hour', () => {
     expect(rowsFor(r, 'all').map((x) => x.table.id)).toEqual(['play', 'rec', 'posted', 'mine', 'confOpen']);
   });
-  it('a table whose hour has come takes no more people', () => {
+  it('knows which ones still have room: not a full one, not one of their own, not one whose hour has come', () => {
+    expect(rowsFor(r, 'all').filter((x) => x.open && !x.mine).map((x) => x.table.id)).toEqual(['rec', 'posted', 'confOpen']);
     const started = exploreRows({ viewer: viewer(), tables: tables as never, games, bufferMinutes: 15, started: (t) => t.id === 'confOpen' });
-    expect(started.find((x) => x.table.id === 'confOpen')!.chips.has('free')).toBe(false);
+    expect(started.find((x) => x.table.id === 'confOpen')!.open).toBe(false);
   });
 });
 
@@ -169,8 +171,6 @@ describe('exploreRows: a game never voted ("Sin votar")', () => {
     const c = chipCounts(r);
     expect(c.unvoted).toBe(3);
     expect(c.all).toBe(2); // the voted yes one and the offered one
-    expect(c.recommended + c.posted + c.confirmed).toBe(2);
-    expect(c.free).toBe(2);
   });
   it('an offered table of a game never voted keeps being for the person, and is not "Sin votar"', () => {
     expect(byId(r, 'u-offer').unvoted).toBe(false);
@@ -191,7 +191,6 @@ describe('seatsLine', () => {
       table('conf2', 'azul', '14:00', '15:00', ['a', 'b'], { status: 'confirmed' }),
       table('full', 'azul', '15:00', '16:00', ['a', 'b', 'c', 'd'], { status: 'confirmed' }),
       table('play', 'dixit', '10:00', '11:00', ['a', 'b'], { status: 'in-progress' }),
-      table('done', 'dixit', '08:00', '09:00', ['a', 'b'], { status: 'completed' }),
       table('exp', 'dixit', '16:00', '17:00', [], { awaitingExplainer: true }),
     ]);
     const line = (id: string) => seatsLine(byId(r, id));
@@ -201,7 +200,6 @@ describe('seatsLine', () => {
     expect(line('conf2')).toBe('2 de 4 · quedan 2 lugares');
     expect(line('full')).toBe('4 de 4 · completa');
     expect(line('play')).toBe('2 de 6 jugando');
-    expect(line('done')).toBe('Jugaron 2');
     expect(line('exp')).toBe('0 de 6');
   });
 });
@@ -238,14 +236,13 @@ describe('durationLine', () => {
 });
 
 describe('chipsFor', () => {
-  it('leaves out "En curso" and "Terminadas" until the day of the event', () => {
-    const before = chipsFor(false).map((c) => c.key);
-    expect(before).not.toContain('playing');
-    expect(before).not.toContain('done');
-    expect(before).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'free', 'unvoted', 'rejected']);
+  it('leaves out "En curso" until the day of the event, and "Rechazadas" until they turn a table down', () => {
+    expect(chipsFor(false).map((c) => c.key)).toEqual(['for-you', 'all', 'unvoted']);
+    expect(chipsFor(false, { rejected: 0 }).map((c) => c.key)).toEqual(['for-you', 'all', 'unvoted']);
   });
-  it('shows every filter from the day of the event on, in the same order', () => {
-    expect(chipsFor(true).map((c) => c.key)).toEqual(['for-you', 'all', 'mine', 'recommended', 'posted', 'confirmed', 'playing', 'free', 'unvoted', 'rejected', 'done']);
+  it('shows "En curso" from the day of the event on, and "Rechazadas" when there is one', () => {
+    expect(chipsFor(true).map((c) => c.key)).toEqual(['for-you', 'all', 'unvoted', 'playing']);
+    expect(chipsFor(true, { rejected: 2 }).map((c) => c.key)).toEqual(['for-you', 'all', 'unvoted', 'playing', 'rejected']);
   });
 });
 

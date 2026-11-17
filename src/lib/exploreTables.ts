@@ -12,33 +12,28 @@ import { toMinutes, toTimeString } from './timeUtils';
  * can do about it. Pure: the page gives it the data and the clock.
  */
 
-/** The filters of the screen. A table can belong to several (a confirmed table you play is "confirmed" and "mine"). */
-export type ExploreChip =
-  | 'for-you' | 'all' | 'mine'
-  | 'recommended' | 'posted' | 'confirmed' | 'playing' | 'free'
-  | 'unvoted' | 'rejected' | 'done';
+/**
+ * The filters of the screen: only what changes what the person does. What is waiting for them, the tables of the games they voted (the
+ * ones they are in included), the ones of games they never voted, the ones underway, the ones they turned down. The state of a table
+ * (armando, confirmada, a posted one) is on its card, and "only with room" is a switch over "Todas", not a filter of its own.
+ */
+export type ExploreChip = 'for-you' | 'all' | 'unvoted' | 'playing' | 'rejected';
 
-/** The order they are shown in: what needs you first, then the state of the tables, then the ones put aside. */
+/** The order they are shown in: what needs you first. */
 export const EXPLORE_CHIPS: { key: ExploreChip; label: string }[] = [
   { key: 'for-you', label: 'Para vos' },
   { key: 'all', label: 'Todas' },
-  { key: 'mine', label: 'Mías' },
-  { key: 'recommended', label: 'Recomendadas' },
-  { key: 'posted', label: 'Postuladas' },
-  { key: 'confirmed', label: 'Confirmadas' },
-  { key: 'playing', label: 'En curso' },
-  { key: 'free', label: 'Con lugar' },
   { key: 'unvoted', label: 'Sin votar' },
+  { key: 'playing', label: 'En curso' },
   { key: 'rejected', label: 'Rechazadas' },
-  { key: 'done', label: 'Terminadas' },
 ];
 
 /**
- * The filters to show. "En curso" and "Terminadas" only mean something from the day of the event: before it nothing is underway or
- * over, so they would be two dead chips. From the day of the event they are always there.
+ * The filters to show. "En curso" only means something from the day of the event (before it nothing is underway), and "Rechazadas"
+ * only when they turned down some table. Finished tables are not shown anywhere: they are of no use to anyone.
  */
-export function chipsFor(eventHasStarted: boolean): { key: ExploreChip; label: string }[] {
-  return EXPLORE_CHIPS.filter((c) => eventHasStarted || (c.key !== 'playing' && c.key !== 'done'));
+export function chipsFor(eventHasStarted: boolean, counts?: Pick<Record<ExploreChip, number>, 'rejected'>): { key: ExploreChip; label: string }[] {
+  return EXPLORE_CHIPS.filter((c) => (c.key !== 'playing' || eventHasStarted) && (c.key !== 'rejected' || (counts?.rejected ?? 0) > 0));
 }
 
 /** Where a table is in its life: still gathering people, set, being played, finished. */
@@ -61,6 +56,8 @@ export interface ExploreRow {
   rejected: boolean;
   /** An open posted table of a game they voted that fits them: it is for them even if nobody offered it. */
   openForYou: boolean;
+  /** The table has a place that is still free (or one that is waiting to be filled) and has not started: someone could sit. */
+  open: boolean;
   /** A game they never voted (and that wasn't offered to them): it lives only under "Sin votar", the one place where voting sits next to a table. */
   unvoted: boolean;
   /** What the person can do about its free place, as the rest of the app decides it (null when it isn't open). */
@@ -109,14 +106,14 @@ export function exploreRows(args: {
 
   const rows: ExploreRow[] = [];
   for (const table of tables) {
-    if (table.status === 'cancelled') continue;
+    if (table.status === 'cancelled' || table.status === 'completed') continue; // finished tables are shown nowhere
     const inIt = isInTable(table, viewer.id);
     if (!inIt && viewer.interests?.[table.gameId] === 'no') continue;
     const game = gameOf.get(table.gameId);
     const step = STEP_OF[table.status];
     const taken = table.playerIds.length;
     const max = game ? game.maxPlayers : null;
-    const mine = inIt && step !== 'done';
+    const mine = inIt;
     const rejected = !inIt && (table.rejectedIds ?? []).includes(viewer.id);
     const offered = !isTentative(viewer) && (isOfferFor(table, viewer.id, game) || isPostedOfferFor(table, viewer.id, game));
     // A posted table of a game they voted, with room, that fits — worth telling them about even if it wasn't offered
@@ -133,22 +130,17 @@ export function exploreRows(args: {
     const chips = new Set<ExploreChip>();
     if (unvoted) chips.add('unvoted');
     else if (forYou) chips.add('for-you');
-    if (mine) chips.add('mine');
     if (rejected) chips.add('rejected');
-    if (step === 'done') chips.add('done');
-    if (step !== 'done' && !rejected && !unvoted) {
+    if (!rejected && !unvoted) {
       chips.add('all');
-      if (step === 'forming') chips.add(table.postedByOwner ? 'posted' : 'recommended');
-      if (step === 'confirmed') chips.add('confirmed');
       if (step === 'playing') chips.add('playing');
-      if (open) chips.add('free');
     }
 
     rows.push({
       table, game, step, taken, max,
       free: max == null ? 0 : Math.max(0, max - taken),
       missing: game ? missingToConfirm(table, game) : 0,
-      mine, offered, rejected, openForYou, unvoted, option,
+      mine, offered, rejected, openForYou, unvoted, open, option,
       label: labelOf({ table, step, mine, offered, rejected, openForYou }),
       chips,
     });

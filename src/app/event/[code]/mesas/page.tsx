@@ -42,41 +42,21 @@ const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
 const CHIP_STYLE: Record<ExploreChip, string> = {
   'for-you': 'bg-amber-600 border-amber-600 text-black',
   all: 'bg-gray-200 border-gray-200 text-gray-900',
-  mine: 'bg-indigo-500 border-indigo-500 text-white',
-  recommended: 'bg-amber-600 border-amber-600 text-black',
-  posted: 'bg-purple-500 border-purple-500 text-white',
-  confirmed: 'bg-green-600 border-green-600 text-black',
-  playing: 'bg-emerald-500 border-emerald-500 text-black',
-  free: 'bg-emerald-600 border-emerald-600 text-white',
   unvoted: 'bg-indigo-500 border-indigo-500 text-white',
+  playing: 'bg-emerald-500 border-emerald-500 text-black',
   rejected: 'bg-gray-500 border-gray-500 text-white',
-  done: 'bg-gray-500 border-gray-500 text-white',
-};
-const CHIP_HINT: Record<ExploreChip, string> = {
-  'for-you': 'Lo que espera tu respuesta: las mesas que te proponemos y las abiertas de juegos que votaste.',
-  all: 'Las mesas de los juegos que votaste, por horario, sin las que rechazaste ni las que ya terminaron.',
-  mine: 'Las mesas donde estás anotado o donde explicás.',
-  recommended: 'Las que arma el sistema con los votos de todos, de juegos que votaste.',
-  posted: 'Las que armó un jugador con su propio juego, abiertas para sumarse.',
-  confirmed: 'Ya llegaron al mínimo: se van a jugar.',
-  playing: 'Se están jugando ahora.',
-  free: 'Tienen lugar y todavía no empezaron.',
-  unvoted: 'Mesas de juegos que no votaste y que todavía podés tomar. Acá podés decir si te interesan o no; las demás pestañas solo muestran juegos que votaste.',
-  rejected: 'Las mesas que rechazaste. Si cambiaste de idea, podés volver a considerarlas.',
-  done: 'Las que ya se jugaron.',
 };
 const CHIP_EMPTY: Record<ExploreChip, string> = {
   'for-you': 'No hay nada esperando tu respuesta. Cuando tus votos coincidan con un horario en común, va a aparecer acá.',
-  all: 'Todavía no hay mesas. Votá juegos para que se armen.',
-  mine: 'Todavía no estás en ninguna mesa.',
-  recommended: 'No hay mesas recomendadas.',
-  posted: 'No hay mesas postuladas. Si traés un juego, podés proponer una desde «Tus juegos».',
-  confirmed: 'Todavía ninguna mesa se confirmó.',
-  playing: 'No hay mesas en curso.',
-  free: 'Ninguna mesa tiene lugar ahora.',
+  all: 'Todavía no hay mesas de juegos que votaste. Votá juegos para que se armen.',
   unvoted: 'No hay mesas de juegos sin votar para vos. Los demás juegos los votás en «Votar juegos».',
+  playing: 'No hay mesas en curso.',
   rejected: 'No rechazaste ninguna mesa.',
-  done: 'Todavía no terminó ninguna mesa.',
+};
+/** One line under the filters, only where what they hold isn't obvious. */
+const CHIP_HINT: Partial<Record<ExploreChip, string>> = {
+  unvoted: 'Mesas de juegos que no votaste y que todavía podés tomar. Acá decís si te interesan; las demás pestañas solo muestran juegos que votaste.',
+  rejected: 'Las mesas que rechazaste. Si cambiaste de idea, podés volver a considerarlas.',
 };
 
 const isChip = (v: string | null): v is ExploreChip => EXPLORE_CHIPS.some((c) => c.key === v);
@@ -97,6 +77,8 @@ export default function ExploreTablesPage() {
   const [allTables, setAllTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(true);
   const [chip, setChip] = useState<ExploreChip | null>(null);
+  // "Solo con lugar", over "Todas" (the address can ask for it: the link of a shared table lands here)
+  const [onlyFree, setOnlyFree] = useState<boolean | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState<Date | null>(null);
   const [leavingTable, setLeavingTable] = useState<Table | null>(null);
@@ -163,12 +145,14 @@ export default function ExploreTablesPage() {
   const counts = chipCounts(rows);
   // Opens on what is waiting for them, whatever it holds; the address can ask for another one (the old links land here)
   const eventHasStarted = liveAvailability(event.date, todayStr) !== 'before';
-  const chips = chipsFor(eventHasStarted);
+  const chips = chipsFor(eventHasStarted, counts);
   const urlChip = searchParams.get('filtro');
   const wanted: ExploreChip = chip ?? (isChip(urlChip) ? urlChip : 'for-you');
   // A filter that isn't shown yet (an old address asking for "En curso" before the event) falls back to what is waiting for them
   const active: ExploreChip = chips.some((c) => c.key === wanted) ? wanted : 'for-you';
-  const visible = rowsFor(rows, active);
+  const freeOnly = onlyFree ?? searchParams.get('libres') === '1';
+  const openCount = rowsFor(rows, 'all').filter((r) => r.open && !r.mine).length;
+  const visible = rowsFor(rows, active).filter((r) => active !== 'all' || !freeOnly || (r.open && !r.mine));
 
   // ── Actions ───────────────────────────────────────────────────────────────────────────────────────────
   // Accept/reject for an algorithm-recommended table. On accept, if they were also offered ANOTHER table of the same game, ask about
@@ -513,17 +497,22 @@ export default function ExploreTablesPage() {
         <div className="flex flex-wrap gap-2 mb-2">
           {chips.map((c) => {
             // The counter turns into a flag when that filter holds something waiting for them
-            const hot = c.key === 'for-you' || c.key === 'recommended' || c.key === 'posted'
-              ? rowsFor(rows, c.key).filter((r) => r.chips.has('for-you')).length : 0;
+            const hot = c.key === 'for-you' ? counts['for-you'] : 0;
             return (
               <FilterChip key={c.key} active={active === c.key} onClick={() => setChip(c.key)} label={c.label} count={counts[c.key]}
                 activeClass={CHIP_STYLE[c.key]} highlightClass={hot > 0 ? 'bg-amber-500 text-black' : undefined} />
             );
           })}
         </div>
-        <p className="text-xs text-gray-500 mb-3">{CHIP_HINT[active]}</p>
+        {active === 'all' && (
+          <label className="flex items-center gap-2 text-xs text-gray-400 mb-3 cursor-pointer w-fit">
+            <input type="checkbox" checked={freeOnly} onChange={(e) => setOnlyFree(e.target.checked)} className="accent-indigo-500" />
+            Solo con lugar ({openCount})
+          </label>
+        )}
+        {CHIP_HINT[active] && <p className="text-xs text-gray-500 mb-3">{CHIP_HINT[active]}</p>}
         {visible.length === 0
-          ? <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{CHIP_EMPTY[active]}</p>
+          ? <p className="text-sm text-gray-500 bg-gray-900 rounded-xl p-4 text-center">{active === 'all' && freeOnly && counts.all > 0 ? 'Ninguna mesa tiene lugar ahora.' : CHIP_EMPTY[active]}</p>
           : <div className="space-y-2">{visible.map(card)}</div>}
       </section>
 
