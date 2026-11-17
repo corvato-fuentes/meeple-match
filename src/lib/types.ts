@@ -88,6 +88,9 @@ export interface Game {
   // so the doc (and everyone's votes on it) stays around for the admin to transfer elsewhere
   // instead of losing that data outright. Hidden from every player-facing list and the algorithm.
   deleted?: boolean;
+  // A game made on the spot by the organizers for a table that started in the room without being planned ("mesa improvisada").
+  // It has no real owner and nobody votes on it: it is left out of every player-facing list and the scheduling algorithm.
+  adHoc?: boolean;
 }
 
 export type DraftGame = Omit<Game, 'id' | 'ownerPlayerId' | 'ownerName'>;
@@ -169,6 +172,10 @@ export interface Table {
   // The admin's "canceladas" are the tables with this mark: one that was set and then fell through. A table that only ever waited
   // (an explainer said yes, nobody else did) is noise there.
   everConfirmed?: boolean;
+  // A table that started in the room without having been planned in the app: the organizers wrote it down (see lib/improvised).
+  // It is underway from the start, has no explainer, and may include people who don't use the app (`guestCount`, seats taken).
+  improvised?: boolean;
+  guestCount?: number;
 }
 
 // Derived — never stored in Firestore

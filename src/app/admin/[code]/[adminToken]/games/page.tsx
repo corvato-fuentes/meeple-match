@@ -61,7 +61,7 @@ export default function GamesPage() {
   if (authorized === false) return <div className='p-8 text-center text-red-500'>Acceso denegado.</div>;
   if (!event) return <div className='p-8 text-center'>Cargando...</div>;
 
-  const activeGames = games.filter((g) => !g.deleted);
+  const activeGames = games.filter((g) => !g.deleted && !g.adHoc);
   const deletedGames = games.filter((g) => g.deleted);
   const gameMap = new Map(activeGames.map((g) => [g.id, g]));
 
