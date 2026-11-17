@@ -888,17 +888,18 @@ export default function MyTicketPage() {
               are easy to miss): only shown when there is something to do, and each line goes to that screen. */}
           {(attentionN > 0 || unvotedGamesCount > 0) && (
             <div className="space-y-2 mb-3">
-              {attentionN > 0 && (
-                <Link href={`/event/${code}/mesas?ticket=${player.ticketCode}`}
-                  className="flex items-center justify-between gap-3 border border-amber-700 bg-amber-950/30 text-amber-200 rounded-xl px-3 py-2.5 text-sm hover:bg-amber-950/50">
-                  <span>🔔 Hay <strong>{attentionN}</strong> {attentionN === 1 ? 'mesa esperando' : 'mesas esperando'} tu respuesta</span>
-                  <span aria-hidden="true">→</span>
-                </Link>
-              )}
+              {/* Votes first: voting can bring new offers, so what waits for an answer is checked after */}
               {unvotedGamesCount > 0 && (
                 <Link href={`/event/${code}/games?ticket=${player.ticketCode}`}
                   className="flex items-center justify-between gap-3 border border-indigo-700 bg-indigo-950/30 text-indigo-200 rounded-xl px-3 py-2.5 text-sm hover:bg-indigo-950/50">
                   <span>🗳️ Tenés <strong>{unvotedGamesCount}</strong> {unvotedGamesCount === 1 ? 'juego' : 'juegos'} por votar</span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
+              {attentionN > 0 && (
+                <Link href={`/event/${code}/mesas?ticket=${player.ticketCode}`}
+                  className="flex items-center justify-between gap-3 border border-amber-700 bg-amber-950/30 text-amber-200 rounded-xl px-3 py-2.5 text-sm hover:bg-amber-950/50">
+                  <span>🔔 Hay <strong>{attentionN}</strong> {attentionN === 1 ? 'mesa esperando' : 'mesas esperando'} tu respuesta</span>
                   <span aria-hidden="true">→</span>
                 </Link>
               )}
