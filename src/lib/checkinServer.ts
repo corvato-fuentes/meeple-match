@@ -26,6 +26,7 @@ export async function listAttendance(code: string): Promise<AttendanceRow[]> {
   ]);
   const at = new Map(arrivals.docs.map((d) => [d.id, d.data().at as number]));
   return players.docs
+    .filter((d) => d.data().unregistered !== true) // the people written down without the app never come through the door
     .map((d) => ({ id: d.id, name: (d.data().name as string) ?? '', checkedInAt: at.get(d.id) ?? null, hasProof: !!d.data().paymentProofUrl || d.data().paymentReview === 'approved', tentative: d.data().registrationStatus === 'tentative', confirmedWithoutProof: !d.data().paymentProofUrl && d.data().paymentReview === 'approved' }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { withGuestMark } from '@/lib/unregistered';
 import { getEvent, verifyAdminToken, subscribeTables, updateTableStatus, updateTable, setTableEnd, dissolveTable, getPlayers, getGames } from '@/lib/firestore';
 import { toMinutes, toTimeString } from '@/lib/timeUtils';
 import { assignPhysicalSlots } from '@/lib/physicalSlots';
@@ -47,7 +48,8 @@ export default function TablesPage() {
       setAuthorized(ok);
       if (ok) setEvent(await getEvent(code));
     });
-    getPlayers(code).then(setPlayers);
+    // The people written down without the app are here too: they can be seated in any table, marked "sin app"
+    getPlayers(code, { withUnregistered: true }).then((ps) => setPlayers(ps.map(withGuestMark)));
     getGames(code).then(setGames);
     // A cancelled table is only worth listing if it had been set (reached its minimum and was confirmed) and then fell through. One that
     // only ever waited (the explainer said yes and nobody else did, or the system undid it) is noise. The mark is `everConfirmed`.

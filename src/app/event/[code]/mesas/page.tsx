@@ -34,6 +34,7 @@ import { isShareableTable } from '@/lib/shareTable';
 import { minSeats } from '@/lib/seats';
 import { slotMapFor } from '@/lib/physicalSlots';
 import { toMinutes } from '@/lib/timeUtils';
+import { isUnregistered, registeredOnly } from '@/lib/unregistered';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
@@ -73,6 +74,8 @@ export default function ExploreTablesPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  // People written down at a table without the app: only their names are needed here
+  const [unregistered, setUnregistered] = useState<Player[]>([]);
   const [allTables, setAllTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(true);
   const [chip, setChip] = useState<ExploreChip | null>(null);
@@ -99,10 +102,10 @@ export default function ExploreTablesPage() {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
     if (!ticketCode) { router.replace('/event/' + code); return; }
     async function load() {
-      const [ev, gs, ps] = await Promise.all([getEvent(code), getGames(code), getPlayers(code)]);
+      const [ev, gs, ps] = await Promise.all([getEvent(code), getGames(code), getPlayers(code, { withUnregistered: true })]);
       const p = await getPlayerByTicketCode(code, ticketCode!);
       if (!p || !ev) { localStorage.removeItem(STORAGE_KEY(code)); router.replace('/event/' + code); return; }
-      setEvent(ev); setPlayer(p); setGames(gs); setPlayers(ps);
+      setEvent(ev); setPlayer(p); setGames(gs); setPlayers(registeredOnly(ps)); setUnregistered(ps.filter(isUnregistered));
       setLoading(false);
     }
     load();
@@ -126,7 +129,7 @@ export default function ExploreTablesPage() {
   if (!player || !event) return null;
 
   const gameMap = new Map(games.map((g) => [g.id, g]));
-  const playerMap = new Map(players.map((p) => [p.id, p]));
+  const playerMap = new Map([...players, ...unregistered].map((p) => [p.id, p]));
   const myId = player.id;
   const tentative = isTentative(player);
   const buffer = event.settings.bufferMinutes;

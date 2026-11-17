@@ -36,6 +36,7 @@ import TimeWheelPicker from '@/components/ui/TimeWheelPicker';
 import TablesHelp from '@/components/ui/TablesHelp';
 import HelpPopover from '@/components/ui/HelpPopover';
 import KnowledgeLevelPicker, { type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
+import { isUnregistered, registeredOnly } from '@/lib/unregistered';
 import type { MeepleEvent, Player, Game, Table, GameComplexity, DraftGame } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
@@ -88,6 +89,8 @@ export default function MyTicketPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  // People written down at a table without the app: only their names are needed here (never for the logic about people)
+  const [unregistered, setUnregistered] = useState<Player[]>([]);
   // Set when this device already holds the admin link for the event (saved the first time it was opened here)
   const [adminAccess, setAdminAccess] = useState<SavedEvent | null>(null);
   const [allTables, setAllTables] = useState<Table[]>([]);
@@ -131,7 +134,7 @@ export default function MyTicketPage() {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
     if (!ticketCode) { router.replace('/event/' + code); return; }
     async function load() {
-      const [ev, gs, ps] = await Promise.all([getEvent(code), getGames(code), getPlayers(code)]);
+      const [ev, gs, ps] = await Promise.all([getEvent(code), getGames(code), getPlayers(code, { withUnregistered: true })]);
       const p = await getPlayerByTicketCode(code, ticketCode!);
       if (!p || !ev) { localStorage.removeItem(STORAGE_KEY(code)); router.replace('/event/' + code); return; }
       // Sent here from a shared table link before having a ticket: take them back to that table
@@ -145,7 +148,8 @@ export default function MyTicketPage() {
       setEvent(ev);
       setPlayer(p);
       setGames(gs);
-      setPlayers(ps);
+      setPlayers(registeredOnly(ps));
+      setUnregistered(ps.filter(isUnregistered));
       setInterests(p.interests as Record<string, InterestLevel>);
       setCanExplain(p.canExplain);
       setPlayedGameIds(p.playedGameIds ?? []);
@@ -866,7 +870,7 @@ export default function MyTicketPage() {
         <InstallPrompt startPath={`/event/${code}/me?ticket=${player.ticketCode}`} push={{ code, ticketCode: player.ticketCode }} />
       </div>
 
-      <NextTableCard myTables={myTables} eventDate={event.date} games={games} players={players}
+      <NextTableCard myTables={myTables} eventDate={event.date} games={games} players={[...players, ...unregistered]}
         myId={player.id} slotByTableId={slotByTableId} />
 
       <PushOptIn code={code} ticketCode={player.ticketCode} />
@@ -953,7 +957,7 @@ export default function MyTicketPage() {
                     {/* Who is on the table: the players, with the one explaining marked */}
                     <p className="text-xs text-gray-400 mt-1.5">
                       👥 {[...new Set([...t.playerIds, t.explainerId])].map((id) => {
-                        const name = id === player.id ? 'Vos' : players.find((p) => p.id === id)?.name ?? 'alguien';
+                        const name = id === player.id ? 'Vos' : [...players, ...unregistered].find((p) => p.id === id)?.name ?? 'alguien';
                         return id === t.explainerId ? `🎓 ${name}` : name;
                       }).join(' · ')}
                     </p>
