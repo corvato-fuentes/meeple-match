@@ -910,14 +910,14 @@ export default function MyTicketPage() {
               <p>Todavía no tenés mesas confirmadas.</p>
               <p>
                 Cuando votás tus juegos, el sistema busca otros inscriptos que los votaron y te propone una mesa en un
-                horario en el que coincidan. La propuesta te espera en <strong className="text-amber-300">Explorar mesas</strong>,
+                horario en el que coincidan. La propuesta te espera en <strong className="text-indigo-300">Explorar mesas</strong>,
                 en «Para vos», donde podés aceptarla o rechazarla. Una vez que la aceptás, aparece acá.
               </p>
               <p>
                 Los juegos que llevás se recomiendan automáticamente a quienes los votan.
               </p>
               <p>
-                En <strong className="text-purple-300">Explorar mesas</strong> también ves las mesas que abrieron otros inscriptos
+                En <strong className="text-indigo-300">Explorar mesas</strong> también ves las mesas que abrieron otros inscriptos
                 y podés sumarte. Cuando la mesa junta el mínimo de jugadores necesario, aparece acá como confirmada.
               </p>
             </div>
