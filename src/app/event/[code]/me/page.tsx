@@ -28,7 +28,6 @@ import ShareTableButton from '@/components/ui/ShareTableButton';
 import ReceiptNotice from '@/components/ui/ReceiptNotice';
 import { attentionCount, exploreRows } from '@/lib/exploreTables';
 import { isTentative, receiptStateOf, owesReceipt, confirmedPlayers } from '@/lib/registration';
-import { tablesToExplore } from '@/lib/explore';
 import { isShareableTable, pendingTableKey } from '@/lib/shareTable';
 import TicketQr from '@/components/ui/TicketQr';
 import PushOptIn from '@/components/ui/PushOptIn';
@@ -511,11 +510,6 @@ export default function MyTicketPage() {
   }));
   // Games nobody has asked this player about yet: votes are what the tables are built from, so they are worth a nudge.
   // A merged game is voted once (on its primary entry).
-  // Tables of games they want that their full agenda keeps the system from offering: worth a look, never pushed (no notification)
-  const exploreCount = isTentative(player) ? 0 : tablesToExplore({
-    playerId: player.id, arrivalTime: player.arrivalTime, departureTime: player.departureTime, interests,
-    repeatGameIds: player.repeatGameIds ?? [], tables: allTables, games, bufferMinutes: event.settings.bufferMinutes,
-  }).filter((e) => !e.rejected).length;
   const unvotedGamesCount = games.filter((g) => (!g.groupId || g.groupId === g.id) && interests[g.id] == null).length;
   const countBadge = (n: number, cls: string, meaning: string) => n > 0 && (
     <span className={'min-w-5 h-5 px-1 rounded-full text-[11px] font-bold flex items-center justify-center ' + cls}
@@ -892,26 +886,20 @@ export default function MyTicketPage() {
           </div>
           {/* What is waiting for you, right under the title where you look first (the counters on the two buttons below
               are easy to miss): only shown when there is something to do, and each line goes to that screen. */}
-          {(attentionN > 0 || unvotedGamesCount > 0 || exploreCount > 0) && (
+          {(attentionN > 0 || unvotedGamesCount > 0) && (
             <div className="space-y-2 mb-3">
-              {attentionN > 0 && (
-                <Link href={`/event/${code}/mesas?ticket=${player.ticketCode}`}
-                  className="flex items-center justify-between gap-3 border border-amber-700 bg-amber-950/30 text-amber-200 rounded-xl px-3 py-2.5 text-sm hover:bg-amber-950/50">
-                  <span>🔔 Hay <strong>{attentionN}</strong> {attentionN === 1 ? 'mesa esperando' : 'mesas esperando'} tu respuesta</span>
-                  <span aria-hidden="true">→</span>
-                </Link>
-              )}
-              {exploreCount > 0 && (
-                <Link href={`/event/${code}/mesas?filtro=all&ticket=${player.ticketCode}`}
-                  className="flex items-center justify-between gap-3 border border-gray-600 bg-gray-800/60 text-gray-200 rounded-xl px-3 py-2.5 text-sm hover:bg-gray-800">
-                  <span>👀 Hay <strong>{exploreCount}</strong> {exploreCount === 1 ? 'mesa' : 'mesas'} de juegos que querés que se pisan con tu agenda</span>
-                  <span aria-hidden="true">→</span>
-                </Link>
-              )}
+              {/* Votes first: voting can bring new offers, so what waits for an answer is checked after */}
               {unvotedGamesCount > 0 && (
                 <Link href={`/event/${code}/games?ticket=${player.ticketCode}`}
                   className="flex items-center justify-between gap-3 border border-indigo-700 bg-indigo-950/30 text-indigo-200 rounded-xl px-3 py-2.5 text-sm hover:bg-indigo-950/50">
                   <span>🗳️ Tenés <strong>{unvotedGamesCount}</strong> {unvotedGamesCount === 1 ? 'juego' : 'juegos'} por votar</span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
+              {attentionN > 0 && (
+                <Link href={`/event/${code}/mesas?ticket=${player.ticketCode}`}
+                  className="flex items-center justify-between gap-3 border border-amber-700 bg-amber-950/30 text-amber-200 rounded-xl px-3 py-2.5 text-sm hover:bg-amber-950/50">
+                  <span>🔔 Hay <strong>{attentionN}</strong> {attentionN === 1 ? 'mesa esperando' : 'mesas esperando'} tu respuesta</span>
                   <span aria-hidden="true">→</span>
                 </Link>
               )}
