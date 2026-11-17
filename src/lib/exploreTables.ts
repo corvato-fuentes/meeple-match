@@ -3,7 +3,8 @@ import { isOfferFor, isPostedOfferFor } from './offers';
 import { hasOpenSeat, hasWaitingSeat, isFirmTable, missingToConfirm, seatOptionFor, type SeatOption } from './freeSeats';
 import { isInTable } from './explainOnly';
 import { isTentative } from './registration';
-import { toMinutes } from './timeUtils';
+import { overlaps } from './tableAlgorithm';
+import { toMinutes, toTimeString } from './timeUtils';
 
 /**
  * "Explorar mesas": every table of the event in one place, as one person sees it. This decides, for each table, where it is in its
@@ -150,13 +151,13 @@ export const rowsFor = (rows: ExploreRow[], chip: ExploreChip): ExploreRow[] => 
 /** The counter on the single "Explorar mesas" button: what is waiting for the person. */
 export const attentionCount = (rows: ExploreRow[]): number => rows.filter((r) => r.chips.has('for-you')).length;
 
-/** The sentence under a table's progress bar. */
-export function progressText(r: ExploreRow): string {
-  const of = r.max != null ? `${r.taken} de ${r.max}` : `${r.taken}`;
-  if (r.step === 'done') return `Jugaron ${r.taken}`;
-  if (r.step === 'playing') return `${of} jugando`;
-  if (r.step === 'confirmed') return r.free > 0 ? `${of} · quedan ${r.free}` : `${of} · completa`;
-  if (r.table.awaitingExplainer) return 'Falta quien la explique';
-  if (r.missing > 0) return `${of} · falta ${r.missing} para confirmarse`;
-  return `${of} · ya tiene el mínimo, se confirma enseguida`;
+/**
+ * The tables of the person's own that this one gets in the way of (the hour of one overlaps the other, buffer included): live ones they
+ * are in, earliest first. Taking the table asks what to do with them.
+ */
+export function clashesOf(table: Table, viewer: Pick<Player, 'id'>, tables: Table[], bufferMinutes: number): Table[] {
+  return tables
+    .filter((m) => m.id !== table.id && (m.status === 'recommended' || m.status === 'confirmed' || m.status === 'in-progress') && isInTable(m, viewer.id))
+    .filter((m) => overlaps(toTimeString(toMinutes(m.startTime) - bufferMinutes), toTimeString(toMinutes(m.endTime) + bufferMinutes), table.startTime, table.endTime))
+    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
 }

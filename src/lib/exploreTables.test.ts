@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attentionCount, chipCounts, exploreRows, progressText, rowsFor } from './exploreTables';
+import { attentionCount, chipCounts, clashesOf, exploreRows, rowsFor } from './exploreTables';
 
 const game = (id: string, maxPlayers = 4, minPlayers = 2) => ({ id, name: id.toUpperCase(), maxPlayers, minPlayers }) as never;
 const viewer = (extra: Record<string, unknown> = {}) =>
@@ -109,23 +109,25 @@ describe('exploreRows: the filters', () => {
   });
 });
 
-describe('progressText', () => {
-  it('says how far a table is, in each step', () => {
-    const r = rows([
-      table('forming', 'brass', '12:00', '14:00', ['a']),
-      table('ready', 'azul', '12:00', '13:00', ['a', 'b']),
-      table('conf', 'azul', '14:00', '15:00', ['a', 'b', 'c'], { status: 'confirmed' }),
-      table('full', 'azul', '15:00', '16:00', ['a', 'b', 'c', 'd'], { status: 'confirmed' }),
-      table('play', 'dixit', '10:00', '11:00', ['a', 'b'], { status: 'in-progress' }),
-      table('done', 'dixit', '08:00', '09:00', ['a', 'b'], { status: 'completed' }),
-      table('exp', 'dixit', '16:00', '17:00', [], { awaitingExplainer: true }),
-    ]);
-    expect(progressText(byId(r, 'forming'))).toBe('1 de 4 · falta 2 para confirmarse');
-    expect(progressText(byId(r, 'ready'))).toBe('2 de 4 · ya tiene el mínimo, se confirma enseguida');
-    expect(progressText(byId(r, 'conf'))).toBe('3 de 4 · quedan 1');
-    expect(progressText(byId(r, 'full'))).toBe('4 de 4 · completa');
-    expect(progressText(byId(r, 'play'))).toBe('2 de 6 jugando');
-    expect(progressText(byId(r, 'done'))).toBe('Jugaron 2');
-    expect(progressText(byId(r, 'exp'))).toBe('Falta quien la explique');
+describe('clashesOf', () => {
+  const me = { id: 'me' };
+  it('lists the live tables of the person that the table gets in the way of, buffer included', () => {
+    const tables = [
+      table('mine1', 'azul', '14:00', '15:00', ['me', 'a'], { status: 'confirmed' }),
+      table('mine2', 'dixit', '15:20', '16:00', ['me', 'a']),
+      table('other', 'azul', '14:00', '15:00', ['a', 'b'], { status: 'confirmed' }),
+      table('target', 'brass', '14:30', '15:10', ['a']),
+    ];
+    const target = tables[3];
+    expect(clashesOf(target, me, tables, 15).map((x) => x.id)).toEqual(['mine1', 'mine2']);
+    expect(clashesOf(target, me, tables, 0).map((x) => x.id)).toEqual(['mine1']);
+  });
+  it('ignores the finished and cancelled ones, and the table itself', () => {
+    const tables = [
+      table('done', 'azul', '14:00', '15:00', ['me'], { status: 'completed' }),
+      table('gone', 'azul', '14:00', '15:00', ['me'], { status: 'cancelled' }),
+      table('target', 'brass', '14:00', '15:00', ['me']),
+    ];
+    expect(clashesOf(tables[2], me, tables, 15)).toEqual([]);
   });
 });
