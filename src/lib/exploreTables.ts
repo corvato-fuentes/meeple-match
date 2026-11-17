@@ -1,14 +1,14 @@
-import type { Game, Player, Table } from './types';
+import type { Game, GameComplexity, Player, Table } from './types';
 import { isOfferFor, isPostedOfferFor } from './offers';
 import { hasOpenSeat, hasWaitingSeat, isFirmTable, missingToConfirm, seatOptionFor, type SeatOption } from './freeSeats';
-import { isInTable } from './explainOnly';
+import { isExplainOnly, isInTable } from './explainOnly';
 import { isTentative } from './registration';
-import { overlaps } from './tableAlgorithm';
+import { estimateAtCurrentSeats, estimatedDuration, overlaps } from './tableAlgorithm';
 import { toMinutes, toTimeString } from './timeUtils';
 
 /**
  * "Explorar mesas": every table of the event in one place, as one person sees it. This decides, for each table, where it is in its
- * life (se arma → confirmada → jugando → terminó), how it is called in plain words, which filters it belongs to and what the person
+ * life (armando → confirmada → jugando → terminó), how it is called in plain words, which filters it belongs to and what the person
  * can do about it. Pure: the page gives it the data and the clock.
  */
 
@@ -160,6 +160,39 @@ export const rowsFor = (rows: ExploreRow[], chip: ExploreChip): ExploreRow[] => 
 
 /** The counter on the single "Explorar mesas" button: what is waiting for the person. */
 export const attentionCount = (rows: ExploreRow[]): number => rows.filter((r) => r.chips.has('for-you')).length;
+
+/** The words for how hard a game is. */
+export const COMPLEXITY_LABEL: Record<GameComplexity, string> = { light: 'Liviano', medium: 'Intermedio', heavy: 'Pesado' };
+
+/** How full the table is, in one short phrase ("2 de 4 · faltan 2 para confirmar"). */
+export function seatsLine(r: Pick<ExploreRow, 'step' | 'taken' | 'max' | 'free' | 'missing' | 'table'>): string {
+  const of = r.max != null ? `${r.taken} de ${r.max}` : `${r.taken}`;
+  if (r.step === 'done') return `Jugaron ${r.taken}`;
+  if (r.step === 'playing') return `${of} jugando`;
+  if (r.step === 'confirmed') return r.free > 0 ? `${of} · ${r.free === 1 ? 'queda 1 lugar' : `quedan ${r.free} lugares`}` : `${of} · completa`;
+  if (r.table.awaitingExplainer) return of;
+  return r.missing > 0 ? `${of} · faltan ${r.missing} para confirmar` : `${of} · ya tiene el mínimo`;
+}
+
+/** Who explains it, short enough for the card's line; null when there is nothing to say. */
+export function explainerLine(t: Pick<Table, 'awaitingExplainer' | 'explainerId' | 'explainerPlays'>, nameOf: (id: string) => string, viewerId: string): string | null {
+  if (t.awaitingExplainer) return 'busca quien la explique';
+  if (!t.explainerId) return null;
+  const mine = t.explainerId === viewerId;
+  if (isExplainOnly(t)) return mine ? 'la explicás vos y no jugás' : `${nameOf(t.explainerId)} la explica y no juega`;
+  return mine ? 'la explicás vos' : `explica ${nameOf(t.explainerId)}`;
+}
+
+/**
+ * How long the table lasts, for the detail: with the people it has now when it still has room (that is what it would take today),
+ * and what it reserves; once every seat is taken, the full time. Null when the game is unknown.
+ */
+export function durationLine(t: Pick<Table, 'startTime' | 'endTime' | 'playerIds'>, game: Game | undefined): string | null {
+  if (!game) return null;
+  const today = estimateAtCurrentSeats(t, game);
+  if (today) return `~${today.minutes} min con ${today.seats} jugadores (hasta las ${today.endTime}) · la mesa reserva hasta las ${t.endTime}`;
+  return `~${estimatedDuration(game, game.maxPlayers)} min (hasta las ${t.endTime})`;
+}
 
 /**
  * The tables of the person's own that this one gets in the way of (the hour of one overlaps the other, buffer included): live ones they

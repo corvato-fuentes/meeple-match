@@ -6,8 +6,8 @@ import {
   getEvent, getPlayerByTicketCode, getGames, getPlayers, subscribeTables, respondToRecommendation, joinPostedTable, joinConfirmedTable,
   leaveTable, leavePostedTable, undoTableRejection, moveOwnerTable, updatePlayerWishlist,
 } from '@/lib/firestore';
-import WaitingTableInfo, { ActionButton, PostedWho, RecommendedWho } from '@/components/ui/WaitingTableInfo';
-import ExploreCard, { RowLabel, toneOf } from '@/components/ui/ExploreCard';
+import { ActionButton, PostedWho, RecommendedWho } from '@/components/ui/WaitingTableInfo';
+import ExploreCard from '@/components/ui/ExploreCard';
 import ExplainerOffer from '@/components/ui/ExplainerOffer';
 import ConflictPromptModal from '@/components/ui/ConflictPromptModal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
@@ -31,6 +31,7 @@ import { confirmedPlayers, isTentative } from '@/lib/registration';
 import { runTableGeneration } from '@/lib/tableGeneration';
 import { isShareableTable } from '@/lib/shareTable';
 import { minSeats } from '@/lib/seats';
+import { slotMapFor } from '@/lib/physicalSlots';
 import { toMinutes } from '@/lib/timeUtils';
 import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
@@ -142,6 +143,8 @@ export default function ExploreTablesPage() {
   const myId = player.id;
   const tentative = isTentative(player);
   const buffer = event.settings.bufferMinutes;
+  // The physical table of the schedule: only the tables that are set have one
+  const slotByTableId = slotMapFor(allTables.filter((t) => t.status !== 'recommended'), buffer);
   const nameOf = (id: string) => (id === myId ? 'Vos' : playerMap.get(id)?.name ?? 'alguien');
   const explainerNamesOf = (t: Table) => t.playerIds
     .filter((id) => (id === myId ? player.canExplain : playerMap.get(id)?.canExplain ?? []).includes(t.gameId)).map(nameOf);
@@ -341,8 +344,6 @@ export default function ExploreTablesPage() {
     const posted = !!t.postedByOwner;
     const own = posted && t.explainerId === myId;
     const asExplainer = !!t.awaitingExplainer && (t.candidateIds ?? []).includes(myId) && r.offered;
-    const share = game && isShareableTable(t, game) && (r.mine || r.offered)
-      ? <ShareTableButton key='share' code={code} table={t} game={game} event={event!} /> : null;
 
     if (r.rejected) {
       return <ActionButton tone='neutral' onClick={() => reconsider(t)} disabled={busy}>{busy ? 'Un momento...' : '↩️ Volver a considerar'}</ActionButton>;
@@ -360,14 +361,12 @@ export default function ExploreTablesPage() {
             <MoveTableSuggestion table={t} poster={player!} players={confirmedPlayers(players)} allTables={allTables} games={games} event={event!}
               onMove={(start, end) => moveMyTable(t, start, end)} />
           )}
-          {share}
         </>
       );
     }
     if (asExplainer) {
       return <>
         <ExplainerOffer table={t} game={game} disabled={busy} saving={busy} onAnswer={(accept, only) => respond(t, accept, false, only)} />
-        {share}
       </>;
     }
     // Offered to them (by the system, or a posted table of a game they voted that fits): answer, like any other offer
@@ -380,7 +379,6 @@ export default function ExploreTablesPage() {
             {busy ? 'Un momento...' : '✅ Aceptar'}
           </ActionButton>
         </div>
-        {share}
       </>;
     }
     const o = r.option;
@@ -395,17 +393,22 @@ export default function ExploreTablesPage() {
     return null;
   }
 
-  // A game they never voted can be put aside right from its table, next to the offer to vote it
-  function withDismiss(r: ExploreRow, actions: ReactNode) {
-    const canDismiss = !!r.game && player!.interests?.[r.table.gameId] == null && !r.mine && !r.rejected && r.step !== 'done';
-    if (!canDismiss) return actions;
+  // In the detail of the card: sharing the table, and — for a game they never voted — putting it aside
+  function extrasFor(r: ExploreRow): ReactNode {
+    const t = r.table;
+    const share = r.game && isShareableTable(t, r.game) && (r.mine || r.offered)
+      ? <ShareTableButton code={code} table={t} game={r.game} event={event!} /> : null;
+    const canDismiss = !!r.game && player!.interests?.[t.gameId] == null && !r.mine && !r.rejected && r.step !== 'done';
+    if (!share && !canDismiss) return null;
     return (
       <>
-        {actions}
-        <button onClick={() => setGameInterest(r.table.gameId, r.table.gameName, 'no')}
-          className="w-full text-xs text-gray-400 hover:text-gray-200 border border-gray-800 rounded-lg py-1.5 hover:bg-gray-800">
-          👎 No me interesa este juego
-        </button>
+        {share}
+        {canDismiss && (
+          <button onClick={() => setGameInterest(t.gameId, t.gameName, 'no')}
+            className="w-full text-xs text-gray-400 hover:text-gray-200 border border-gray-800 rounded-lg py-1.5 hover:bg-gray-800">
+            👎 No me interesa este juego
+          </button>
+        )}
       </>
     );
   }
@@ -418,15 +421,10 @@ export default function ExploreTablesPage() {
       ? '🎓 Podés explicar este juego — elegí si además jugás o solo lo explicás; recién ahí se les ofrece a los demás'
       : actionable ? clashNote(r) : undefined;
     return (
-      <ExploreCard key={t.id} row={r}
-        info={
-          <WaitingTableInfo t={t} game={r.game} accent={toneOf(r).accent} interested={interestedCount(t, posted)}
-            seatWord={r.step === 'forming' ? (posted ? 'anotados' : 'confirmados') : 'jugadores'}
-            onView={(kind) => setViewing({ tableId: t.id, kind })}
-            who={posted ? <PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} /> : <RecommendedWho t={t} game={r.game} nameOf={nameOf} />}
-            note={note} badge={<RowLabel row={r} />} />
-        }
-        actions={withDismiss(r, actionsFor(r))} />
+      <ExploreCard key={t.id} row={r} game={r.game} slot={slotByTableId.get(t.id) ?? null} nameOf={nameOf} viewerId={myId}
+        who={posted ? <PostedWho t={t} nameOf={nameOf} explainerNames={explainerNamesOf(t)} /> : <RecommendedWho t={t} game={r.game} nameOf={nameOf} />}
+        interested={interestedCount(t, posted)} onView={(kind) => setViewing({ tableId: t.id, kind })}
+        note={note} actions={actionsFor(r)} extras={extrasFor(r)} />
     );
   }
 

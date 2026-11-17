@@ -4,8 +4,8 @@ import { shareHeadline, shareInfoOf, shareLink, shareMessage } from '@/lib/share
 import type { Game, MeepleEvent, Table } from '@/lib/types';
 
 /**
- * Sharing a table that still has room, two ways:
- *  - "Compartir": the phone's share sheet (WhatsApp and the rest) with a message that says there is room, when and where,
+ * Sharing a table that still has room: one "Compartir" button that opens the two ways:
+ *  - "Enviar el link": the phone's share sheet (WhatsApp and the rest) with a message that says there is room, when and where,
  *    and a link to the table; where sharing isn't available it copies both.
  *  - "Historia de Instagram": a vertical picture made for a story, shared as a file so Instagram offers "Historia". A story
  *    can't carry a link in its text, so the link is copied for the story's link sticker.
@@ -17,6 +17,7 @@ export default function ShareTableButton({ code, table, game, event }: {
   game: Pick<Game, 'minPlayers' | 'maxPlayers'>;
   event: Pick<MeepleEvent, 'name' | 'date' | 'location'>;
 }) {
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   // The story picture, once made: a second tap shares it at once (some phones only share from the tap itself)
   const [storyFile, setStoryFile] = useState<File | null>(null);
@@ -94,12 +95,17 @@ export default function ShareTableButton({ code, table, game, event }: {
   const button = 'w-full border border-gray-700 rounded-xl py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-800 disabled:opacity-50';
   return (
     <div className="space-y-1.5">
-      <button type="button" onClick={share} className={button}>
-        {copied ? '✓ Link copiado' : '📤 Compartir esta mesa'}
-      </button>
-      <button type="button" onClick={shareStory} disabled={preparing} className={button}>
-        {preparing ? 'Preparando imagen...' : storyFile ? '📸 Compartir la historia' : '📸 Historia de Instagram'}
-      </button>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className={button}>📤 Compartir</button>
+      {open && (
+        <div className="grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={share} className={button}>
+            {copied ? '✓ Link copiado' : 'Enviar el link'}
+          </button>
+          <button type="button" onClick={shareStory} disabled={preparing} className={button}>
+            {preparing ? 'Preparando...' : storyFile ? 'Compartir la historia' : 'Historia de Instagram'}
+          </button>
+        </div>
+      )}
       {note && <p className="text-[11px] text-gray-400 text-center">{note}</p>}
     </div>
   );

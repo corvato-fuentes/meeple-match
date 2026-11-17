@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attentionCount, chipCounts, chipsFor, clashesOf, exploreRows, rowsFor } from './exploreTables';
+import { attentionCount, chipCounts, chipsFor, clashesOf, durationLine, explainerLine, exploreRows, rowsFor, seatsLine } from './exploreTables';
 
 const game = (id: string, maxPlayers = 4, minPlayers = 2) => ({ id, name: id.toUpperCase(), maxPlayers, minPlayers }) as never;
 const viewer = (extra: Record<string, unknown> = {}) =>
@@ -139,6 +139,61 @@ describe('exploreRows: the filters', () => {
   it('a table whose hour has come takes no more people', () => {
     const started = exploreRows({ viewer: viewer(), tables: tables as never, games, bufferMinutes: 15, started: (t) => t.id === 'confOpen' });
     expect(started.find((x) => x.table.id === 'confOpen')!.chips.has('free')).toBe(false);
+  });
+});
+
+describe('seatsLine', () => {
+  it('says how full a table is, in each step', () => {
+    const r = rows([
+      table('forming', 'brass', '12:00', '14:00', ['a']),
+      table('ready', 'azul', '12:00', '13:00', ['a', 'b']),
+      table('conf', 'azul', '14:00', '15:00', ['a', 'b', 'c'], { status: 'confirmed' }),
+      table('conf2', 'azul', '14:00', '15:00', ['a', 'b'], { status: 'confirmed' }),
+      table('full', 'azul', '15:00', '16:00', ['a', 'b', 'c', 'd'], { status: 'confirmed' }),
+      table('play', 'dixit', '10:00', '11:00', ['a', 'b'], { status: 'in-progress' }),
+      table('done', 'dixit', '08:00', '09:00', ['a', 'b'], { status: 'completed' }),
+      table('exp', 'dixit', '16:00', '17:00', [], { awaitingExplainer: true }),
+    ]);
+    const line = (id: string) => seatsLine(byId(r, id));
+    expect(line('forming')).toBe('1 de 4 · faltan 2 para confirmar');
+    expect(line('ready')).toBe('2 de 4 · ya tiene el mínimo');
+    expect(line('conf')).toBe('3 de 4 · queda 1 lugar');
+    expect(line('conf2')).toBe('2 de 4 · quedan 2 lugares');
+    expect(line('full')).toBe('4 de 4 · completa');
+    expect(line('play')).toBe('2 de 6 jugando');
+    expect(line('done')).toBe('Jugaron 2');
+    expect(line('exp')).toBe('0 de 6');
+  });
+});
+
+describe('explainerLine', () => {
+  const names: Record<string, string> = { ana: 'Ana', me: 'Vos' };
+  const nameOf = (id: string) => names[id] ?? 'alguien';
+  it('says who explains, you included, and when nobody does yet', () => {
+    expect(explainerLine({ explainerId: 'ana' }, nameOf, 'me')).toBe('explica Ana');
+    expect(explainerLine({ explainerId: 'me' }, nameOf, 'me')).toBe('la explicás vos');
+    expect(explainerLine({ awaitingExplainer: true, explainerId: 'ana' }, nameOf, 'me')).toBe('busca quien la explique');
+    expect(explainerLine({ explainerId: '' }, nameOf, 'me')).toBeNull();
+  });
+  it('says so when the explainer only explains', () => {
+    expect(explainerLine({ explainerId: 'ana', explainerPlays: false }, nameOf, 'me')).toBe('Ana la explica y no juega');
+    expect(explainerLine({ explainerId: 'me', explainerPlays: false }, nameOf, 'me')).toBe('la explicás vos y no jugás');
+  });
+});
+
+describe('durationLine', () => {
+  const game = { id: 'g', minPlayers: 2, maxPlayers: 4, durationMinutes: 0, setupMinutes: 10, explanationMinutes: 10, perPlayerMinutes: 20 } as never;
+  it('with room left, shows the time with the people it has now, and what the table reserves', () => {
+    expect(durationLine({ startTime: '12:00', endTime: '14:00', playerIds: ['a', 'b'] }, game)).toBe('~60 min con 2 jugadores (hasta las 13:00) · la mesa reserva hasta las 14:00');
+  });
+  it('never counts fewer people than the game needs', () => {
+    expect(durationLine({ startTime: '12:00', endTime: '14:00', playerIds: ['a'] }, game)).toBe('~60 min con 2 jugadores (hasta las 13:00) · la mesa reserva hasta las 14:00');
+  });
+  it('once every seat is taken, shows the full time', () => {
+    expect(durationLine({ startTime: '12:00', endTime: '14:00', playerIds: ['a', 'b', 'c', 'd'] }, game)).toBe('~100 min (hasta las 14:00)');
+  });
+  it('says nothing for an unknown game', () => {
+    expect(durationLine({ startTime: '12:00', endTime: '14:00', playerIds: [] }, undefined)).toBeNull();
   });
 });
 
