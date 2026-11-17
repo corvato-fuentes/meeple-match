@@ -34,7 +34,6 @@ import { isShareableTable } from '@/lib/shareTable';
 import { minSeats } from '@/lib/seats';
 import { slotMapFor } from '@/lib/physicalSlots';
 import { toMinutes } from '@/lib/timeUtils';
-import { BOARD_RETURN_KEY } from '@/lib/boardReturn';
 import type { MeepleEvent, Player, Game, Table } from '@/lib/types';
 
 const STORAGE_KEY = (code: string) => 'mm_ticket_' + code;
@@ -142,6 +141,8 @@ export default function ExploreTablesPage() {
   const started = (t: Table) => event.date < todayStr || (event.date === todayStr && nowMin >= toMinutes(t.startTime));
 
   const rows = exploreRows({ viewer: player, tables: allTables, games, bufferMinutes: buffer, started });
+  // A merged game is voted once (on its primary entry)
+  const unvotedGamesCount = games.filter((g) => (!g.groupId || g.groupId === g.id) && player.interests?.[g.id] == null).length;
   const counts = chipCounts(rows);
   // Opens on what is waiting for them, whatever it holds; the address can ask for another one (the old links land here)
   const eventHasStarted = liveAvailability(event.date, todayStr) !== 'before';
@@ -464,19 +465,19 @@ export default function ExploreTablesPage() {
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <Link href={`/event/${code}/me?ticket=${player.ticketCode}`} className="text-gray-500 hover:text-gray-300">←</Link>
-          <h1 className="text-xl font-bold truncate">🎲 Explorar mesas</h1>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <Link href={`/event/${code}/games?ticket=${player.ticketCode}`}
-            className="text-xs border border-gray-700 rounded-xl px-2.5 py-1.5 text-gray-300 hover:bg-gray-800">👍 Votar juegos</Link>
-          <Link href={`/event/${code}/board?ticket=${player.ticketCode}`}
-            onClick={() => sessionStorage.setItem(BOARD_RETURN_KEY(code), `/event/${code}/mesas?ticket=${player.ticketCode}`)}
-            className="text-xs border border-gray-700 rounded-xl px-2.5 py-1.5 text-gray-300 hover:bg-gray-800">📺 Grilla</Link>
-        </div>
+      <div className="flex items-center gap-3 min-w-0">
+        <Link href={`/event/${code}/me?ticket=${player.ticketCode}`} className="text-gray-500 hover:text-gray-300">←</Link>
+        <h1 className="text-xl font-bold truncate">🎲 Explorar mesas</h1>
       </div>
+
+      {/* Votes are what the tables are built from: when there are games left to vote, that comes first (the same count as on the ticket) */}
+      {unvotedGamesCount > 0 && (
+        <Link href={`/event/${code}/games?ticket=${player.ticketCode}`}
+          className="flex items-center justify-between gap-3 border border-indigo-700 bg-indigo-950/30 text-indigo-200 rounded-xl px-3 py-2.5 text-sm hover:bg-indigo-950/50">
+          <span>🗳️ Tenés <strong>{unvotedGamesCount}</strong> {unvotedGamesCount === 1 ? 'juego' : 'juegos'} por votar</span>
+          <span aria-hidden="true">→</span>
+        </Link>
+      )}
 
       {acceptedOne && <PushOptIn code={code} ticketCode={player.ticketCode} variant="prompt" />}
 

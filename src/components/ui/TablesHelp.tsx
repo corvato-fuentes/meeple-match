@@ -20,16 +20,16 @@ export default function TablesHelp() {
               Acá vas a ver las mesas que ya confirmaste.
             </p>
             <p className="text-gray-300">
-              Cuando votás tus intereses, el algoritmo busca otros inscriptos con los mismos intereses y te propone
-              una mesa en un horario en el que coincidan — la vas a encontrar en <strong className="text-amber-300">Mesas recomendadas</strong>,
-              donde podés aceptarla o rechazarla. Una vez que la aceptás, aparece acá como confirmada.
+              Cuando votás tus juegos, el sistema busca otros inscriptos que los votaron y te propone una mesa en un
+              horario en el que coincidan — la vas a encontrar en <strong className="text-amber-300">Explorar mesas</strong>,
+              en «Para vos», donde podés aceptarla o rechazarla. Una vez que la aceptás, aparece acá.
             </p>
             <p className="text-gray-300">
               Los juegos que llevás se recomiendan automáticamente a quienes los votan.
             </p>
             <p className="text-gray-300">
-              También podés revisar las mesas que postularon otros inscriptos en <strong className="text-purple-300">Mesas postuladas</strong> y
-              anotarte. Cuando la mesa junta el mínimo de jugadores necesario, también aparece acá como confirmada.
+              En <strong className="text-purple-300">Explorar mesas</strong> también ves las mesas que abrieron otros inscriptos y podés
+              sumarte. Cuando la mesa junta el mínimo de jugadores necesario, aparece acá como confirmada.
             </p>
             <button onClick={() => setOpen(false)}
               className="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-indigo-700">
