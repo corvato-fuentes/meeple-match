@@ -1366,18 +1366,21 @@ export async function seatPlayerAtTable(eventCode: string, tableId: string, play
  * many more don't use it. It is underway from the start. Returns the new table's id.
  */
 export async function createImprovisedTable(eventCode: string, input: {
-  game: { id: string; name: string } | { id: null; name: string; durationMinutes: number };
+  game: { id: string; name: string } | {
+    id: null; name: string; minPlayers: number; maxPlayers: number; setupMinutes: number; explanationMinutes: number; perPlayerMinutes: number;
+  };
   startTime: string; endTime: string; playerIds: string[]; guestCount: number;
 }): Promise<string> {
   let gameId: string;
-  const seats = Math.max(2, input.playerIds.length + input.guestCount);
   const g = input.game;
   if (g.id !== null) {
     gameId = g.id;
   } else {
-    // Made on the spot: no owner (so the algorithm never schedules it), not shown to the players
+    // Made on the spot, loaded like any game (players, times): no owner (so the algorithm never schedules it), not shown to the players
     const created: Omit<Game, 'id'> = {
-      name: g.name, bggUrl: null, minPlayers: 2, maxPlayers: seats, durationMinutes: g.durationMinutes, complexity: 'medium',
+      name: g.name, bggUrl: null, minPlayers: g.minPlayers, maxPlayers: g.maxPlayers,
+      durationMinutes: Math.ceil((g.setupMinutes + g.explanationMinutes + g.perPlayerMinutes * g.maxPlayers) / 5) * 5, complexity: 'medium',
+      setupMinutes: g.setupMinutes, explanationMinutes: g.explanationMinutes, perPlayerMinutes: g.perPlayerMinutes,
       ownerPlayerId: '', ownerName: 'Mesa improvisada', lendable: false, adHoc: true,
     };
     gameId = (await addDoc(collection(db, 'events', eventCode, 'games'), created)).id;

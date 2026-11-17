@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultDuration, findGameByText, suggestGames } from './improvised';
+import { findGameByText, newGameMinutes, proposedMinutes, suggestGames } from './improvised';
 
 const g = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, ...extra }) as never;
 
@@ -25,12 +25,24 @@ describe('suggestGames', () => {
   });
 });
 
-describe('defaultDuration', () => {
-  it('is the closest offered duration, or 90 when the game does not say', () => {
-    expect(defaultDuration(null)).toBe(90);
-    expect(defaultDuration({ durationMinutes: 0 })).toBe(90);
-    expect(defaultDuration({ durationMinutes: 50 })).toBe(45);
-    expect(defaultDuration({ durationMinutes: 100 })).toBe(90);
-    expect(defaultDuration({ durationMinutes: 400 })).toBe(180);
+describe('proposedMinutes', () => {
+  it('uses the game\'s own numbers with the people at the table, rounded up to 5', () => {
+    const game = g('1', 'Brass', { setupMinutes: 10, explanationMinutes: 12, perPlayerMinutes: 15, durationMinutes: 999 });
+    expect(proposedMinutes(game, 3)).toBe(70); // 10 + 12 + 45 = 67 -> 70
+    expect(proposedMinutes(game, 4)).toBe(85); // 82 -> 85
+  });
+  it('uses the flat duration when the game has no times', () => {
+    expect(proposedMinutes(g('1', 'Dixit', { durationMinutes: 100 }), 4)).toBe(100);
+  });
+  it('is 90 while there is no game yet, and counts at least 2 people', () => {
+    expect(proposedMinutes(null, 3)).toBe(90);
+    expect(proposedMinutes(g('1', 'X', { perPlayerMinutes: 10, setupMinutes: 0, explanationMinutes: 0, durationMinutes: 0 }), 1)).toBe(20);
+  });
+});
+
+describe('newGameMinutes', () => {
+  it('adds setup, explanation and the minutes of each person, rounded up to 5', () => {
+    expect(newGameMinutes({ setupMinutes: 5, explanationMinutes: 10, perPlayerMinutes: 15 }, 4)).toBe(75);
+    expect(newGameMinutes({ setupMinutes: 3, explanationMinutes: 4, perPlayerMinutes: 7 }, 3)).toBe(30); // 28 -> 30
   });
 });

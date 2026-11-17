@@ -1,13 +1,13 @@
 import type { Game } from './types';
 import { normalizeGameName } from './gameMatch';
+import { estimatedDuration } from './tableAlgorithm';
+import { roundUp5 } from './timeUtils';
 
 /**
  * A table that starts in the room without having been planned in the app ("mesa improvisada"): people grab a game and play. The
  * organizers write it down so "sin mesa", "lugares libres" and the game's copies tell the truth. What helps them do it fast lives here.
  */
 
-/** Seats of a game created on the spot: the people sitting now, but never fewer than this. */
-export const MIN_SEATS_NEW_GAME = 2;
 /** The name the owner of a game created on the spot carries (it has no real owner). */
 export const IMPROVISED_OWNER = 'Mesa improvisada';
 
@@ -34,9 +34,22 @@ export function suggestGames(text: string, games: Game[], limit = 6): Game[] {
 /** The durations offered for how long the table will play (minutes). */
 export const DURATION_CHOICES = [45, 60, 90, 120, 180] as const;
 
-/** The closest offered duration to what a game usually takes (90 when it isn't known). */
-export function defaultDuration(game: Pick<Game, 'durationMinutes'> | null): number {
-  const d = game?.durationMinutes;
-  if (!d || d <= 0) return 90;
-  return DURATION_CHOICES.reduce((best, c) => (Math.abs(c - d) < Math.abs(best - d) ? c : best), DURATION_CHOICES[0]);
+/** The times a game made on the spot is loaded with, like any game (minutes). */
+export interface NewGameTimes { setupMinutes: number; explanationMinutes: number; perPlayerMinutes: number }
+
+/** What a new game's times start with, for the organizers to change. */
+export const DEFAULT_NEW_GAME_TIMES: NewGameTimes = { setupMinutes: 5, explanationMinutes: 10, perPlayerMinutes: 15 };
+
+/**
+ * How long a table of this game takes with this many people: the game's own numbers (setup + explanation + minutes per player, or its
+ * flat duration), the way every table is sized. 90 when there is no game yet. Always a multiple of 5.
+ */
+export function proposedMinutes(game: Game | null, people: number): number {
+  if (!game) return 90;
+  return estimatedDuration(game, Math.max(2, people));
+}
+
+/** The same for a game that is not loaded yet, from the times being typed. */
+export function newGameMinutes(times: NewGameTimes, people: number): number {
+  return roundUp5(times.setupMinutes + times.explanationMinutes + times.perPlayerMinutes * Math.max(2, people));
 }
