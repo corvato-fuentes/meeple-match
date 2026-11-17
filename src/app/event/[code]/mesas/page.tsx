@@ -17,6 +17,7 @@ import ShareTableButton from '@/components/ui/ShareTableButton';
 import MoveTableSuggestion from '@/components/ui/MoveTableSuggestion';
 import FilterChip from '@/components/ui/FilterChip';
 import PushOptIn from '@/components/ui/PushOptIn';
+import KnowledgeLevelPicker, { chosenLevel, type KnowledgeLevel } from '@/components/ui/KnowledgeLevelPicker';
 import { useScheduleConflict } from '@/hooks/useScheduleConflict';
 import {
   EXPLORE_CHIPS, chipCounts, chipsFor, clashesOf, exploreRows, rowsFor, type ExploreChip, type ExploreRow,
@@ -107,6 +108,8 @@ export default function ExploreTablesPage() {
   const [acceptingTable, setAcceptingTable] = useState<Table | null>(null);
   // The game the person just said "no me interesa" to: its tables are gone from the list, and they can take it back
   const [dismissed, setDismissed] = useState<{ gameId: string; name: string } | null>(null);
+  // Right after saying "me interesa": how well they know the game (what the tables are built from)
+  const [knowledgeGameId, setKnowledgeGameId] = useState<string | null>(null);
 
   useEffect(() => {
     const ticketCode = (searchParams.get('ticket') ?? localStorage.getItem(STORAGE_KEY(code))) as string | null;
@@ -301,6 +304,45 @@ export default function ExploreTablesPage() {
     }
   }
 
+  async function saveVotes(next: Player) {
+    await updatePlayerWishlist(code, next.id, {
+      interests: next.interests, canExplain: next.canExplain, playedGameIds: next.playedGameIds ?? [], repeatGameIds: next.repeatGameIds ?? [],
+    });
+  }
+
+  // "Me interesa": the vote is saved and they are asked how well they know the game, like when they vote it in the list
+  async function voteYes(gameId: string) {
+    if (!player) return;
+    const before = player;
+    const next: Player = { ...player, interests: { ...player.interests, [gameId]: 'yes' } };
+    setPlayer(next);
+    setKnowledgeGameId(gameId);
+    try { await saveVotes(next); } catch {
+      setPlayer(before);
+      setKnowledgeGameId(null);
+      window.alert('No se pudo guardar tu voto. Probá de nuevo.');
+    }
+  }
+
+  const knowledgeLevelFor = (gameId: string): KnowledgeLevel =>
+    (player?.canExplain ?? []).includes(gameId) ? 'explains' : (player?.playedGameIds ?? []).includes(gameId) ? 'knows' : 'never';
+
+  // Closing the question (answered or not) is when the tables get looked at again: the vote can now put them on one
+  function closeKnowledge(gameId: string, level: KnowledgeLevel | null) {
+    setKnowledgeGameId(null);
+    if (player && level) {
+      const without = (xs: string[]) => xs.filter((id) => id !== gameId);
+      const next: Player = {
+        ...player,
+        canExplain: level === 'explains' ? [...without(player.canExplain ?? []), gameId] : without(player.canExplain ?? []),
+        playedGameIds: level === 'knows' ? [...without(player.playedGameIds ?? []), gameId] : without(player.playedGameIds ?? []),
+      };
+      setPlayer(next);
+      saveVotes(next).catch(() => {});
+    }
+    if (event) runTableGeneration(code, event).catch(() => {});
+  }
+
   // "Rechazar" inside the overlap popup: closes it (cancelling the accept) and declines that table
   async function rejectFromConflictPopup() {
     const t = acceptingTable;
@@ -383,34 +425,39 @@ export default function ExploreTablesPage() {
     }
     const o = r.option;
     if (!o) return null;
+    // A game they never voted: it can be put aside right here (voting "no" takes it, and every table of it, out of their way)
+    const unvoted = !!game && player!.interests?.[t.gameId] == null;
+    const noButton = unvoted
+      ? <ActionButton tone='neutral' onClick={() => setGameInterest(t.gameId, t.gameName, 'no')}>👎 No me interesa este juego</ActionButton> : null;
     if (o.kind === 'join') {
-      return <ActionButton tone='indigo' onClick={() => (posted ? joinPosted(t) : joinConfirmed(t))} disabled={busy || tentative}>{busy ? 'Un momento...' : '+ Sumarme'}</ActionButton>;
+      return <>
+        <ActionButton tone='indigo' onClick={() => (posted ? joinPosted(t) : joinConfirmed(t))} disabled={busy || tentative}>{busy ? 'Un momento...' : '+ Sumarme'}</ActionButton>
+        {noButton}
+      </>;
     }
     if (o.kind === 'vote') {
-      return <ActionButton tone='indigo' onClick={() => router.push(`/event/${code}/games?ticket=${player!.ticketCode}`)}>👍 Votar este juego para que te la ofrezcan</ActionButton>;
+      // Not voted and not offered: the two ways to answer, side by side
+      return (
+        <div className='grid grid-cols-2 gap-2'>
+          <ActionButton tone='neutral' onClick={() => setGameInterest(t.gameId, t.gameName, 'no')}>👎 No me interesa</ActionButton>
+          <ActionButton tone='indigo' onClick={() => voteYes(t.gameId)}>👍 Me interesa</ActionButton>
+        </div>
+      );
     }
-    if (o.kind === 'blocked' && o.reason.kind !== 'in-table') return <ActionButton tone='muted'>ℹ️ {blockedMessage(o.reason, t)}</ActionButton>;
+    if (o.kind === 'blocked' && o.reason.kind !== 'in-table') {
+      return <>
+        <ActionButton tone='muted'>ℹ️ {blockedMessage(o.reason, t)}</ActionButton>
+        {noButton}
+      </>;
+    }
     return null;
   }
 
-  // In the detail of the card: sharing the table, and — for a game they never voted — putting it aside
+  // In the detail of the card: sharing the table
   function extrasFor(r: ExploreRow): ReactNode {
     const t = r.table;
-    const share = r.game && isShareableTable(t, r.game) && (r.mine || r.offered)
+    return r.game && isShareableTable(t, r.game) && (r.mine || r.offered)
       ? <ShareTableButton code={code} table={t} game={r.game} event={event!} /> : null;
-    const canDismiss = !!r.game && player!.interests?.[t.gameId] == null && !r.mine && !r.rejected && r.step !== 'done';
-    if (!share && !canDismiss) return null;
-    return (
-      <>
-        {share}
-        {canDismiss && (
-          <button onClick={() => setGameInterest(t.gameId, t.gameName, 'no')}
-            className="w-full text-xs text-gray-400 hover:text-gray-200 border border-gray-800 rounded-lg py-1.5 hover:bg-gray-800">
-            👎 No me interesa este juego
-          </button>
-        )}
-      </>
-    );
   }
 
   function card(r: ExploreRow) {
@@ -506,6 +553,20 @@ export default function ExploreTablesPage() {
                 <p className="text-xs text-gray-500">{missing > 0 ? `Faltan ${missing} para llegar al mínimo y confirmarse.` : 'Ya llegó al mínimo.'}</p>
               )}
               <button onClick={close} className="w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800">Cerrar</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {knowledgeGameId && (() => {
+        const game = gameMap.get(knowledgeGameId);
+        if (!game) return null;
+        return (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => closeKnowledge(game.id, null)}>
+            <div className="max-w-sm w-full bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-3 text-sm" onClick={(e) => e.stopPropagation()}>
+              <h3 className="font-semibold text-gray-100">¿Qué tan bien conocés {game.name}?</h3>
+              <KnowledgeLevelPicker value={chosenLevel(knowledgeLevelFor(game.id))} onChange={(level) => closeKnowledge(game.id, level)} />
+              <button onClick={() => closeKnowledge(game.id, null)} className="w-full border border-gray-700 rounded-lg py-2 text-xs text-gray-400 hover:bg-gray-800">Ahora no</button>
             </div>
           </div>
         );

@@ -72,7 +72,7 @@ export default function ExploreCard({ row, game, slot, nameOf, viewerId, who, in
   onView: (kind: 'confirmed' | 'interested') => void;
   note?: ReactNode;
   actions?: ReactNode;
-  /** In the detail, after the information: sharing the table, putting its game aside. */
+  /** In the detail, after the information: sharing the table. */
   extras?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
